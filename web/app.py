@@ -4,9 +4,9 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from starlette import status
+from app.database import create_artwork as create_artwork_with_workspace
 
 from web.db import (
-    create_artwork,
     get_artwork,
     get_collection,
     get_collections,
@@ -61,7 +61,6 @@ def new_artwork_form(request: Request, collection_code: str):
         },
     )
 
-
 @app.post("/collections/{collection_code}/new")
 def create_artwork_post(
     request: Request,
@@ -70,17 +69,20 @@ def create_artwork_post(
     working_title: str = Form(""),
     theme: str = Form(""),
 ):
-    artwork_code = create_artwork(
+    result = create_artwork_with_workspace(
         collection_code=collection_code,
         public_title=public_title,
         working_title=working_title,
         theme=theme,
     )
 
+    artwork_code = result["artwork_code"]
+
     return RedirectResponse(
         url=f"/artworks/{artwork_code}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
 
 
 
