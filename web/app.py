@@ -12,12 +12,18 @@ from web.db import (
     archive_collection,
     create_collection,
     get_artwork,
+    get_artwork_production,
     get_collection,
     get_dashboard,
     restore_artwork,
     search_artworks,
     update_artwork,
+    update_artwork_production,
     update_collection,
+)
+from web.production import (
+    build_production_summary,
+    list_workspace_files,
 )
 from web.workspace import (
     inspect_workspace,
@@ -38,9 +44,19 @@ def _artwork_context(artwork_code: str, **extra):
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
 
+    production = get_artwork_production(artwork_code)
+    files = list_workspace_files(artwork)
+
     context = {
         "artwork": artwork,
         "workspace": inspect_workspace(artwork),
+        "production": production,
+        "production_summary": build_production_summary(
+            artwork,
+            production,
+            files,
+        ),
+        "workspace_files": files,
     }
     context.update(extra)
     return context
@@ -229,6 +245,38 @@ def save_artwork(
         request=request,
         name="artwork.html",
         context=_artwork_context(artwork_code, saved=True),
+    )
+
+
+@app.post("/artworks/{artwork_code}/production")
+def save_artwork_production(
+    artwork_code: str,
+    orientation: str = Form(""),
+    master_ratio: str = Form(""),
+    required_ratios: str = Form(""),
+    original_approved: bool = Form(False),
+    print_master_ready: bool = Form(False),
+    ratio_exports_ready: bool = Form(False),
+    mockups_ready: bool = Form(False),
+    listing_content_ready: bool = Form(False),
+    production_notes: str = Form(""),
+):
+    update_artwork_production(
+        artwork_code=artwork_code,
+        orientation=orientation,
+        master_ratio=master_ratio,
+        required_ratios=required_ratios,
+        original_approved=original_approved,
+        print_master_ready=print_master_ready,
+        ratio_exports_ready=ratio_exports_ready,
+        mockups_ready=mockups_ready,
+        listing_content_ready=listing_content_ready,
+        notes=production_notes,
+    )
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?production_saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

@@ -15,42 +15,46 @@
     </a>
 </div>
 
-<div class="row g-4">
+<div class="page-header mb-4">
+    <div>
+        <div class="eyebrow">{{ artwork["artwork_code"] }}</div>
+        <h1 class="display-6 fw-bold mb-2">
+            {{ artwork["public_title"] }}
+        </h1>
+        <p class="text-muted mb-0">
+            {{ artwork["collection_name"] }}
+        </p>
+    </div>
+
+    <div class="text-end">
+        <span class="status-pill status-{{ artwork['status'] }}">
+            {{ artwork["status"] }}
+        </span>
+        <div class="mt-2">
+            <span class="readiness-pill readiness-{{ production_summary['readiness'] }}">
+                {{ production_summary["readiness_label"] }}
+            </span>
+        </div>
+    </div>
+</div>
+
+{% if saved %}
+<div class="alert alert-success">Artwork details saved.</div>
+{% endif %}
+
+{% if request.query_params.get("production_saved") %}
+<div class="alert alert-success">Production details saved.</div>
+{% endif %}
+
+{% if request.query_params.get("workspace_refreshed") %}
+<div class="alert alert-success">Workspace structure refreshed.</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
     <div class="col-xl-8">
         <div class="card app-card">
             <div class="card-body p-4 p-lg-5">
-
-                <div class="d-flex justify-content-between align-items-start mb-5">
-                    <div>
-                        <div class="eyebrow">{{ artwork["artwork_code"] }}</div>
-                        <h1 class="display-6 fw-bold mb-2">
-                            {{ artwork["public_title"] }}
-                        </h1>
-                        <p class="text-muted mb-0">
-                            {{ artwork["collection_name"] }}
-                        </p>
-                    </div>
-
-                    <span class="status-pill status-{{ artwork['status'] }}">
-                        {{ artwork["status"] }}
-                    </span>
-                </div>
-
-                {% if saved %}
-                <div class="alert alert-success">Changes saved.</div>
-                {% endif %}
-
-                {% if request.query_params.get("workspace_refreshed") %}
-                <div class="alert alert-success">
-                    Workspace structure refreshed.
-                </div>
-                {% endif %}
-
-                {% if artwork["status"] == "retired" %}
-                <div class="alert alert-secondary">
-                    This artwork is archived.
-                </div>
-                {% endif %}
+                <h2 class="h4 mb-4">Artwork details</h2>
 
                 <form
                     method="post"
@@ -127,7 +131,7 @@
                             <textarea
                                 id="story"
                                 name="story"
-                                rows="12"
+                                rows="10"
                                 class="form-control"
                             >{{ artwork["story"] or "" }}</textarea>
                         </div>
@@ -149,57 +153,224 @@
                         {% endif %}
 
                         <button type="submit" class="btn btn-primary px-4">
-                            Save Changes
+                            Save Details
                         </button>
                     </div>
                 </form>
-
             </div>
         </div>
     </div>
 
     <div class="col-xl-4">
-        <div class="card app-card workspace-card">
+        <div class="card app-card">
             <div class="card-body p-4">
+                <div class="eyebrow">Readiness</div>
+                <h2 class="h4 mb-3">
+                    {{ production_summary["checklist_complete"] }}
+                    of
+                    {{ production_summary["checklist_total"] }}
+                    complete
+                </h2>
 
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <div>
-                        <div class="eyebrow">Workspace</div>
-                        <h2 class="h4 mb-1">Project files</h2>
-                    </div>
-
-                    {% if workspace["complete_structure"] %}
-                    <span class="workspace-state workspace-ready">Ready</span>
-                    {% else %}
-                    <span class="workspace-state workspace-warning">
-                        Needs refresh
-                    </span>
-                    {% endif %}
+                <div class="progress mb-4" role="progressbar">
+                    <div
+                        class="progress-bar"
+                        style="width: {{ (production_summary['checklist_complete'] / production_summary['checklist_total'] * 100)|round }}%"
+                    ></div>
                 </div>
+
+                {% if production_summary["missing"] %}
+                <p class="small text-muted mb-2">Still needed:</p>
+                <ul class="small ps-3 mb-0">
+                    {% for item in production_summary["missing"] %}
+                    <li class="mb-1">{{ item }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="alert alert-success mb-0">
+                    This artwork is ready for listing.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card app-card mb-4">
+    <div class="card-body p-4 p-lg-5">
+        <div class="d-flex justify-content-between align-items-start mb-4">
+            <div>
+                <div class="eyebrow">Production</div>
+                <h2 class="h4 mb-1">Production setup</h2>
+                <p class="text-muted mb-0">
+                    Define the required formats and track completion.
+                </p>
+            </div>
+        </div>
+
+        <form
+            method="post"
+            action="/artworks/{{ artwork['artwork_code'] }}/production"
+        >
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <label for="orientation" class="form-label">
+                        Orientation
+                    </label>
+                    <select
+                        id="orientation"
+                        name="orientation"
+                        class="form-select"
+                    >
+                        <option value="">Not set</option>
+                        {% for option in ["horizontal", "vertical", "square"] %}
+                        <option
+                            value="{{ option }}"
+                            {% if production["orientation"] == option %}selected{% endif %}
+                        >
+                            {{ option }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label for="master_ratio" class="form-label">
+                        Master Aspect Ratio
+                    </label>
+                    <input
+                        id="master_ratio"
+                        name="master_ratio"
+                        type="text"
+                        class="form-control"
+                        value="{{ production['master_ratio'] or '' }}"
+                        placeholder="Example: 3:2"
+                    >
+                </div>
+
+                <div class="col-md-4">
+                    <label for="required_ratios" class="form-label">
+                        Required Output Ratios
+                    </label>
+                    <input
+                        id="required_ratios"
+                        name="required_ratios"
+                        type="text"
+                        class="form-control"
+                        value="{{ production['required_ratios'] or '' }}"
+                        placeholder="3:2, 4:3, 5:4, 14:11"
+                    >
+                </div>
+
+                <div class="col-12">
+                    <div class="production-checklist">
+                        {% set checks = [
+                            ("original_approved", "Original artwork approved"),
+                            ("print_master_ready", "Print master prepared"),
+                            ("ratio_exports_ready", "Aspect-ratio exports complete"),
+                            ("mockups_ready", "Mockups complete"),
+                            ("listing_content_ready", "Listing content ready")
+                        ] %}
+
+                        {% for field, label in checks %}
+                        <div class="form-check production-check">
+                            <input
+                                id="{{ field }}"
+                                name="{{ field }}"
+                                type="checkbox"
+                                class="form-check-input"
+                                value="true"
+                                {% if production[field] %}checked{% endif %}
+                            >
+                            <label for="{{ field }}" class="form-check-label">
+                                {{ label }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <label for="production_notes" class="form-label">
+                        Production Notes
+                    </label>
+                    <textarea
+                        id="production_notes"
+                        name="production_notes"
+                        rows="4"
+                        class="form-control"
+                        placeholder="Sizes, print notes, cropping decisions, or anything production-related."
+                    >{{ production["notes"] or "" }}</textarea>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end mt-4">
+                <button type="submit" class="btn btn-primary px-4">
+                    Save Production
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <div class="card app-card">
+            <div class="card-body p-4">
+                <div class="eyebrow">Files</div>
+                <h2 class="h4 mb-1">Workspace inventory</h2>
+                <p class="text-muted mb-4">
+                    Files currently stored in the standard artwork folders.
+                </p>
+
+                {% if workspace_files %}
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Category</th>
+                                <th>Type</th>
+                                <th class="text-end">Size</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in workspace_files %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ file["name"] }}</div>
+                                    <div class="small text-muted">
+                                        {{ file["relative_path"] }}
+                                    </div>
+                                </td>
+                                <td>{{ file["category_label"] }}</td>
+                                <td class="text-uppercase small">
+                                    {{ file["extension"] }}
+                                </td>
+                                <td class="text-end">{{ file["size_label"] }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    No production files have been added yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="card app-card">
+            <div class="card-body p-4">
+                <div class="eyebrow">Workspace</div>
+                <h2 class="h4 mb-3">Folder summary</h2>
 
                 <p class="workspace-path mb-4">
                     {{ workspace["path"] }}
                 </p>
-
-                <div class="workspace-summary mb-4">
-                    <div>
-                        <span class="workspace-summary-value">
-                            {{ workspace["total_files"] }}
-                        </span>
-                        <span class="workspace-summary-label">
-                            total files
-                        </span>
-                    </div>
-
-                    <div>
-                        <span class="workspace-summary-value">
-                            {% if workspace["artwork_md_exists"] %}Yes{% else %}No{% endif %}
-                        </span>
-                        <span class="workspace-summary-label">
-                            artwork.md
-                        </span>
-                    </div>
-                </div>
 
                 <div class="workspace-sections mb-4">
                     {% for section in workspace["sections"] %}
@@ -245,12 +416,6 @@
                         </button>
                     </form>
                 </div>
-
-                <p class="text-muted small mt-3 mb-0">
-                    Refresh only creates missing standard folders and
-                    artwork.md. Existing files are not overwritten.
-                </p>
-
             </div>
         </div>
     </div>

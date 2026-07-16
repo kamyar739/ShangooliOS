@@ -12,6 +12,41 @@ def get_connection():
     return conn
 
 
+def ensure_production_schema():
+    with get_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artwork_production (
+                artwork_id INTEGER PRIMARY KEY,
+                orientation TEXT,
+                master_ratio TEXT,
+                required_ratios TEXT,
+                original_approved INTEGER NOT NULL DEFAULT 0,
+                print_master_ready INTEGER NOT NULL DEFAULT 0,
+                ratio_exports_ready INTEGER NOT NULL DEFAULT 0,
+                mockups_ready INTEGER NOT NULL DEFAULT 0,
+                listing_content_ready INTEGER NOT NULL DEFAULT 0,
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id)
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO artwork_production (artwork_id)
+            SELECT id FROM artworks
+            """
+        )
+
+        conn.commit()
+
+
+ensure_production_schema()
+
+
 def get_collections():
     with get_connection() as conn:
         return conn.execute(
@@ -124,13 +159,27 @@ def get_collection(collection_code):
 
         artworks = conn.execute(
             """
-            SELECT artwork_code, public_title, working_title, theme, status
-            FROM artworks
-            WHERE collection_id = (
+            SELECT
+                a.artwork_code,
+                a.public_title,
+                a.working_title,
+                a.theme,
+                a.status,
+                p.orientation,
+                p.master_ratio,
+                p.original_approved,
+                p.print_master_ready,
+                p.ratio_exports_ready,
+                p.mockups_ready,
+                p.listing_content_ready
+            FROM artworks AS a
+            LEFT JOIN artwork_production AS p
+                ON p.artwork_id = a.id
+            WHERE a.collection_id = (
                 SELECT id FROM collections WHERE code = ?
             )
-              AND status != 'retired'
-            ORDER BY sequence_number
+              AND a.status != 'retired'
+            ORDER BY a.sequence_number
             """,
             (collection_code.upper(),),
         ).fetchall()
@@ -156,6 +205,7 @@ def get_artwork(artwork_code):
         return conn.execute(
             """
             SELECT
+                a.id,
                 a.artwork_code,
                 a.public_title,
                 a.working_title,
@@ -171,6 +221,122 @@ def get_artwork(artwork_code):
             """,
             (artwork_code.upper(),),
         ).fetchone()
+
+
+def get_artwork_production(artwork_code):
+    with get_connection() as conn:
+        production = conn.execute(
+            """
+            SELECT
+                p.orientation,
+                p.master_ratio,
+                p.required_ratios,
+                p.original_approved,
+                p.print_master_ready,
+                p.ratio_exports_ready,
+                p.mockups_ready,
+                p.listing_content_ready,
+                p.notes
+            FROM artwork_production AS p
+            JOIN artworks AS a
+                ON a.id = p.artwork_id
+            WHERE a.artwork_code = ?
+            """,
+            (artwork_code.upper(),),
+        ).fetchone()
+
+        if production is None:
+            artwork = conn.execute(
+                "SELECT id FROM artworks WHERE artwork_code = ?",
+                (artwork_code.upper(),),
+            ).fetchone()
+
+            if artwork is None:
+                return None
+
+            conn.execute(
+                "INSERT INTO artwork_production (artwork_id) VALUES (?)",
+                (artwork["id"],),
+            )
+            conn.commit()
+
+            production = conn.execute(
+                """
+                SELECT
+                    orientation,
+                    master_ratio,
+                    required_ratios,
+                    original_approved,
+                    print_master_ready,
+                    ratio_exports_ready,
+                    mockups_ready,
+                    listing_content_ready,
+                    notes
+                FROM artwork_production
+                WHERE artwork_id = ?
+                """,
+                (artwork["id"],),
+            ).fetchone()
+
+        return production
+
+
+def update_artwork_production(
+    artwork_code,
+    orientation,
+    master_ratio,
+    required_ratios,
+    original_approved,
+    print_master_ready,
+    ratio_exports_ready,
+    mockups_ready,
+    listing_content_ready,
+    notes,
+):
+    allowed_orientations = {"", "horizontal", "vertical", "square"}
+
+    normalized_orientation = orientation.strip().lower()
+
+    if normalized_orientation not in allowed_orientations:
+        raise ValueError("Invalid orientation")
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE artwork_production
+            SET
+                orientation = ?,
+                master_ratio = ?,
+                required_ratios = ?,
+                original_approved = ?,
+                print_master_ready = ?,
+                ratio_exports_ready = ?,
+                mockups_ready = ?,
+                listing_content_ready = ?,
+                notes = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_id = (
+                SELECT id FROM artworks WHERE artwork_code = ?
+            )
+            """,
+            (
+                normalized_orientation or None,
+                master_ratio.strip() or None,
+                required_ratios.strip() or None,
+                int(original_approved),
+                int(print_master_ready),
+                int(ratio_exports_ready),
+                int(mockups_ready),
+                int(listing_content_ready),
+                notes.strip() or None,
+                artwork_code.upper(),
+            ),
+        )
+
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork production record not found")
+
+        conn.commit()
 
 
 def update_artwork(

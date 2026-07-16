@@ -52,12 +52,16 @@
     </div>
 </div>
 
-{% if collection["status"] == "archived" %}
-<div class="alert alert-secondary">This collection is archived.</div>
-{% endif %}
-
 <div class="row g-4">
     {% for artwork in artworks %}
+    {% set completed =
+        artwork["original_approved"]
+        + artwork["print_master_ready"]
+        + artwork["ratio_exports_ready"]
+        + artwork["mockups_ready"]
+        + artwork["listing_content_ready"]
+    %}
+
     <div class="col-md-6 col-lg-4">
         <a href="/artworks/{{ artwork['artwork_code'] }}" class="card-link">
             <div class="card app-card h-100">
@@ -80,8 +84,29 @@
                     {% endif %}
 
                     {% if artwork["theme"] %}
-                    <p class="text-dark mb-0">{{ artwork["theme"] }}</p>
+                    <p class="text-dark mb-3">{{ artwork["theme"] }}</p>
                     {% endif %}
+
+                    <div class="production-card-footer">
+                        <div class="small text-muted mb-2">
+                            Production {{ completed }}/5
+                        </div>
+                        <div class="progress production-progress">
+                            <div
+                                class="progress-bar"
+                                style="width: {{ completed / 5 * 100 }}%"
+                            ></div>
+                        </div>
+
+                        {% if artwork["orientation"] or artwork["master_ratio"] %}
+                        <div class="small text-muted mt-2">
+                            {{ artwork["orientation"] or "Orientation not set" }}
+                            {% if artwork["master_ratio"] %}
+                            · {{ artwork["master_ratio"] }}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </a>

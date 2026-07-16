@@ -85,7 +85,8 @@ body {
 }
 
 .code-pill,
-.status-pill {
+.status-pill,
+.readiness-pill {
     border-radius: 999px;
     display: inline-block;
     font-size: 0.75rem;
@@ -148,6 +149,21 @@ body {
     color: #666;
 }
 
+.readiness-not-started {
+    background: #eef0f5;
+    color: #596174;
+}
+
+.readiness-in-progress {
+    background: #fff1dc;
+    color: #8b5618;
+}
+
+.readiness-ready {
+    background: #e2f6e9;
+    color: #257545;
+}
+
 .empty-state {
     color: var(--muted);
     padding: 2.5rem;
@@ -177,55 +193,12 @@ body {
     border-color: var(--brand-dark);
 }
 
-.workspace-card {
-    position: sticky;
-    top: 6rem;
-}
-
-.workspace-state {
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 750;
-    padding: 0.35rem 0.65rem;
-}
-
-.workspace-ready {
-    background: #e2f6e9;
-    color: #257545;
-}
-
-.workspace-warning {
-    background: #fff1dc;
-    color: #8b5618;
-}
-
 .workspace-path {
     color: var(--muted);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.74rem;
     line-height: 1.45;
     overflow-wrap: anywhere;
-}
-
-.workspace-summary {
-    background: #f7f8fb;
-    border: 1px solid var(--border);
-    border-radius: 0.8rem;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    padding: 1rem;
-}
-
-.workspace-summary-value {
-    display: block;
-    font-size: 1.15rem;
-    font-weight: 750;
-}
-
-.workspace-summary-label {
-    color: var(--muted);
-    font-size: 0.75rem;
 }
 
 .workspace-sections {
@@ -262,10 +235,37 @@ body {
     font-weight: 700;
 }
 
-@media (max-width: 1199px) {
-    .workspace-card {
-        position: static;
-    }
+.production-checklist {
+    background: #f7f8fb;
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    display: grid;
+    gap: 0.8rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 1.2rem;
+}
+
+.production-check {
+    margin: 0;
+}
+
+.production-card-footer {
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+    padding-top: 1rem;
+}
+
+.production-progress {
+    height: 0.45rem;
+}
+
+.progress-bar {
+    background-color: var(--brand);
+}
+
+.table > :not(caption) > * > * {
+    border-bottom-color: var(--border);
+    padding: 0.9rem 0.75rem;
 }
 
 @media (max-width: 768px) {
@@ -273,5 +273,9 @@ body {
     .page-header {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .production-checklist {
+        grid-template-columns: 1fr;
     }
 }
