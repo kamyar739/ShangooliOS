@@ -36,6 +36,10 @@ from web.production import (
     build_production_summary,
     list_workspace_files,
 )
+from web.ratio_generator import (
+    generate_ratio_output,
+    resolve_assigned_file,
+)
 from web.workspace import (
     inspect_workspace,
     open_workspace,
@@ -386,6 +390,73 @@ def upload_ratio_output(
     return RedirectResponse(
         url=f"/artworks/{artwork_code.upper()}?file_saved=ratio",
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/ratios/generate")
+def generate_ratio_files(
+    request: Request,
+    artwork_code: str,
+    generation_mode: str = Form("fit"),
+    overwrite_existing: bool = Form(False),
+):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    production = get_artwork_production(artwork_code)
+    assignments = get_artwork_file_assignments(artwork_code)
+    assignment_map = {row["role"]: row for row in assignments}
+
+    try:
+        source_path = resolve_assigned_file(
+            artwork,
+            assignment_map.get("print_master"),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    ratios = [
+        value.strip()
+        for value in (production["required_ratios"] or "").split(",")
+        if value.strip()
+    ]
+
+    if not ratios:
+        raise HTTPException(
+            status_code=400,
+            detail="No required ratios are defined",
+        )
+
+    results = []
+
+    for ratio in ratios:
+        result = generate_ratio_output(
+            artwork=artwork,
+            source_path=source_path,
+            ratio=ratio,
+            mode=generation_mode,
+            overwrite=overwrite_existing,
+        )
+        results.append(result)
+
+        if result["status"] in {"created", "skipped"}:
+            upsert_artwork_file(
+                artwork_code=artwork_code,
+                role=f"ratio:{ratio}",
+                relative_path=result["relative_path"],
+                stored_filename=result["stored_filename"],
+                original_filename=result["stored_filename"],
+            )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="artwork.html",
+        context=_artwork_context(
+            artwork_code,
+            ratio_generation_results=results,
+        ),
     )
 
 

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ artwork["artwork_code"] }} — ShangooliOS{% endblock %}
+{% block content %}
+{% include "artwork/header.html" %}
+{% include "artwork/dashboard.html" %}
+{% include "artwork_sections.html" %}
+{% endblock %}

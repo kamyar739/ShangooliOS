@@ -1,0 +1,235 @@
+{% if saved %}
+<div class="alert alert-success">Artwork details saved.</div>
+{% endif %}
+
+{% if request.query_params.get("production_saved") %}
+<div class="alert alert-success">Production details saved.</div>
+{% endif %}
+
+{% if request.query_params.get("file_saved") %}
+<div class="alert alert-success">File uploaded and assigned.</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+    <div class="col-xl-8">
+        <div class="card app-card">
+            <div class="card-body p-4 p-lg-5">
+                <h2 class="h4 mb-4">Artwork details</h2>
+
+                <form method="post" action="/artworks/{{ artwork['artwork_code'] }}">
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <label class="form-label">Public Title</label>
+                            <input name="public_title" type="text"
+                                   class="form-control"
+                                   value="{{ artwork['public_title'] }}"
+                                   required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Working Title</label>
+                            <input name="working_title" type="text"
+                                   class="form-control"
+                                   value="{{ artwork['working_title'] or '' }}">
+                        </div>
+
+                        <div class="col-md-8">
+                            <label class="form-label">Theme</label>
+                            <input name="theme" type="text"
+                                   class="form-control"
+                                   value="{{ artwork['theme'] or '' }}">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">Status</label>
+                            <select name="status" class="form-select">
+                                {% for option in [
+                                    "idea", "creating", "review", "approved",
+                                    "production", "listed", "paused", "retired"
+                                ] %}
+                                <option value="{{ option }}"
+                                    {% if artwork["status"] == option %}selected{% endif %}>
+                                    {{ option }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Story</label>
+                            <textarea name="story" rows="8"
+                                      class="form-control">{{ artwork["story"] or "" }}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between mt-4">
+                        {% if artwork["status"] != "retired" %}
+                        <button type="submit"
+                                formaction="/artworks/{{ artwork['artwork_code'] }}/archive"
+                                formmethod="post"
+                                class="btn btn-outline-danger"
+                                onclick="return confirm('Archive this artwork?');">
+                            Archive Artwork
+                        </button>
+                        {% else %}
+                        <span></span>
+                        {% endif %}
+
+                        <button type="submit" class="btn btn-primary px-4">
+                            Save Details
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div id="validation" class="card app-card">
+            <div class="card-body p-4">
+                <div class="eyebrow">Validation</div>
+                <h2 class="h4 mb-3">
+                    {% if production_summary["validation_passed"] %}
+                    Production ready
+                    {% else %}
+                    Not ready yet
+                    {% endif %}
+                </h2>
+
+                <div class="validation-list mb-4">
+                    {% for item in production_summary["validation_items"] %}
+                    <div class="validation-row">
+                        {% if item["passed"] %}
+                        <span class="validation-pass">✓</span>
+                        {% else %}
+                        <span class="validation-fail">×</span>
+                        {% endif %}
+                        <span>{{ item["label"] }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card app-card mb-4">
+    <div class="card-body p-4 p-lg-5">
+        <div class="eyebrow">Production</div>
+        <h2 class="h4 mb-4">Production setup</h2>
+
+        <form method="post"
+              action="/artworks/{{ artwork['artwork_code'] }}/production">
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <label class="form-label">Orientation</label>
+                    <select name="orientation" class="form-select">
+                        <option value="">Not set</option>
+                        {% for option in ["horizontal", "vertical", "square"] %}
+                        <option value="{{ option }}"
+                            {% if production["orientation"] == option %}selected{% endif %}>
+                            {{ option }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Master Aspect Ratio</label>
+                    <input name="master_ratio" type="text"
+                           class="form-control"
+                           value="{{ production['master_ratio'] or '' }}">
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Required Output Ratios</label>
+                    <input name="required_ratios" type="text"
+                           class="form-control"
+                           value="{{ production['required_ratios'] or '' }}">
+                </div>
+
+                <div class="col-12">
+                    <div class="production-checklist">
+                        {% set checks = [
+                            ("original_approved", "Original artwork approved"),
+                            ("print_master_ready", "Print master prepared"),
+                            ("ratio_exports_ready", "Aspect-ratio exports complete"),
+                            ("mockups_ready", "Mockups complete"),
+                            ("listing_content_ready", "Listing content ready")
+                        ] %}
+                        {% for field, label in checks %}
+                        <div class="form-check production-check">
+                            <input id="{{ field }}" name="{{ field }}"
+                                   type="checkbox" class="form-check-input"
+                                   value="true"
+                                   {% if production[field] %}checked{% endif %}>
+                            <label for="{{ field }}" class="form-check-label">
+                                {{ label }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">Production Notes</label>
+                    <textarea name="production_notes" rows="4"
+                              class="form-control">{{ production["notes"] or "" }}</textarea>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end mt-4">
+                <button type="submit" class="btn btn-primary px-4">
+                    Save Production
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card app-card mb-4">
+    <div class="card-body p-4">
+        <div class="eyebrow">File intake</div>
+        <h2 class="h4 mb-4">Assigned production files</h2>
+
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="file-role-card">
+                    <h3 class="h6">Approved source artwork</h3>
+                    {% if production_summary["source_assignment"] %}
+                    <div class="assigned-file mb-3">
+                        {{ production_summary["source_assignment"]["stored_filename"] }}
+                    </div>
+                    {% endif %}
+                    <form method="post" enctype="multipart/form-data"
+                          action="/artworks/{{ artwork['artwork_code'] }}/files/source">
+                        <input type="file" name="upload"
+                               class="form-control mb-2" required>
+                        <button class="btn btn-outline-primary">
+                            Upload Source
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="file-role-card">
+                    <h3 class="h6">Print master</h3>
+                    {% if production_summary["master_assignment"] %}
+                    <div class="assigned-file mb-3">
+                        {{ production_summary["master_assignment"]["stored_filename"] }}
+                    </div>
+                    {% endif %}
+                    <form method="post" enctype="multipart/form-data"
+                          action="/artworks/{{ artwork['artwork_code'] }}/files/print-master">
+                        <input type="file" name="upload"
+                               class="form-control mb-2" required>
+                        <button class="btn btn-outline-primary">
+                            Upload Print Master
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
