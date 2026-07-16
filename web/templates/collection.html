@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}
+{{ collection["name"] }} — ShangooliOS
+{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="/" class="text-decoration-none">← Back to collections</a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+        <h1 class="mb-1">{{ collection["name"] }}</h1>
+        <p class="text-muted mb-0">
+            Status: {{ collection["status"] }} ·
+            Target: {{ collection["target_artwork_count"] }} artworks
+        </p>
+    </div>
+</div>
+
+<div class="row g-4">
+
+    {% for artwork in artworks %}
+
+    <div class="col-md-6 col-lg-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <span class="badge bg-secondary">
+                        {{ artwork["artwork_code"] }}
+                    </span>
+
+                    <span class="badge bg-primary">
+                        {{ artwork["status"] }}
+                    </span>
+                </div>
+
+                <h4 class="card-title">
+                    <a
+                        href="/artworks/{{ artwork['artwork_code'] }}"
+                        class="text-decoration-none"
+                    >
+                        {{ artwork["public_title"] }}
+                    </a>
+                </h4>
+
+                {% if artwork["working_title"] %}
+                <p class="text-muted mb-2">
+                    {{ artwork["working_title"] }}
+                </p>
+                {% endif %}
+
+                {% if artwork["theme"] %}
+                <p class="mb-0">
+                    {{ artwork["theme"] }}
+                </p>
+                {% endif %}
+
+            </div>
+        </div>
+    </div>
+
+    {% else %}
+
+    <div class="col-12">
+        <div class="alert alert-light border">
+            No artworks yet.
+        </div>
+    </div>
+
+    {% endfor %}
+
+</div>
+
+{% endblock %}
+
+

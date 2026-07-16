@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}
+ShangooliOS
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="mb-1">Collections</h1>
+        <p class="text-muted mb-0">
+            Manage all ShangooliShop collections.
+        </p>
+    </div>
+</div>
+
+<div class="row g-4">
+
+{% for collection in collections %}
+
+<div class="col-md-6 col-lg-4">
+
+    <div class="card shadow-sm h-100">
+
+        <div class="card-body">
+
+            <h4 class="card-title">
+
+                <a
+                    href="/collections/{{ collection['code'] }}"
+                    class="text-decoration-none"
+                >
+                    {{ collection["name"] }}
+                </a>
+
+            </h4>
+
+            <p class="text-muted mb-3">
+                {{ collection["code"] }}
+            </p>
+
+            <span class="badge bg-primary">
+                {{ collection["artwork_count"] }} artwork{% if collection["artwork_count"] != 1 %}s{% endif %}
+            </span>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endfor %}
+
+</div>
+
+{% endblock %}
