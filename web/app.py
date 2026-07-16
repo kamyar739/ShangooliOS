@@ -2,8 +2,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
+from starlette import status
 
 from web.db import (
+    create_artwork,
     get_artwork,
     get_collection,
     get_collections,
@@ -41,6 +44,47 @@ def collection_page(request: Request, collection_code: str):
             "artworks": artworks,
         },
     )
+
+
+@app.get("/collections/{collection_code}/new")
+def new_artwork_form(request: Request, collection_code: str):
+    collection, _ = get_collection(collection_code)
+
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="new_artwork.html",
+        context={
+            "collection": collection,
+        },
+    )
+
+
+@app.post("/collections/{collection_code}/new")
+def create_artwork_post(
+    request: Request,
+    collection_code: str,
+    public_title: str = Form(...),
+    working_title: str = Form(""),
+    theme: str = Form(""),
+):
+    artwork_code = create_artwork(
+        collection_code=collection_code,
+        public_title=public_title,
+        working_title=working_title,
+        theme=theme,
+    )
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+
+
 
 @app.get("/artworks/{artwork_code}")
 def artwork_page(request: Request, artwork_code: str):

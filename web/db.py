@@ -121,4 +121,61 @@ def update_artwork(
         conn.commit()
 
 
+def create_artwork(
+    collection_code,
+    public_title,
+    working_title,
+    theme,
+):
+    with get_connection() as conn:
+        collection = conn.execute(
+            """
+            SELECT id
+            FROM collections
+            WHERE code = ?
+            """,
+            (collection_code.upper(),),
+        ).fetchone()
+
+        if collection is None:
+            raise ValueError("Collection not found")
+
+        next_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(sequence_number), 0) + 1
+            FROM artworks
+            WHERE collection_id = ?
+            """,
+            (collection["id"],),
+        ).fetchone()[0]
+
+        artwork_code = f"{collection_code.upper()}-{next_number:03d}"
+
+        conn.execute(
+            """
+            INSERT INTO artworks (
+                artwork_code,
+                collection_id,
+                sequence_number,
+                public_title,
+                working_title,
+                theme,
+                status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'idea')
+            """,
+            (
+                artwork_code,
+                collection["id"],
+                next_number,
+                public_title.strip(),
+                working_title.strip() or None,
+                theme.strip() or None,
+            ),
+        )
+        conn.commit()
+
+        return artwork_code
+
+
 
