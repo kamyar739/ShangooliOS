@@ -33,6 +33,81 @@ def get_collections():
         ).fetchall()
 
 
+def get_dashboard():
+    with get_connection() as conn:
+        collections = get_collections()
+
+        stats = conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN status != 'retired' THEN 1 ELSE 0 END)
+                    AS total_artworks,
+                SUM(CASE WHEN status IN ('creating', 'review', 'production')
+                    THEN 1 ELSE 0 END) AS in_progress,
+                SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END)
+                    AS approved,
+                SUM(CASE WHEN status = 'listed' THEN 1 ELSE 0 END)
+                    AS listed
+            FROM artworks
+            """
+        ).fetchone()
+
+        recent_artworks = conn.execute(
+            """
+            SELECT
+                a.artwork_code,
+                a.public_title,
+                a.theme,
+                a.status,
+                c.name AS collection_name
+            FROM artworks AS a
+            JOIN collections AS c
+                ON c.id = a.collection_id
+            WHERE a.status != 'retired'
+              AND c.status != 'archived'
+            ORDER BY a.updated_at DESC, a.id DESC
+            LIMIT 6
+            """
+        ).fetchall()
+
+        return {
+            "collections": collections,
+            "stats": stats,
+            "recent_artworks": recent_artworks,
+        }
+
+
+def search_artworks(query):
+    pattern = f"%{query.strip()}%"
+
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                a.artwork_code,
+                a.public_title,
+                a.working_title,
+                a.theme,
+                a.status,
+                c.name AS collection_name
+            FROM artworks AS a
+            JOIN collections AS c
+                ON c.id = a.collection_id
+            WHERE a.status != 'retired'
+              AND c.status != 'archived'
+              AND (
+                    a.artwork_code LIKE ?
+                 OR a.public_title LIKE ?
+                 OR COALESCE(a.working_title, '') LIKE ?
+                 OR COALESCE(a.theme, '') LIKE ?
+                 OR COALESCE(a.story, '') LIKE ?
+              )
+            ORDER BY a.artwork_code
+            """,
+            (pattern, pattern, pattern, pattern, pattern),
+        ).fetchall()
+
+
 def get_collection(collection_code):
     with get_connection() as conn:
         collection = conn.execute(

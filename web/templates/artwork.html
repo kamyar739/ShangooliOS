@@ -11,39 +11,38 @@
         href="/collections/{{ artwork['collection_code'] }}"
         class="text-decoration-none"
     >
-        ← Back to {{ artwork["collection_name"] }}
+        ← {{ artwork["collection_name"] }}
     </a>
 </div>
 
-<div class="row justify-content-center">
-    <div class="col-lg-8">
+<div class="row g-4">
+    <div class="col-xl-8">
+        <div class="card app-card">
+            <div class="card-body p-4 p-lg-5">
 
-        <div class="card shadow-sm">
-            <div class="card-body p-4">
-
-                <div class="d-flex justify-content-between align-items-start mb-4">
+                <div class="d-flex justify-content-between align-items-start mb-5">
                     <div>
-                        <span class="badge bg-secondary mb-2">
-                            {{ artwork["artwork_code"] }}
-                        </span>
-
-                        <h1 class="h2 mb-1">
+                        <div class="eyebrow">{{ artwork["artwork_code"] }}</div>
+                        <h1 class="display-6 fw-bold mb-2">
                             {{ artwork["public_title"] }}
                         </h1>
-
                         <p class="text-muted mb-0">
                             {{ artwork["collection_name"] }}
                         </p>
                     </div>
 
-                    <span class="badge bg-primary">
+                    <span class="status-pill status-{{ artwork['status'] }}">
                         {{ artwork["status"] }}
                     </span>
                 </div>
 
                 {% if saved %}
+                <div class="alert alert-success">Changes saved.</div>
+                {% endif %}
+
+                {% if request.query_params.get("workspace_refreshed") %}
                 <div class="alert alert-success">
-                    Changes saved.
+                    Workspace structure refreshed.
                 </div>
                 {% endif %}
 
@@ -57,88 +56,84 @@
                     method="post"
                     action="/artworks/{{ artwork['artwork_code'] }}"
                 >
-                    <div class="mb-3">
-                        <label for="public_title" class="form-label">
-                            Public Title
-                        </label>
-                        <input
-                            id="public_title"
-                            name="public_title"
-                            type="text"
-                            class="form-control"
-                            value="{{ artwork['public_title'] }}"
-                            required
-                        >
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="working_title" class="form-label">
-                            Working Title
-                        </label>
-                        <input
-                            id="working_title"
-                            name="working_title"
-                            type="text"
-                            class="form-control"
-                            value="{{ artwork['working_title'] or '' }}"
-                        >
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="theme" class="form-label">
-                            Theme
-                        </label>
-                        <input
-                            id="theme"
-                            name="theme"
-                            type="text"
-                            class="form-control"
-                            value="{{ artwork['theme'] or '' }}"
-                        >
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="story" class="form-label">
-                            Story
-                        </label>
-                        <textarea
-                            id="story"
-                            name="story"
-                            rows="10"
-                            class="form-control"
-                        >{{ artwork["story"] or "" }}</textarea>
-                    </div>
-
-                    <div class="mb-4">
-                        <label for="status" class="form-label">
-                            Status
-                        </label>
-                        <select
-                            id="status"
-                            name="status"
-                            class="form-select"
-                        >
-                            {% for option in [
-                                "idea",
-                                "creating",
-                                "review",
-                                "approved",
-                                "production",
-                                "listed",
-                                "paused",
-                                "retired"
-                            ] %}
-                            <option
-                                value="{{ option }}"
-                                {% if artwork["status"] == option %}selected{% endif %}
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <label for="public_title" class="form-label">
+                                Public Title
+                            </label>
+                            <input
+                                id="public_title"
+                                name="public_title"
+                                type="text"
+                                class="form-control"
+                                value="{{ artwork['public_title'] }}"
+                                required
                             >
-                                {{ option }}
-                            </option>
-                            {% endfor %}
-                        </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="working_title" class="form-label">
+                                Working Title
+                            </label>
+                            <input
+                                id="working_title"
+                                name="working_title"
+                                type="text"
+                                class="form-control"
+                                value="{{ artwork['working_title'] or '' }}"
+                            >
+                        </div>
+
+                        <div class="col-md-8">
+                            <label for="theme" class="form-label">Theme</label>
+                            <input
+                                id="theme"
+                                name="theme"
+                                type="text"
+                                class="form-control"
+                                value="{{ artwork['theme'] or '' }}"
+                            >
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="status" class="form-label">Status</label>
+                            <select
+                                id="status"
+                                name="status"
+                                class="form-select"
+                            >
+                                {% for option in [
+                                    "idea",
+                                    "creating",
+                                    "review",
+                                    "approved",
+                                    "production",
+                                    "listed",
+                                    "paused",
+                                    "retired"
+                                ] %}
+                                <option
+                                    value="{{ option }}"
+                                    {% if artwork["status"] == option %}selected{% endif %}
+                                >
+                                    {{ option }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="story" class="form-label">Story</label>
+                            <textarea
+                                id="story"
+                                name="story"
+                                rows="12"
+                                class="form-control"
+                            >{{ artwork["story"] or "" }}</textarea>
+                        </div>
                     </div>
 
-                    <div class="d-flex justify-content-between">
+                    <div class="d-flex justify-content-between mt-4">
                         {% if artwork["status"] != "retired" %}
                         <button
                             type="submit"
@@ -153,7 +148,7 @@
                         <span></span>
                         {% endif %}
 
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary px-4">
                             Save Changes
                         </button>
                     </div>
@@ -161,7 +156,103 @@
 
             </div>
         </div>
+    </div>
 
+    <div class="col-xl-4">
+        <div class="card app-card workspace-card">
+            <div class="card-body p-4">
+
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <div class="eyebrow">Workspace</div>
+                        <h2 class="h4 mb-1">Project files</h2>
+                    </div>
+
+                    {% if workspace["complete_structure"] %}
+                    <span class="workspace-state workspace-ready">Ready</span>
+                    {% else %}
+                    <span class="workspace-state workspace-warning">
+                        Needs refresh
+                    </span>
+                    {% endif %}
+                </div>
+
+                <p class="workspace-path mb-4">
+                    {{ workspace["path"] }}
+                </p>
+
+                <div class="workspace-summary mb-4">
+                    <div>
+                        <span class="workspace-summary-value">
+                            {{ workspace["total_files"] }}
+                        </span>
+                        <span class="workspace-summary-label">
+                            total files
+                        </span>
+                    </div>
+
+                    <div>
+                        <span class="workspace-summary-value">
+                            {% if workspace["artwork_md_exists"] %}Yes{% else %}No{% endif %}
+                        </span>
+                        <span class="workspace-summary-label">
+                            artwork.md
+                        </span>
+                    </div>
+                </div>
+
+                <div class="workspace-sections mb-4">
+                    {% for section in workspace["sections"] %}
+                    <div class="workspace-row">
+                        <div>
+                            <div class="workspace-folder-name">
+                                {{ section["name"] }}
+                            </div>
+                            <div class="text-muted small">
+                                {{ section["file_count"] }}
+                                file{% if section["file_count"] != 1 %}s{% endif %}
+                            </div>
+                        </div>
+
+                        {% if section["exists"] %}
+                        <span class="workspace-check">✓</span>
+                        {% else %}
+                        <span class="workspace-missing">Missing</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="d-grid gap-2">
+                    <form
+                        method="post"
+                        action="/artworks/{{ artwork['artwork_code'] }}/workspace/open"
+                    >
+                        <button type="submit" class="btn btn-primary w-100">
+                            Open in Finder
+                        </button>
+                    </form>
+
+                    <form
+                        method="post"
+                        action="/artworks/{{ artwork['artwork_code'] }}/workspace/refresh"
+                    >
+                        <button
+                            type="submit"
+                            class="btn btn-outline-secondary w-100"
+                        >
+                            Refresh Workspace
+                        </button>
+                    </form>
+                </div>
+
+                <p class="text-muted small mt-3 mb-0">
+                    Refresh only creates missing standard folders and
+                    artwork.md. Existing files are not overwritten.
+                </p>
+
+            </div>
+        </div>
     </div>
 </div>
 

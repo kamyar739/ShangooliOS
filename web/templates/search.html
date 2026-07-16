@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Search — ShangooliOS{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <div class="eyebrow">Search</div>
+    <h1 class="h2 mb-3">Find artwork</h1>
+
+    <form class="row g-2" method="get" action="/search">
+        <div class="col-md-9">
+            <input
+                class="form-control form-control-lg"
+                type="search"
+                name="q"
+                value="{{ query }}"
+                placeholder="Title, code, theme, story..."
+                autofocus
+            >
+        </div>
+        <div class="col-md-3">
+            <button class="btn btn-primary btn-lg w-100" type="submit">
+                Search
+            </button>
+        </div>
+    </form>
+</div>
+
+{% if query %}
+<p class="text-muted">
+    {{ results|length }} result{% if results|length != 1 %}s{% endif %}
+    for “{{ query }}”
+</p>
+
+<div class="row g-4">
+    {% for artwork in results %}
+    <div class="col-md-6 col-lg-4">
+        <a href="/artworks/{{ artwork['artwork_code'] }}" class="card-link">
+            <div class="card app-card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-3">
+                        <span class="code-pill">{{ artwork["artwork_code"] }}</span>
+                        <span class="status-pill status-{{ artwork['status'] }}">
+                            {{ artwork["status"] }}
+                        </span>
+                    </div>
+
+                    <h2 class="h5 text-dark">{{ artwork["public_title"] }}</h2>
+
+                    {% if artwork["working_title"] %}
+                    <p class="text-muted mb-2">
+                        {{ artwork["working_title"] }}
+                    </p>
+                    {% endif %}
+
+                    <p class="small text-muted mb-2">
+                        {{ artwork["collection_name"] }}
+                    </p>
+
+                    {% if artwork["theme"] %}
+                    <p class="text-dark mb-0">{{ artwork["theme"] }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </a>
+    </div>
+    {% else %}
+    <div class="col-12">
+        <div class="empty-state">
+            No artwork matched your search.
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

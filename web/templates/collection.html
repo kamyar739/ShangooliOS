@@ -7,19 +7,20 @@
 {% block content %}
 
 <div class="mb-4">
-    <a href="/" class="text-decoration-none">← Back to collections</a>
+    <a href="/" class="text-decoration-none">← Dashboard</a>
 </div>
 
-<div class="d-flex justify-content-between align-items-start mb-4">
+<div class="page-header mb-5">
     <div>
-        <h1 class="mb-1">{{ collection["name"] }}</h1>
+        <div class="eyebrow">{{ collection["code"] }}</div>
+        <h1 class="display-6 fw-bold mb-2">{{ collection["name"] }}</h1>
         <p class="text-muted mb-0">
-            Status: {{ collection["status"] }} ·
-            Target: {{ collection["target_artwork_count"] }} artworks
+            {{ collection["status"] }} ·
+            Target {{ collection["target_artwork_count"] }} artworks
         </p>
     </div>
 
-    <div class="d-flex gap-2">
+    <div class="d-flex flex-wrap gap-2">
         <a
             href="/collections/{{ collection['code'] }}/edit"
             class="btn btn-outline-secondary"
@@ -52,56 +53,42 @@
 </div>
 
 {% if collection["status"] == "archived" %}
-<div class="alert alert-secondary">
-    This collection is archived.
-</div>
+<div class="alert alert-secondary">This collection is archived.</div>
 {% endif %}
 
 <div class="row g-4">
     {% for artwork in artworks %}
     <div class="col-md-6 col-lg-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
+        <a href="/artworks/{{ artwork['artwork_code'] }}" class="card-link">
+            <div class="card app-card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-3">
+                        <span class="code-pill">{{ artwork["artwork_code"] }}</span>
+                        <span class="status-pill status-{{ artwork['status'] }}">
+                            {{ artwork["status"] }}
+                        </span>
+                    </div>
 
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <span class="badge bg-secondary">
-                        {{ artwork["artwork_code"] }}
-                    </span>
-
-                    <span class="badge bg-primary">
-                        {{ artwork["status"] }}
-                    </span>
-                </div>
-
-                <h4 class="card-title">
-                    <a
-                        href="/artworks/{{ artwork['artwork_code'] }}"
-                        class="text-decoration-none"
-                    >
+                    <h2 class="h5 text-dark mb-2">
                         {{ artwork["public_title"] }}
-                    </a>
-                </h4>
+                    </h2>
 
-                {% if artwork["working_title"] %}
-                <p class="text-muted mb-2">
-                    {{ artwork["working_title"] }}
-                </p>
-                {% endif %}
+                    {% if artwork["working_title"] %}
+                    <p class="text-muted mb-2">
+                        {{ artwork["working_title"] }}
+                    </p>
+                    {% endif %}
 
-                {% if artwork["theme"] %}
-                <p class="mb-0">
-                    {{ artwork["theme"] }}
-                </p>
-                {% endif %}
-
+                    {% if artwork["theme"] %}
+                    <p class="text-dark mb-0">{{ artwork["theme"] }}</p>
+                    {% endif %}
+                </div>
             </div>
-        </div>
+        </a>
     </div>
     {% else %}
     <div class="col-12">
-        <div class="alert alert-light border">
-            No active artworks yet.
-        </div>
+        <div class="empty-state">No active artworks yet.</div>
     </div>
     {% endfor %}
 </div>
@@ -109,30 +96,32 @@
 {% if archived_artworks %}
 <hr class="my-5">
 
-<h2 class="h4 mb-3">Archived Artworks</h2>
+<h2 class="h4 mb-3">Archived artwork</h2>
 
-<div class="list-group">
-    {% for artwork in archived_artworks %}
-    <div
-        class="list-group-item d-flex justify-content-between align-items-center"
-    >
-        <div>
-            <strong>
-                {{ artwork["artwork_code"] }} — {{ artwork["public_title"] }}
-            </strong>
-            <div class="text-muted small">Archived</div>
-        </div>
-
-        <form
-            method="post"
-            action="/artworks/{{ artwork['artwork_code'] }}/restore"
+<div class="card app-card">
+    <div class="list-group list-group-flush">
+        {% for artwork in archived_artworks %}
+        <div
+            class="list-group-item d-flex justify-content-between align-items-center p-3"
         >
-            <button type="submit" class="btn btn-sm btn-outline-primary">
-                Restore
-            </button>
-        </form>
+            <div>
+                <strong>
+                    {{ artwork["artwork_code"] }} — {{ artwork["public_title"] }}
+                </strong>
+                <div class="text-muted small">Archived</div>
+            </div>
+
+            <form
+                method="post"
+                action="/artworks/{{ artwork['artwork_code'] }}/restore"
+            >
+                <button type="submit" class="btn btn-sm btn-outline-primary">
+                    Restore
+                </button>
+            </form>
+        </div>
+        {% endfor %}
     </div>
-    {% endfor %}
 </div>
 {% endif %}
 

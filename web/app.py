@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette import status
 
@@ -12,16 +13,37 @@ from web.db import (
     create_collection,
     get_artwork,
     get_collection,
-    get_collections,
+    get_dashboard,
     restore_artwork,
+    search_artworks,
     update_artwork,
     update_collection,
+)
+from web.workspace import (
+    inspect_workspace,
+    open_workspace,
+    refresh_workspace,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title="ShangooliOS")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+def _artwork_context(artwork_code: str, **extra):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    context = {
+        "artwork": artwork,
+        "workspace": inspect_workspace(artwork),
+    }
+    context.update(extra)
+    return context
 
 
 @app.get("/")
@@ -29,7 +51,24 @@ def home(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"collections": get_collections()},
+        context=get_dashboard(),
+    )
+
+
+@app.get("/search")
+def search_page(
+    request: Request,
+    q: str = Query("", max_length=100),
+):
+    query = q.strip()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="search.html",
+        context={
+            "query": query,
+            "results": search_artworks(query) if query else [],
+        },
     )
 
 
@@ -55,6 +94,7 @@ def create_collection_post(
         target_artwork_count=target_artwork_count,
         status=collection_status,
     )
+
     return RedirectResponse(
         url=f"/collections/{collection_code}",
         status_code=status.HTTP_303_SEE_OTHER,
@@ -106,6 +146,7 @@ def edit_collection_post(
         target_artwork_count=target_artwork_count,
         status=collection_status,
     )
+
     return RedirectResponse(
         url=f"/collections/{collection_code.upper()}",
         status_code=status.HTTP_303_SEE_OTHER,
@@ -115,6 +156,7 @@ def edit_collection_post(
 @app.post("/collections/{collection_code}/archive")
 def archive_collection_post(collection_code: str):
     archive_collection(collection_code)
+
     return RedirectResponse(
         url="/",
         status_code=status.HTTP_303_SEE_OTHER,
@@ -148,6 +190,7 @@ def create_artwork_post(
         working_title=working_title,
         theme=theme,
     )
+
     return RedirectResponse(
         url=f"/artworks/{result['artwork_code']}",
         status_code=status.HTTP_303_SEE_OTHER,
@@ -156,15 +199,10 @@ def create_artwork_post(
 
 @app.get("/artworks/{artwork_code}")
 def artwork_page(request: Request, artwork_code: str):
-    artwork = get_artwork(artwork_code)
-
-    if artwork is None:
-        raise HTTPException(status_code=404, detail="Artwork not found")
-
     return templates.TemplateResponse(
         request=request,
         name="artwork.html",
-        context={"artwork": artwork},
+        context=_artwork_context(artwork_code),
     )
 
 
@@ -187,12 +225,43 @@ def save_artwork(
         status=status_value,
     )
 
-    artwork = get_artwork(artwork_code)
-
     return templates.TemplateResponse(
         request=request,
         name="artwork.html",
-        context={"artwork": artwork, "saved": True},
+        context=_artwork_context(artwork_code, saved=True),
+    )
+
+
+@app.post("/artworks/{artwork_code}/workspace/refresh")
+def refresh_artwork_workspace(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    refresh_workspace(artwork)
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?workspace_refreshed=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/workspace/open")
+def open_artwork_workspace(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    try:
+        open_workspace(artwork)
+    except RuntimeError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
