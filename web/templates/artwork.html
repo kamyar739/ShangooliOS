@@ -46,6 +46,10 @@
 <div class="alert alert-success">Production details saved.</div>
 {% endif %}
 
+{% if request.query_params.get("file_saved") %}
+<div class="alert alert-success">File uploaded and assigned.</div>
+{% endif %}
+
 {% if request.query_params.get("workspace_refreshed") %}
 <div class="alert alert-success">Workspace structure refreshed.</div>
 {% endif %}
@@ -131,7 +135,7 @@
                             <textarea
                                 id="story"
                                 name="story"
-                                rows="10"
+                                rows="8"
                                 class="form-control"
                             >{{ artwork["story"] or "" }}</textarea>
                         </div>
@@ -162,35 +166,41 @@
     </div>
 
     <div class="col-xl-4">
-        <div class="card app-card">
+        <div id="validation" class="card app-card">
             <div class="card-body p-4">
-                <div class="eyebrow">Readiness</div>
+                <div class="eyebrow">Validation</div>
                 <h2 class="h4 mb-3">
-                    {{ production_summary["checklist_complete"] }}
-                    of
-                    {{ production_summary["checklist_total"] }}
-                    complete
+                    {% if production_summary["validation_passed"] %}
+                    Production ready
+                    {% else %}
+                    Not ready yet
+                    {% endif %}
                 </h2>
 
-                <div class="progress mb-4" role="progressbar">
-                    <div
-                        class="progress-bar"
-                        style="width: {{ (production_summary['checklist_complete'] / production_summary['checklist_total'] * 100)|round }}%"
-                    ></div>
+                <div class="validation-list mb-4">
+                    {% for item in production_summary["validation_items"] %}
+                    <div class="validation-row">
+                        {% if item["passed"] %}
+                        <span class="validation-pass">✓</span>
+                        {% else %}
+                        <span class="validation-fail">×</span>
+                        {% endif %}
+                        <span>{{ item["label"] }}</span>
+                    </div>
+                    {% endfor %}
                 </div>
 
-                {% if production_summary["missing"] %}
-                <p class="small text-muted mb-2">Still needed:</p>
-                <ul class="small ps-3 mb-0">
-                    {% for item in production_summary["missing"] %}
-                    <li class="mb-1">{{ item }}</li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <div class="alert alert-success mb-0">
-                    This artwork is ready for listing.
-                </div>
-                {% endif %}
+                <form
+                    method="post"
+                    action="/artworks/{{ artwork['artwork_code'] }}/validate"
+                >
+                    <button
+                        type="submit"
+                        class="btn btn-outline-primary w-100"
+                    >
+                        Run Validation
+                    </button>
+                </form>
             </div>
         </div>
     </div>
@@ -198,15 +208,11 @@
 
 <div class="card app-card mb-4">
     <div class="card-body p-4 p-lg-5">
-        <div class="d-flex justify-content-between align-items-start mb-4">
-            <div>
-                <div class="eyebrow">Production</div>
-                <h2 class="h4 mb-1">Production setup</h2>
-                <p class="text-muted mb-0">
-                    Define the required formats and track completion.
-                </p>
-            </div>
-        </div>
+        <div class="eyebrow">Production</div>
+        <h2 class="h4 mb-1">Production setup</h2>
+        <p class="text-muted mb-4">
+            Define required formats and track completion.
+        </p>
 
         <form
             method="post"
@@ -299,7 +305,6 @@
                         name="production_notes"
                         rows="4"
                         class="form-control"
-                        placeholder="Sizes, print notes, cropping decisions, or anything production-related."
                     >{{ production["notes"] or "" }}</textarea>
                 </div>
             </div>
@@ -310,6 +315,159 @@
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<div class="card app-card mb-4">
+    <div class="card-body p-4 p-lg-5">
+        <div class="eyebrow">File intake</div>
+        <h2 class="h4 mb-1">Assigned production files</h2>
+        <p class="text-muted mb-4">
+            Uploaded files are copied into the correct workspace folder
+            and given a standard filename.
+        </p>
+
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="file-role-card">
+                    <div class="d-flex justify-content-between mb-3">
+                        <div>
+                            <h3 class="h6 mb-1">Approved source artwork</h3>
+                            <p class="small text-muted mb-0">
+                                Stored in 01 Source Artwork.
+                            </p>
+                        </div>
+
+                        {% if production_summary["source_ready"] %}
+                        <span class="workspace-check">✓</span>
+                        {% endif %}
+                    </div>
+
+                    {% if production_summary["source_assignment"] %}
+                    <div class="assigned-file mb-3">
+                        {{ production_summary["source_assignment"]["stored_filename"] }}
+                    </div>
+                    {% endif %}
+
+                    <form
+                        method="post"
+                        enctype="multipart/form-data"
+                        action="/artworks/{{ artwork['artwork_code'] }}/files/source"
+                    >
+                        <input
+                            type="file"
+                            name="upload"
+                            class="form-control mb-2"
+                            accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf"
+                            required
+                        >
+                        <button type="submit" class="btn btn-outline-primary">
+                            Upload Source
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="file-role-card">
+                    <div class="d-flex justify-content-between mb-3">
+                        <div>
+                            <h3 class="h6 mb-1">Print master</h3>
+                            <p class="small text-muted mb-0">
+                                Stored in 02 Print Files.
+                            </p>
+                        </div>
+
+                        {% if production_summary["master_ready"] %}
+                        <span class="workspace-check">✓</span>
+                        {% endif %}
+                    </div>
+
+                    {% if production_summary["master_assignment"] %}
+                    <div class="assigned-file mb-3">
+                        {{ production_summary["master_assignment"]["stored_filename"] }}
+                    </div>
+                    {% endif %}
+
+                    <form
+                        method="post"
+                        enctype="multipart/form-data"
+                        action="/artworks/{{ artwork['artwork_code'] }}/files/print-master"
+                    >
+                        <input
+                            type="file"
+                            name="upload"
+                            class="form-control mb-2"
+                            accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf"
+                            required
+                        >
+                        <button type="submit" class="btn btn-outline-primary">
+                            Upload Print Master
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        {% if production_summary["required_ratios"] %}
+        <hr class="my-4">
+
+        <h3 class="h5 mb-3">Required ratio outputs</h3>
+
+        <div class="row g-3">
+            {% for ratio_record in production_summary["ratio_status"] %}
+            <div class="col-lg-6">
+                <div class="ratio-upload-row">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>{{ ratio_record["ratio"] }}</strong>
+
+                        {% if ratio_record["exists"] %}
+                        <span class="readiness-pill readiness-ready">
+                            Assigned
+                        </span>
+                        {% else %}
+                        <span class="readiness-pill readiness-not-started">
+                            Missing
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    {% if ratio_record["assigned"] %}
+                    <div class="assigned-file mb-2">
+                        {{ ratio_record["assigned"]["stored_filename"] }}
+                    </div>
+                    {% endif %}
+
+                    <form
+                        method="post"
+                        enctype="multipart/form-data"
+                        action="/artworks/{{ artwork['artwork_code'] }}/files/ratio"
+                    >
+                        <input
+                            type="hidden"
+                            name="ratio"
+                            value="{{ ratio_record['ratio'] }}"
+                        >
+                        <input
+                            type="file"
+                            name="upload"
+                            class="form-control mb-2"
+                            accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf"
+                            required
+                        >
+                        <button type="submit" class="btn btn-sm btn-outline-primary">
+                            Upload {{ ratio_record["ratio"] }}
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-light border mt-4 mb-0">
+            Save required output ratios above to enable ratio-file intake.
+        </div>
+        {% endif %}
     </div>
 </div>
 

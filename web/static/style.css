@@ -75,15 +75,6 @@ body {
     transform: translateY(-3px);
 }
 
-.collection-card {
-    min-height: 215px;
-}
-
-.collection-count {
-    color: var(--brand);
-    font-weight: 700;
-}
-
 .code-pill,
 .status-pill,
 .readiness-pill {
@@ -98,11 +89,6 @@ body {
 .code-pill {
     background: #eef0f6;
     color: #50586b;
-}
-
-.status-pill {
-    background: #edf0f5;
-    color: #596174;
 }
 
 .status-idea,
@@ -249,18 +235,59 @@ body {
     margin: 0;
 }
 
-.production-card-footer {
+.validation-list {
+    border-bottom: 1px solid var(--border);
     border-top: 1px solid var(--border);
-    margin-top: auto;
-    padding-top: 1rem;
 }
 
-.production-progress {
-    height: 0.45rem;
+.validation-row {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 0.65rem;
+    padding: 0.7rem 0;
 }
 
-.progress-bar {
-    background-color: var(--brand);
+.validation-row:last-child {
+    border-bottom: 0;
+}
+
+.validation-pass,
+.validation-fail {
+    align-items: center;
+    border-radius: 50%;
+    display: inline-flex;
+    flex: 0 0 1.35rem;
+    font-size: 0.8rem;
+    font-weight: 800;
+    height: 1.35rem;
+    justify-content: center;
+}
+
+.validation-pass {
+    background: #e2f6e9;
+    color: #257545;
+}
+
+.validation-fail {
+    background: #fde8e8;
+    color: #a43b3b;
+}
+
+.file-role-card,
+.ratio-upload-row {
+    background: #f8f9fc;
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    height: 100%;
+    padding: 1.15rem;
+}
+
+.assigned-file {
+    color: #3e4658;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
 }
 
 .table > :not(caption) > * > * {

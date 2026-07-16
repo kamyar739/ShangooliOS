@@ -1,6 +1,14 @@
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -12,6 +20,7 @@ from web.db import (
     archive_collection,
     create_collection,
     get_artwork,
+    get_artwork_file_assignments,
     get_artwork_production,
     get_collection,
     get_dashboard,
@@ -20,7 +29,9 @@ from web.db import (
     update_artwork,
     update_artwork_production,
     update_collection,
+    upsert_artwork_file,
 )
+from web.file_intake import save_uploaded_file
 from web.production import (
     build_production_summary,
     list_workspace_files,
@@ -46,17 +57,20 @@ def _artwork_context(artwork_code: str, **extra):
 
     production = get_artwork_production(artwork_code)
     files = list_workspace_files(artwork)
+    assignments = get_artwork_file_assignments(artwork_code)
 
     context = {
         "artwork": artwork,
         "workspace": inspect_workspace(artwork),
         "production": production,
+        "workspace_files": files,
+        "file_assignments": assignments,
         "production_summary": build_production_summary(
             artwork,
             production,
             files,
+            assignments,
         ),
-        "workspace_files": files,
     }
     context.update(extra)
     return context
@@ -276,6 +290,109 @@ def save_artwork_production(
 
     return RedirectResponse(
         url=f"/artworks/{artwork_code.upper()}?production_saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/files/source")
+def upload_source_file(
+    artwork_code: str,
+    upload: UploadFile = File(...),
+):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    try:
+        saved = save_uploaded_file(
+            artwork=artwork,
+            upload=upload,
+            role="source",
+        )
+        upsert_artwork_file(
+            artwork_code=artwork_code,
+            **saved,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        upload.file.close()
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?file_saved=source",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/files/print-master")
+def upload_print_master(
+    artwork_code: str,
+    upload: UploadFile = File(...),
+):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    try:
+        saved = save_uploaded_file(
+            artwork=artwork,
+            upload=upload,
+            role="print_master",
+        )
+        upsert_artwork_file(
+            artwork_code=artwork_code,
+            **saved,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        upload.file.close()
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?file_saved=master",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/files/ratio")
+def upload_ratio_output(
+    artwork_code: str,
+    ratio: str = Form(...),
+    upload: UploadFile = File(...),
+):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    try:
+        saved = save_uploaded_file(
+            artwork=artwork,
+            upload=upload,
+            role="ratio_output",
+            ratio=ratio,
+        )
+        upsert_artwork_file(
+            artwork_code=artwork_code,
+            **saved,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        upload.file.close()
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?file_saved=ratio",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/validate")
+def validate_artwork_production(artwork_code: str):
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?validated=1#validation",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

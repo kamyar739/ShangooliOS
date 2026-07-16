@@ -36,6 +36,23 @@ def ensure_production_schema():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS artwork_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artwork_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                stored_filename TEXT NOT NULL,
+                original_filename TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id),
+                UNIQUE (artwork_id, role)
+            )
+            """
+        )
+
+        conn.execute(
+            """
             INSERT OR IGNORE INTO artwork_production (artwork_id)
             SELECT id FROM artworks
             """
@@ -281,6 +298,69 @@ def get_artwork_production(artwork_code):
         return production
 
 
+def get_artwork_file_assignments(artwork_code):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                f.role,
+                f.relative_path,
+                f.stored_filename,
+                f.original_filename,
+                f.updated_at
+            FROM artwork_files AS f
+            JOIN artworks AS a
+                ON a.id = f.artwork_id
+            WHERE a.artwork_code = ?
+            ORDER BY f.role
+            """,
+            (artwork_code.upper(),),
+        ).fetchall()
+
+
+def upsert_artwork_file(
+    artwork_code,
+    role,
+    relative_path,
+    stored_filename,
+    original_filename,
+):
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+
+        if artwork is None:
+            raise ValueError("Artwork not found")
+
+        conn.execute(
+            """
+            INSERT INTO artwork_files (
+                artwork_id,
+                role,
+                relative_path,
+                stored_filename,
+                original_filename
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(artwork_id, role) DO UPDATE SET
+                relative_path = excluded.relative_path,
+                stored_filename = excluded.stored_filename,
+                original_filename = excluded.original_filename,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                artwork["id"],
+                role,
+                relative_path,
+                stored_filename,
+                original_filename,
+            ),
+        )
+        conn.commit()
+
+
 def update_artwork_production(
     artwork_code,
     orientation,
@@ -294,7 +374,6 @@ def update_artwork_production(
     notes,
 ):
     allowed_orientations = {"", "horizontal", "vertical", "square"}
-
     normalized_orientation = orientation.strip().lower()
 
     if normalized_orientation not in allowed_orientations:
