@@ -1,1 +1,58 @@
-<div class="card app-card mb-4"><div class="card-body"><div class="eyebrow">Workflow</div><p>This placeholder dashboard will become the new workflow command center in Milestone 4.1.</p></div></div>
+{% set summary = production_summary %}
+<section class="command-center card app-card mb-4" aria-labelledby="command-center-title">
+    <div class="card-body p-4 p-lg-5">
+        <div class="command-center-grid">
+            <div>
+                <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+                    <div class="eyebrow mb-0">Artwork Command Center</div>
+                    <span class="readiness-pill readiness-{{ summary['readiness'] }}">
+                        {{ summary['readiness_label'] }}
+                    </span>
+                </div>
+
+                <h2 id="command-center-title" class="h4 mb-3">
+                    {{ summary['completed_steps'] }} of {{ summary['total_steps'] }} steps complete
+                </h2>
+
+                <div class="workflow-progress mb-2"
+                     role="progressbar"
+                     aria-valuenow="{{ summary['progress_percent'] }}"
+                     aria-valuemin="0"
+                     aria-valuemax="100"
+                     aria-label="Artwork workflow progress">
+                    <div class="workflow-progress-bar"
+                         style="width: {{ summary['progress_percent'] }}%"></div>
+                </div>
+                <div class="small text-secondary mb-4">
+                    {{ summary['progress_percent'] }}% complete
+                </div>
+
+                <div class="next-action-panel">
+                    <div class="eyebrow">Next action</div>
+                    <h3 class="h3 mb-2">{{ summary['next_action']['title'] }}</h3>
+                    <p class="text-secondary mb-4">
+                        {{ summary['next_action']['description'] }}
+                    </p>
+                    <a class="btn btn-primary px-4"
+                       href="{{ summary['next_action']['href'] }}">
+                        {{ summary['next_action']['label'] }}
+                    </a>
+                </div>
+            </div>
+
+            <div class="workflow-panel">
+                <div class="eyebrow">Workflow</div>
+                <div class="workflow-list">
+                    {% for step in summary['workflow_steps'] %}
+                    <div class="workflow-step {% if step['complete'] %}is-complete{% elif summary['current_step'] and summary['current_step']['key'] == step['key'] %}is-current{% endif %}">
+                        <span class="workflow-step-icon" aria-hidden="true">
+                            {% if step['complete'] %}✓{% elif summary['current_step'] and summary['current_step']['key'] == step['key'] %}→{% else %}○{% endif %}
+                        </span>
+                        <span>{{ step['label'] }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

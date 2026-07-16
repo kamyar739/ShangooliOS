@@ -306,3 +306,82 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+/* Artwork Command Center */
+.command-center {
+    overflow: hidden;
+}
+
+.command-center-grid {
+    display: grid;
+    gap: 2.5rem;
+    grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+}
+
+.workflow-progress {
+    background: #e9eaf3;
+    border-radius: 999px;
+    height: 0.8rem;
+    overflow: hidden;
+}
+
+.workflow-progress-bar {
+    background: linear-gradient(90deg, var(--brand), #877ee8);
+    border-radius: inherit;
+    height: 100%;
+    min-width: 0;
+    transition: width 220ms ease;
+}
+
+.next-action-panel {
+    background: #f7f6ff;
+    border: 1px solid #dedaf9;
+    border-radius: 1rem;
+    padding: 1.4rem;
+}
+
+.workflow-panel {
+    background: #f8f9fc;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 1.4rem;
+}
+
+.workflow-list {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.workflow-step {
+    align-items: center;
+    border-radius: 0.7rem;
+    color: var(--muted);
+    display: flex;
+    font-size: 0.92rem;
+    font-weight: 600;
+    gap: 0.7rem;
+    padding: 0.65rem 0.75rem;
+}
+
+.workflow-step.is-complete {
+    color: #257545;
+}
+
+.workflow-step.is-current {
+    background: #ebe9ff;
+    color: var(--brand-dark);
+}
+
+.workflow-step-icon {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 0 1.35rem;
+    font-weight: 850;
+    justify-content: center;
+}
+
+@media (max-width: 992px) {
+    .command-center-grid {
+        grid-template-columns: 1fr;
+    }
+}
