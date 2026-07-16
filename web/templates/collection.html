@@ -18,20 +18,47 @@
             Target: {{ collection["target_artwork_count"] }} artworks
         </p>
     </div>
-	<a
-    		href="/collections/{{ collection['code'] }}/new"
-    		class="btn btn-primary"
-	>
-    		+ New Artwork
-	</a>
 
+    <div class="d-flex gap-2">
+        <a
+            href="/collections/{{ collection['code'] }}/edit"
+            class="btn btn-outline-secondary"
+        >
+            Edit Collection
+        </a>
 
+        {% if collection["status"] != "archived" %}
+        <a
+            href="/collections/{{ collection['code'] }}/new"
+            class="btn btn-primary"
+        >
+            + New Artwork
+        </a>
+        {% endif %}
+
+        {% if not artworks and not archived_artworks
+              and collection["status"] != "archived" %}
+        <form
+            method="post"
+            action="/collections/{{ collection['code'] }}/archive"
+            onsubmit="return confirm('Archive this collection?');"
+        >
+            <button type="submit" class="btn btn-outline-danger">
+                Archive Collection
+            </button>
+        </form>
+        {% endif %}
+    </div>
 </div>
 
+{% if collection["status"] == "archived" %}
+<div class="alert alert-secondary">
+    This collection is archived.
+</div>
+{% endif %}
+
 <div class="row g-4">
-
     {% for artwork in artworks %}
-
     <div class="col-md-6 col-lg-4">
         <div class="card shadow-sm h-100">
             <div class="card-body">
@@ -70,19 +97,43 @@
             </div>
         </div>
     </div>
-
     {% else %}
-
     <div class="col-12">
         <div class="alert alert-light border">
-            No artworks yet.
+            No active artworks yet.
         </div>
     </div>
-
     {% endfor %}
-
 </div>
 
+{% if archived_artworks %}
+<hr class="my-5">
+
+<h2 class="h4 mb-3">Archived Artworks</h2>
+
+<div class="list-group">
+    {% for artwork in archived_artworks %}
+    <div
+        class="list-group-item d-flex justify-content-between align-items-center"
+    >
+        <div>
+            <strong>
+                {{ artwork["artwork_code"] }} — {{ artwork["public_title"] }}
+            </strong>
+            <div class="text-muted small">Archived</div>
+        </div>
+
+        <form
+            method="post"
+            action="/artworks/{{ artwork['artwork_code'] }}/restore"
+        >
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+                Restore
+            </button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% endblock %}
-
-

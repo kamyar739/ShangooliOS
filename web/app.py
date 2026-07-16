@@ -7,11 +7,15 @@ from starlette import status
 
 from app.database import create_artwork as create_artwork_with_workspace
 from web.db import (
+    archive_artwork,
+    archive_collection,
     create_collection,
     get_artwork,
     get_collection,
     get_collections,
+    restore_artwork,
     update_artwork,
+    update_collection,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -59,21 +63,71 @@ def create_collection_post(
 
 @app.get("/collections/{collection_code}")
 def collection_page(request: Request, collection_code: str):
-    collection, artworks = get_collection(collection_code)
+    collection, artworks, archived_artworks = get_collection(collection_code)
+
     if collection is None:
         raise HTTPException(status_code=404, detail="Collection not found")
+
     return templates.TemplateResponse(
         request=request,
         name="collection.html",
-        context={"collection": collection, "artworks": artworks},
+        context={
+            "collection": collection,
+            "artworks": artworks,
+            "archived_artworks": archived_artworks,
+        },
+    )
+
+
+@app.get("/collections/{collection_code}/edit")
+def edit_collection_form(request: Request, collection_code: str):
+    collection, _, _ = get_collection(collection_code)
+
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="edit_collection.html",
+        context={"collection": collection},
+    )
+
+
+@app.post("/collections/{collection_code}/edit")
+def edit_collection_post(
+    collection_code: str,
+    name: str = Form(...),
+    target_artwork_count: int = Form(0),
+    collection_status: str = Form(...),
+):
+    update_collection(
+        collection_code=collection_code,
+        name=name,
+        target_artwork_count=target_artwork_count,
+        status=collection_status,
+    )
+    return RedirectResponse(
+        url=f"/collections/{collection_code.upper()}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/collections/{collection_code}/archive")
+def archive_collection_post(collection_code: str):
+    archive_collection(collection_code)
+    return RedirectResponse(
+        url="/",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
 @app.get("/collections/{collection_code}/new")
 def new_artwork_form(request: Request, collection_code: str):
-    collection, _ = get_collection(collection_code)
+    collection, _, _ = get_collection(collection_code)
+
     if collection is None:
         raise HTTPException(status_code=404, detail="Collection not found")
+
     return templates.TemplateResponse(
         request=request,
         name="new_artwork.html",
@@ -103,8 +157,10 @@ def create_artwork_post(
 @app.get("/artworks/{artwork_code}")
 def artwork_page(request: Request, artwork_code: str):
     artwork = get_artwork(artwork_code)
+
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
+
     return templates.TemplateResponse(
         request=request,
         name="artwork.html",
@@ -130,9 +186,41 @@ def save_artwork(
         story=story,
         status=status_value,
     )
+
     artwork = get_artwork(artwork_code)
+
     return templates.TemplateResponse(
         request=request,
         name="artwork.html",
         context={"artwork": artwork, "saved": True},
+    )
+
+
+@app.post("/artworks/{artwork_code}/archive")
+def archive_artwork_post(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    archive_artwork(artwork_code)
+
+    return RedirectResponse(
+        url=f"/collections/{artwork['collection_code']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/restore")
+def restore_artwork_post(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    restore_artwork(artwork_code)
+
+    return RedirectResponse(
+        url=f"/collections/{artwork['collection_code']}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )

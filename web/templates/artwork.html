@@ -26,9 +26,11 @@
                         <span class="badge bg-secondary mb-2">
                             {{ artwork["artwork_code"] }}
                         </span>
+
                         <h1 class="h2 mb-1">
                             {{ artwork["public_title"] }}
                         </h1>
+
                         <p class="text-muted mb-0">
                             {{ artwork["collection_name"] }}
                         </p>
@@ -42,6 +44,12 @@
                 {% if saved %}
                 <div class="alert alert-success">
                     Changes saved.
+                </div>
+                {% endif %}
+
+                {% if artwork["status"] == "retired" %}
+                <div class="alert alert-secondary">
+                    This artwork is archived.
                 </div>
                 {% endif %}
 
@@ -130,11 +138,22 @@
                         </select>
                     </div>
 
-                    <div class="d-flex justify-content-end">
+                    <div class="d-flex justify-content-between">
+                        {% if artwork["status"] != "retired" %}
                         <button
                             type="submit"
-                            class="btn btn-primary"
+                            formaction="/artworks/{{ artwork['artwork_code'] }}/archive"
+                            formmethod="post"
+                            class="btn btn-outline-danger"
+                            onclick="return confirm('Archive this artwork?');"
                         >
+                            Archive Artwork
+                        </button>
+                        {% else %}
+                        <span></span>
+                        {% endif %}
+
+                        <button type="submit" class="btn btn-primary">
                             Save Changes
                         </button>
                     </div>
@@ -147,5 +166,3 @@
 </div>
 
 {% endblock %}
-
-

@@ -16,10 +16,17 @@ def get_collections():
     with get_connection() as conn:
         return conn.execute(
             """
-            SELECT c.code, c.name, c.status, c.target_artwork_count,
-                   COUNT(a.id) AS artwork_count
+            SELECT
+                c.code,
+                c.name,
+                c.status,
+                c.target_artwork_count,
+                SUM(CASE WHEN a.status != 'retired' THEN 1 ELSE 0 END)
+                    AS artwork_count
             FROM collections AS c
-            LEFT JOIN artworks AS a ON a.collection_id = c.id
+            LEFT JOIN artworks AS a
+                ON a.collection_id = c.id
+            WHERE c.status != 'archived'
             GROUP BY c.id
             ORDER BY c.name
             """
@@ -38,7 +45,7 @@ def get_collection(collection_code):
         ).fetchone()
 
         if collection is None:
-            return None, []
+            return None, [], []
 
         artworks = conn.execute(
             """
@@ -47,24 +54,44 @@ def get_collection(collection_code):
             WHERE collection_id = (
                 SELECT id FROM collections WHERE code = ?
             )
+              AND status != 'retired'
             ORDER BY sequence_number
             """,
             (collection_code.upper(),),
         ).fetchall()
 
-        return collection, artworks
+        archived_artworks = conn.execute(
+            """
+            SELECT artwork_code, public_title, working_title, theme, status
+            FROM artworks
+            WHERE collection_id = (
+                SELECT id FROM collections WHERE code = ?
+            )
+              AND status = 'retired'
+            ORDER BY sequence_number
+            """,
+            (collection_code.upper(),),
+        ).fetchall()
+
+        return collection, artworks, archived_artworks
 
 
 def get_artwork(artwork_code):
     with get_connection() as conn:
         return conn.execute(
             """
-            SELECT a.artwork_code, a.public_title, a.working_title,
-                   a.theme, a.story, a.status,
-                   c.code AS collection_code,
-                   c.name AS collection_name
+            SELECT
+                a.artwork_code,
+                a.public_title,
+                a.working_title,
+                a.theme,
+                a.story,
+                a.status,
+                c.code AS collection_code,
+                c.name AS collection_name
             FROM artworks AS a
-            JOIN collections AS c ON c.id = a.collection_id
+            JOIN collections AS c
+                ON c.id = a.collection_id
             WHERE a.artwork_code = ?
             """,
             (artwork_code.upper(),),
@@ -79,12 +106,33 @@ def update_artwork(
     story,
     status,
 ):
+    normalized_status = status.strip().lower()
+
+    allowed_statuses = {
+        "idea",
+        "creating",
+        "review",
+        "approved",
+        "production",
+        "listed",
+        "paused",
+        "retired",
+    }
+
+    if normalized_status not in allowed_statuses:
+        raise ValueError("Invalid artwork status")
+
     with get_connection() as conn:
         conn.execute(
             """
             UPDATE artworks
-            SET public_title = ?, working_title = ?, theme = ?,
-                story = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+            SET
+                public_title = ?,
+                working_title = ?,
+                theme = ?,
+                story = ?,
+                status = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE artwork_code = ?
             """,
             (
@@ -92,7 +140,7 @@ def update_artwork(
                 working_title.strip() or None,
                 theme.strip() or None,
                 story.strip() or None,
-                status.strip().lower(),
+                normalized_status,
                 artwork_code.upper(),
             ),
         )
@@ -114,6 +162,7 @@ def create_collection(code, name, target_artwork_count, status):
         raise ValueError("Target artwork count cannot be negative")
 
     allowed_statuses = {"planned", "active", "complete", "paused", "archived"}
+
     if normalized_status not in allowed_statuses:
         raise ValueError("Invalid collection status")
 
@@ -121,21 +170,34 @@ def create_collection(code, name, target_artwork_count, status):
         brand = conn.execute(
             "SELECT id FROM brands WHERE code = 'SHG'"
         ).fetchone()
+
         if brand is None:
             raise ValueError("ShangooliShop brand was not found")
 
         duplicate = conn.execute(
-            "SELECT 1 FROM collections WHERE code = ? OR name = ?",
+            """
+            SELECT 1
+            FROM collections
+            WHERE code = ? OR name = ?
+            """,
             (code, name),
         ).fetchone()
+
         if duplicate is not None:
-            raise ValueError("A collection with that code or name already exists")
+            raise ValueError(
+                "A collection with that code or name already exists"
+            )
 
         conn.execute(
             """
             INSERT INTO collections (
-                brand_id, code, name, collection_type, vertical,
-                target_artwork_count, status
+                brand_id,
+                code,
+                name,
+                collection_type,
+                vertical,
+                target_artwork_count,
+                status
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
@@ -152,3 +214,140 @@ def create_collection(code, name, target_artwork_count, status):
         conn.commit()
 
     return code
+
+
+def update_collection(
+    collection_code,
+    name,
+    target_artwork_count,
+    status,
+):
+    code = collection_code.strip().upper()
+    name = name.strip()
+    normalized_status = status.strip().lower()
+
+    if not name:
+        raise ValueError("Collection name is required")
+    if target_artwork_count < 0:
+        raise ValueError("Target artwork count cannot be negative")
+
+    allowed_statuses = {"planned", "active", "complete", "paused"}
+
+    if normalized_status not in allowed_statuses:
+        raise ValueError("Invalid collection status")
+
+    with get_connection() as conn:
+        duplicate = conn.execute(
+            """
+            SELECT 1
+            FROM collections
+            WHERE name = ? AND code != ?
+            """,
+            (name, code),
+        ).fetchone()
+
+        if duplicate is not None:
+            raise ValueError(
+                "Another collection already uses that name"
+            )
+
+        cursor = conn.execute(
+            """
+            UPDATE collections
+            SET
+                name = ?,
+                target_artwork_count = ?,
+                status = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE code = ?
+            """,
+            (
+                name,
+                target_artwork_count,
+                normalized_status,
+                code,
+            ),
+        )
+
+        if cursor.rowcount == 0:
+            raise ValueError("Collection not found")
+
+        conn.commit()
+
+
+def archive_collection(collection_code):
+    code = collection_code.strip().upper()
+
+    with get_connection() as conn:
+        collection = conn.execute(
+            "SELECT id FROM collections WHERE code = ?",
+            (code,),
+        ).fetchone()
+
+        if collection is None:
+            raise ValueError("Collection not found")
+
+        artwork_count = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM artworks
+            WHERE collection_id = ?
+            """,
+            (collection["id"],),
+        ).fetchone()[0]
+
+        if artwork_count > 0:
+            raise ValueError(
+                "A collection containing artworks cannot be archived"
+            )
+
+        conn.execute(
+            """
+            UPDATE collections
+            SET
+                status = 'archived',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE code = ?
+            """,
+            (code,),
+        )
+        conn.commit()
+
+
+def archive_artwork(artwork_code):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE artworks
+            SET
+                status = 'retired',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_code = ?
+            """,
+            (artwork_code.strip().upper(),),
+        )
+
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork not found")
+
+        conn.commit()
+
+
+def restore_artwork(artwork_code):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE artworks
+            SET
+                status = 'idea',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_code = ?
+              AND status = 'retired'
+            """,
+            (artwork_code.strip().upper(),),
+        )
+
+        if cursor.rowcount == 0:
+            raise ValueError("Archived artwork not found")
+
+        conn.commit()
