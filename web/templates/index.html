@@ -1,57 +1,43 @@
 {% extends "base.html" %}
 
-{% block title %}
-ShangooliOS
-{% endblock %}
+{% block title %}ShangooliOS{% endblock %}
 
 {% block content %}
-
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h1 class="mb-1">Collections</h1>
-        <p class="text-muted mb-0">
-            Manage all ShangooliShop collections.
-        </p>
+        <p class="text-muted mb-0">Manage all ShangooliShop collections.</p>
     </div>
+    <a href="/collections/new" class="btn btn-primary">+ New Collection</a>
 </div>
 
 <div class="row g-4">
-
 {% for collection in collections %}
-
 <div class="col-md-6 col-lg-4">
-
     <div class="card shadow-sm h-100">
-
         <div class="card-body">
-
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <span class="badge bg-secondary">{{ collection["code"] }}</span>
+                <span class="badge bg-primary">{{ collection["status"] }}</span>
+            </div>
             <h4 class="card-title">
-
-                <a
-                    href="/collections/{{ collection['code'] }}"
-                    class="text-decoration-none"
-                >
+                <a href="/collections/{{ collection['code'] }}" class="text-decoration-none">
                     {{ collection["name"] }}
                 </a>
-
             </h4>
-
             <p class="text-muted mb-3">
-                {{ collection["code"] }}
+                Target: {{ collection["target_artwork_count"] or 0 }} artworks
             </p>
-
-            <span class="badge bg-primary">
+            <span class="badge bg-light text-dark border">
                 {{ collection["artwork_count"] }} artwork{% if collection["artwork_count"] != 1 %}s{% endif %}
             </span>
-
         </div>
-
     </div>
-
 </div>
-
+{% else %}
+<div class="col-12">
+    <div class="alert alert-light border">No collections yet.</div>
+</div>
 {% endfor %}
-
 </div>
-
 {% endblock %}

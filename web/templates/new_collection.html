@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}New Collection — ShangooliOS{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="/" class="text-decoration-none">← Back to collections</a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h1 class="h3 mb-1">New Collection</h1>
+                <p class="text-muted mb-4">Add a collection under ShangooliShop.</p>
+
+                <form method="post" action="/collections/new">
+                    <div class="mb-3">
+                        <label for="code" class="form-label">Collection Code</label>
+                        <input id="code" name="code" type="text"
+                               class="form-control" maxlength="10"
+                               placeholder="Example: LAN" required autofocus>
+                        <div class="form-text">
+                            A short unique code used for artwork IDs.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Collection Name</label>
+                        <input id="name" name="name" type="text"
+                               class="form-control"
+                               placeholder="Example: Landscape Collection" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="target_artwork_count" class="form-label">
+                            Target Artwork Count
+                        </label>
+                        <input id="target_artwork_count" name="target_artwork_count"
+                               type="number" class="form-control" min="0" value="0">
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="collection_status" class="form-label">Status</label>
+                        <select id="collection_status" name="collection_status"
+                                class="form-select">
+                            <option value="planned" selected>planned</option>
+                            <option value="active">active</option>
+                            <option value="complete">complete</option>
+                            <option value="paused">paused</option>
+                            <option value="archived">archived</option>
+                        </select>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="/" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">
+                            Create Collection
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
