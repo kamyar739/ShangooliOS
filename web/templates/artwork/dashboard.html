@@ -1,41 +1,40 @@
-{% set summary = production_summary %}
 <section class="command-center card app-card mb-4" aria-labelledby="command-center-title">
     <div class="card-body p-4 p-lg-5">
         <div class="command-center-grid">
             <div>
                 <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
                     <div class="eyebrow mb-0">Artwork Command Center</div>
-                    <span class="readiness-pill readiness-{{ summary['readiness'] }}">
-                        {{ summary['readiness_label'] }}
+                    <span class="readiness-pill readiness-{{ workflow.readiness }}">
+                        {{ workflow.readiness_label }}
                     </span>
                 </div>
 
                 <h2 id="command-center-title" class="h4 mb-3">
-                    {{ summary['completed_steps'] }} of {{ summary['total_steps'] }} steps complete
+                    {{ workflow.completed_steps }} of {{ workflow.total_steps }} steps complete
                 </h2>
 
                 <div class="workflow-progress mb-2"
                      role="progressbar"
-                     aria-valuenow="{{ summary['progress_percent'] }}"
+                     aria-valuenow="{{ workflow.progress_percent }}"
                      aria-valuemin="0"
                      aria-valuemax="100"
                      aria-label="Artwork workflow progress">
                     <div class="workflow-progress-bar"
-                         style="width: {{ summary['progress_percent'] }}%"></div>
+                         style="width: {{ workflow.progress_percent }}%"></div>
                 </div>
                 <div class="small text-secondary mb-4">
-                    {{ summary['progress_percent'] }}% complete
+                    {{ workflow.progress_percent }}% complete
                 </div>
 
                 <div class="next-action-panel">
                     <div class="eyebrow">Next action</div>
-                    <h3 class="h3 mb-2">{{ summary['next_action']['title'] }}</h3>
+                    <h3 class="h3 mb-2">{{ workflow.next_action['title'] }}</h3>
                     <p class="text-secondary mb-4">
-                        {{ summary['next_action']['description'] }}
+                        {{ workflow.next_action['description'] }}
                     </p>
                     <a class="btn btn-primary px-4"
-                       href="{{ summary['next_action']['href'] }}">
-                        {{ summary['next_action']['label'] }}
+                       href="{{ workflow.next_action['href'] }}">
+                        {{ workflow.next_action['label'] }}
                     </a>
                 </div>
             </div>
@@ -43,10 +42,10 @@
             <div class="workflow-panel">
                 <div class="eyebrow">Workflow</div>
                 <div class="workflow-list">
-                    {% for step in summary['workflow_steps'] %}
-                    <div class="workflow-step {% if step['complete'] %}is-complete{% elif summary['current_step'] and summary['current_step']['key'] == step['key'] %}is-current{% endif %}">
+                    {% for step in workflow.steps %}
+                    <div class="workflow-step {% if step['complete'] %}is-complete{% elif workflow.current_step and workflow.current_step['key'] == step['key'] %}is-current{% endif %}">
                         <span class="workflow-step-icon" aria-hidden="true">
-                            {% if step['complete'] %}✓{% elif summary['current_step'] and summary['current_step']['key'] == step['key'] %}→{% else %}○{% endif %}
+                            {% if step['complete'] %}✓{% elif workflow.current_step and workflow.current_step['key'] == step['key'] %}→{% else %}○{% endif %}
                         </span>
                         <span>{{ step['label'] }}</span>
                     </div>

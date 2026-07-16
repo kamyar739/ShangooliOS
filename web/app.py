@@ -63,18 +63,21 @@ def _artwork_context(artwork_code: str, **extra):
     files = list_workspace_files(artwork)
     assignments = get_artwork_file_assignments(artwork_code)
 
+    production_summary = build_production_summary(
+        artwork,
+        production,
+        files,
+        assignments,
+    )
+
     context = {
         "artwork": artwork,
         "workspace": inspect_workspace(artwork),
         "production": production,
         "workspace_files": files,
         "file_assignments": assignments,
-        "production_summary": build_production_summary(
-            artwork,
-            production,
-            files,
-            assignments,
-        ),
+        "production_summary": production_summary,
+        "workflow": production_summary["workflow"],
     }
     context.update(extra)
     return context

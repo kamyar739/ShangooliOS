@@ -45,3 +45,7 @@ data/shangooli.db
 # Logs
 # -----------------------------
 *.log
+
+*.zip
+
+
