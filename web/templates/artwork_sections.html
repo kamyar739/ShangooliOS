@@ -271,6 +271,29 @@
     </div>
 </div>
 
+<div id="artwork-certification" class="card app-card mb-4">
+  <div class="card-body p-4 p-lg-5">
+    <div class="eyebrow">Automatic quality verification</div>
+    <div class="d-flex flex-wrap justify-content-between gap-3 mb-4">
+      <div><h2 class="h4 mb-2">Artwork Certification</h2><p class="text-secondary mb-0">Runs automatically whenever the source or print master is uploaded.</p></div>
+      {% if certification %}<span class="badge {% if certification['score'] >= 80 %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6">{{ certification['score'] }}% — {{ certification['status'] }}</span>{% endif %}
+    </div>
+    {% if certification %}
+    <div class="row g-3 mb-4">
+      <div class="col-md-3"><div class="file-role-card h-100"><div class="small text-secondary">Dimensions</div><div class="h5 mb-0">{{ certification['width'] }} × {{ certification['height'] }} px</div></div></div>
+      <div class="col-md-3"><div class="file-role-card h-100"><div class="small text-secondary">Orientation</div><div class="h5 mb-0 text-capitalize">{{ certification['orientation'] }}</div></div></div>
+      <div class="col-md-3"><div class="file-role-card h-100"><div class="small text-secondary">Closest ratio</div><div class="h5 mb-0">{{ certification['closest_ratio'] }}</div></div></div>
+      <div class="col-md-3"><div class="file-role-card h-100"><div class="small text-secondary">Largest recommended</div><div class="h5 mb-0">{{ certification['largest_recommended_print'] or 'None' }}</div></div></div>
+    </div>
+    <div class="mb-3"><strong>Automatic ratio family:</strong> {{ certification['required_ratios']|join(', ') }}</div>
+    <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Print size</th><th>Effective PPI</th><th>Quality</th></tr></thead><tbody>
+      {% for item in certification['print_capability'] %}<tr><td>{{ item['size'] }}</td><td>{{ item['ppi'] }}</td><td>{% if item['recommended'] %}<span class="badge text-bg-success">{{ item['quality'] }}</span>{% else %}<span class="badge text-bg-warning">{{ item['quality'] }}</span>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% for warning in certification['warnings'] %}<div class="alert alert-warning py-2 mb-2">{{ warning }}</div>{% endfor %}
+    {% else %}<div class="alert alert-secondary mb-0">Upload a source artwork or print master to run certification.</div>{% endif %}
+  </div>
+</div>
+
 <div id="ratio-management" class="card app-card mb-4">
     <div class="card-body p-4 p-lg-5">
         <div class="eyebrow">2. Generate print files</div>
@@ -359,8 +382,15 @@
                 </p>
             </div>
             <div class="d-flex flex-wrap gap-2 align-items-center">
-                <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/generate">
-                    <button type="submit" class="btn btn-primary">Generate all 8 images</button>
+                <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/generate" class="d-flex gap-2">
+                    <select name="template_key" class="form-select" aria-label="Listing image template pack">
+                        {% for pack in template_packs %}
+                        <option value="{{ pack['key'] }}" {% if pack['key'] == request.query_params.get('template_pack', default_template_pack) %}selected{% endif %}>
+                            {{ pack['label'] }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-primary text-nowrap">Generate all 8</button>
                 </form>
                 <div class="mockup-count-pill">
                     {{ 8 - production_summary['missing_mockups']|length }} of 8 ready
@@ -369,7 +399,7 @@
         </div>
 
         {% if request.query_params.get('mockups_generated') %}
-        <div class="alert alert-success">All eight listing images were generated with the Modern Minimal pack. Review them below; previous generated versions were replaced.</div>
+        <div class="alert alert-success">All eight listing images were generated with the selected template pack. Review them below; previous generated versions were replaced.</div>
         {% endif %}
         {% if request.query_params.get('listing_image_generated') %}
         <div class="alert alert-success">The selected listing image was regenerated. The other seven images were left unchanged.</div>
@@ -420,10 +450,18 @@
                                 </select>
                             </div>
                             <div class="col-7 d-grid gap-2">
+                                <label class="form-label small mb-0">Template</label>
+                                <select name="{{ item['slot_key'] }}_template_key" class="form-select form-select-sm">
+                                    {% for pack in template_packs %}
+                                    <option value="{{ pack['key'] }}" {% if pack['key'] == item['template_key'] %}selected{% endif %}>
+                                        {{ pack['label'] }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
                                 <button type="submit" class="btn btn-sm btn-outline-primary"
                                         formaction="/artworks/{{ artwork['artwork_code'] }}/mockups/{{ item['slot_key'] }}/generate"
                                         formmethod="post">
-                                    {% if item['exists'] %}Regenerate{% else %}Generate{% endif %}
+                                    {% if item['exists'] %}Regenerate selected{% else %}Generate selected{% endif %}
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"
                                         onclick="document.getElementById('mockup-upload-{{ item['slot_key'] }}').click()">

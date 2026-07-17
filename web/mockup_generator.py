@@ -6,6 +6,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
+from web.template_packs import DEFAULT_TEMPLATE_PACK, get_template_pack
+
 
 CANVAS_SIZE = (2000, 2000)
 GENERATED_SLOTS = ("hero", "room", "bedroom", "office", "detail", "sizes", "how_it_works", "collection")
@@ -50,8 +52,9 @@ def _save(canvas: Image.Image, destination: Path) -> None:
     canvas.convert("RGB").save(destination, "JPEG", quality=94, optimize=True, progressive=True)
 
 
-def _hero(artwork: Image.Image, title: str) -> Image.Image:
-    canvas = Image.new("RGB", CANVAS_SIZE, "#f4f1eb")
+def _hero(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
+    profile = get_template_pack(template_key)
+    canvas = Image.new("RGB", CANVAS_SIZE, profile["mat"])
     draw = ImageDraw.Draw(canvas)
 
     draw.ellipse((180, 1450, 1820, 1770), fill="#ded8cf")
@@ -78,12 +81,12 @@ def _hero(artwork: Image.Image, title: str) -> Image.Image:
     draw.rounded_rectangle(
         (frame_x, frame_y, frame_x + frame_w, frame_y + frame_h),
         radius=10,
-        fill="#2d2b29",
+        fill=profile["frame"],
     )
     mat = 22
     draw.rectangle(
         (frame_x + mat, frame_y + mat, frame_x + frame_w - mat, frame_y + frame_h - mat),
-        fill="#fbfaf7",
+        fill=profile["mat"],
     )
     art_x = frame_x + frame_padding
     art_y = frame_y + frame_padding
@@ -105,7 +108,7 @@ def _hero(artwork: Image.Image, title: str) -> Image.Image:
     return canvas
 
 
-def _detail(artwork: Image.Image, title: str) -> Image.Image:
+def _detail(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
     canvas = Image.new("RGB", CANVAS_SIZE, "#f7f5f1")
     detail = _cover(artwork, (1740, 1440))
     canvas.paste(detail, (130, 120))
@@ -129,6 +132,27 @@ def _detail(artwork: Image.Image, title: str) -> Image.Image:
     return canvas
 
 
+
+
+def _artwork_orientation(artwork: Image.Image) -> str:
+    difference = abs(artwork.width - artwork.height) / max(artwork.width, artwork.height)
+    if difference <= 0.015:
+        return "square"
+    return "horizontal" if artwork.width > artwork.height else "vertical"
+
+
+def _frame_box(artwork: Image.Image, center_x: int, top: int, max_width: int, max_height: int) -> tuple[int, int, int, int]:
+    """Choose a frame footprint that matches horizontal, vertical, or square art."""
+    orientation = _artwork_orientation(artwork)
+    if orientation == "vertical":
+        width, height = int(max_width * 0.68), max_height
+    elif orientation == "square":
+        side = min(max_width, max_height)
+        width = height = side
+    else:
+        width, height = max_width, int(max_height * 0.78)
+    left = center_x - width // 2
+    return (left, top, left + width, top + height)
 
 def _paste_framed_art(
     canvas: Image.Image,
@@ -162,13 +186,14 @@ def _paste_framed_art(
     canvas.paste(art, (art_x, art_y))
 
 
-def _room(artwork: Image.Image, title: str) -> Image.Image:
+def _room(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
     """Warm modern living-room mockup rendered without external template assets."""
-    canvas = Image.new("RGB", CANVAS_SIZE, "#ddd5c8")
+    profile = get_template_pack(template_key)
+    canvas = Image.new("RGB", CANVAS_SIZE, profile["wall"])
     draw = ImageDraw.Draw(canvas)
     # Wall and floor
-    draw.rectangle((0, 0, 2000, 1450), fill="#e9e2d8")
-    draw.rectangle((0, 1450, 2000, 2000), fill="#b99372")
+    draw.rectangle((0, 0, 2000, 1450), fill=profile["wall"])
+    draw.rectangle((0, 1450, 2000, 2000), fill=profile["floor"])
     for y in range(1460, 2000, 85):
         draw.line((0, y, 2000, y - 35), fill="#a87f61", width=5)
     # Window and curtains
@@ -192,17 +217,18 @@ def _room(artwork: Image.Image, title: str) -> Image.Image:
     draw.ellipse((50, 1080, 180, 1320), fill="#6f8d70")
     draw.ellipse((130, 1040, 260, 1330), fill="#86a184")
 
-    _paste_framed_art(canvas, artwork, (770, 180, 1515, 1015))
+    _paste_framed_art(canvas, artwork, _frame_box(artwork, 1142, 180, 745, 835), frame_color=profile["frame"], mat_color=profile["mat"])
     draw.text((760, 1055), "IN-ROOM FRAMED MOCKUP", fill="#68615a", font=_font(28, bold=True))
     return canvas
 
 
-def _bedroom(artwork: Image.Image, title: str) -> Image.Image:
+def _bedroom(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
     """Minimal bedroom lifestyle mockup rendered without external assets."""
-    canvas = Image.new("RGB", CANVAS_SIZE, "#eee9e1")
+    profile = get_template_pack(template_key)
+    canvas = Image.new("RGB", CANVAS_SIZE, profile["wall"])
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0, 0, 2000, 1420), fill="#f1eee8")
-    draw.rectangle((0, 1420, 2000, 2000), fill="#cbb9a6")
+    draw.rectangle((0, 0, 2000, 1420), fill=profile["wall"])
+    draw.rectangle((0, 1420, 2000, 2000), fill=profile["floor"])
     # Bed
     draw.rounded_rectangle((260, 1170, 1760, 1860), radius=55, fill="#e5ded5")
     draw.rounded_rectangle((330, 1070, 1690, 1500), radius=50, fill="#faf8f3")
@@ -214,18 +240,19 @@ def _bedroom(artwork: Image.Image, title: str) -> Image.Image:
         draw.rectangle((x, 1430, x + 170, 1510), fill="#7a5d47")
         draw.rectangle((x + 65, 1220, x + 100, 1430), fill="#755e4f")
         draw.polygon([(x + 15, 1210), (x + 150, 1210), (x + 120, 1035), (x + 45, 1035)], fill="#d9cbb8")
-    _paste_framed_art(canvas, artwork, (590, 130, 1410, 940), frame_color="#ad8b57")
+    _paste_framed_art(canvas, artwork, _frame_box(artwork, 1000, 130, 820, 810), frame_color=profile["frame"], mat_color=profile["mat"])
     draw.text((120, 1885), "Styled bedroom presentation • Frame shown for display", fill="#6d665e", font=_font(30))
     return canvas
 
 
 
-def _office(artwork: Image.Image, title: str) -> Image.Image:
+def _office(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
     """Calm modern office mockup for an additional buyer context."""
-    canvas = Image.new("RGB", CANVAS_SIZE, "#e8e3da")
+    profile = get_template_pack(template_key)
+    canvas = Image.new("RGB", CANVAS_SIZE, profile["wall"])
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0, 0, 2000, 1450), fill="#ebe7df")
-    draw.rectangle((0, 1450, 2000, 2000), fill="#b58d6e")
+    draw.rectangle((0, 0, 2000, 1450), fill=profile["wall"])
+    draw.rectangle((0, 1450, 2000, 2000), fill=profile["floor"])
     # Desk and storage
     draw.rounded_rectangle((220, 1320, 1780, 1455), radius=24, fill="#765a45")
     draw.rectangle((300, 1450, 360, 1900), fill="#624936")
@@ -243,12 +270,12 @@ def _office(artwork: Image.Image, title: str) -> Image.Image:
     draw.rectangle((470, 1160, 665, 1235), fill="#b7775e")
     draw.ellipse((1570, 1100, 1830, 1320), fill="#7c977b")
     draw.rectangle((1665, 1280, 1735, 1450), fill="#84634c")
-    _paste_framed_art(canvas, artwork, (760, 180, 1510, 1020), frame_color="#2d2b29")
+    _paste_framed_art(canvas, artwork, _frame_box(artwork, 1135, 180, 750, 840), frame_color=profile["frame"], mat_color=profile["mat"])
     draw.text((120, 1880), "MODERN OFFICE PRESENTATION • FRAME SHOWN FOR DISPLAY", fill="#68615a", font=_font(29))
     return canvas
 
 
-def _how_it_works(artwork: Image.Image, title: str) -> Image.Image:
+def _how_it_works(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
     """Clear ordering explainer that reduces common buyer questions."""
     canvas = Image.new("RGB", CANVAS_SIZE, "#f7f3ec")
     draw = ImageDraw.Draw(canvas)
@@ -280,12 +307,13 @@ def _how_it_works(artwork: Image.Image, title: str) -> Image.Image:
     draw.text((120, 1860), "SHANGOOLISHOP", fill="#282522", font=_font(38, bold=True))
     return canvas
 
-def _collection(artwork: Image.Image, title: str) -> Image.Image:
-    canvas = Image.new("RGB", CANVAS_SIZE, "#282522")
+def _collection(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
+    profile = get_template_pack(template_key)
+    canvas = Image.new("RGB", CANVAS_SIZE, profile["text"])
     draw = ImageDraw.Draw(canvas)
     # Decorative celebration arcs
-    draw.arc((80, 90, 850, 860), 195, 350, fill="#d6a764", width=34)
-    draw.arc((1200, 1180, 2050, 2030), 15, 170, fill="#9f7660", width=38)
+    draw.arc((80, 90, 850, 860), 195, 350, fill=profile["accent"], width=34)
+    draw.arc((1200, 1180, 2050, 2030), 15, 170, fill=profile["accent"], width=38)
     art = _fit(artwork, (1180, 1050))
     frame_x = 410
     frame_y = 180
@@ -321,13 +349,19 @@ def _ratio_thumbnail(artwork: Image.Image, ratio: tuple[int, int], max_size: tup
     return _cover(artwork, (max(1, target_w), max(1, target_h)))
 
 
-def _sizes(artwork: Image.Image, title: str) -> Image.Image:
+def _sizes(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
     canvas = Image.new("RGB", CANVAS_SIZE, "#fbfaf7")
     draw = ImageDraw.Draw(canvas)
     draw.text((120, 100), "AVAILABLE PRINT RATIOS", fill="#252321", font=_font(70, bold=True))
     draw.text((120, 205), "Choose the proportion that works best for your wall.", fill="#6c6760", font=_font(36))
 
-    ratios = (("3:2", (3, 2)), ("4:3", (4, 3)), ("5:4", (5, 4)), ("14:11", (14, 11)))
+    orientation = _artwork_orientation(artwork)
+    if orientation == "vertical":
+        ratios = (("2:3", (2, 3)), ("3:4", (3, 4)), ("4:5", (4, 5)), ("11:14", (11, 14)))
+    elif orientation == "square":
+        ratios = (("1:1", (1, 1)), ("Square", (1, 1)), ("Square", (1, 1)), ("Square", (1, 1)))
+    else:
+        ratios = (("3:2", (3, 2)), ("4:3", (4, 3)), ("5:4", (5, 4)), ("14:11", (14, 11)))
     positions = ((120, 390), (1040, 390), (120, 1040), (1040, 1040))
     for (label, ratio), (x, y) in zip(ratios, positions):
         thumb = _ratio_thumbnail(artwork, ratio, (700, 470))
@@ -340,13 +374,14 @@ def _sizes(artwork: Image.Image, title: str) -> Image.Image:
         label_box = draw.textbbox((0, 0), label, font=_font(54, bold=True))
         draw.text((x + (760 - (label_box[2] - label_box[0])) / 2, y + 520), label, fill="#272522", font=_font(54, bold=True))
 
-    footer = (title.strip() or "ShangooliShop Artwork") + " • Horizontal ratio guide"
+    footer = (title.strip() or "ShangooliShop Artwork") + f" • {orientation.title()} ratio guide"
     draw.text((120, 1840), footer, fill="#77716a", font=_font(30))
     return canvas
 
 
-def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path) -> list[dict]:
+def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path, template_key: str = DEFAULT_TEMPLATE_PACK) -> list[dict]:
     """Generate all eight listing images and return assignment-ready metadata."""
+    get_template_pack(template_key)
     source = _load_artwork(source_path)
     title = artwork.get("public_title") or artwork.get("working_title") or ""
     code = artwork["artwork_code"]
@@ -363,9 +398,9 @@ def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path) -
     }
     results: list[dict] = []
     for slot_key in GENERATED_SLOTS:
-        filename = f"{code}_mockup_{slot_key}.jpg"
+        filename = f"{code}_listing_{slot_key}_{template_key}.jpg"
         destination = output_folder / filename
-        _save(builders[slot_key](source, title), destination)
+        _save(builders[slot_key](source, title, template_key), destination)
         results.append(
             {
                 "slot_key": slot_key,
@@ -378,8 +413,9 @@ def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path) -
     return results
 
 
-def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, output_folder: Path) -> dict:
+def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, output_folder: Path, template_key: str = DEFAULT_TEMPLATE_PACK) -> dict:
     """Generate one listing image without replacing the other seven."""
+    get_template_pack(template_key)
     if slot_key not in GENERATED_SLOTS:
         raise ValueError(f"Unknown listing image slot: {slot_key}")
     source = _load_artwork(source_path)
@@ -395,9 +431,9 @@ def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, o
         "collection": _collection,
     }
     code = artwork["artwork_code"]
-    filename = f"{code}_listing_{slot_key}.jpg"
+    filename = f"{code}_listing_{slot_key}_{template_key}.jpg"
     destination = output_folder / filename
-    _save(builders[slot_key](source, title), destination)
+    _save(builders[slot_key](source, title, template_key), destination)
     return {
         "slot_key": slot_key,
         "role": f"mockup:{slot_key}",

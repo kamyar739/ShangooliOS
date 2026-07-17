@@ -25,7 +25,9 @@ from web.db import (
     create_collection,
     get_artwork,
     get_artwork_file_assignments,
+    get_artwork_certification,
     get_artwork_mockup_order,
+    get_artwork_mockup_templates,
     get_artwork_intelligence,
     get_artwork_listing_content,
     get_artwork_production,
@@ -33,6 +35,8 @@ from web.db import (
     get_dashboard,
     restore_artwork,
     save_artwork_mockup_order,
+    save_artwork_mockup_template,
+    save_artwork_mockup_templates,
     search_artworks,
     set_artwork_production_flags,
     update_artwork,
@@ -41,11 +45,14 @@ from web.db import (
     update_artwork_production,
     update_collection,
     upsert_artwork_file,
+    upsert_artwork_certification,
 )
 from web.file_intake import save_uploaded_file
 from web.artwork_intelligence import analyze_artwork
+from web.artwork_certifier import certify_artwork
 from web.listing_writer import generate_listing_content
 from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, generate_mockups
+from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
 from web.production import (
     build_production_summary,
     list_workspace_files,
@@ -131,9 +138,16 @@ def _artwork_context(artwork_code: str, **extra):
         row["slot_key"]: row["position"]
         for row in get_artwork_mockup_order(artwork_code)
     }
+    saved_templates = {
+        row["slot_key"]: row["template_key"]
+        for row in get_artwork_mockup_templates(artwork_code)
+    }
     for item in production_summary["mockup_status"]:
         item["position"] = saved_order.get(
             item["slot_key"], item["default_position"]
+        )
+        item["template_key"] = saved_templates.get(
+            item["slot_key"], DEFAULT_TEMPLATE_PACK
         )
     production_summary["mockup_status"].sort(
         key=lambda item: item["position"]
@@ -149,6 +163,10 @@ def _artwork_context(artwork_code: str, **extra):
         "workflow": production_summary["workflow"],
         "artwork_intelligence": get_artwork_intelligence(artwork_code),
         "listing_content": get_artwork_listing_content(artwork_code),
+        "certification": get_artwork_certification(artwork_code),
+        "template_packs": template_pack_options(),
+        "default_template_pack": DEFAULT_TEMPLATE_PACK,
+        "saved_template_packs": saved_templates,
     }
     context.update(extra)
     return context
@@ -516,10 +534,12 @@ def upload_source_file(
             artwork_code=artwork_code,
             **saved,
         )
+        workspace = get_artwork_folder(artwork)
+        source_path = workspace / saved["relative_path"]
+        certification = certify_artwork(source_path).to_dict()
+        upsert_artwork_certification(artwork_code, certification)
 
         if use_as_master:
-            workspace = get_artwork_folder(artwork)
-            source_path = workspace / saved["relative_path"]
             master_folder = workspace / "02 Print Files"
             master_folder.mkdir(parents=True, exist_ok=True)
             master_filename = (
@@ -572,6 +592,10 @@ def upload_print_master(
             artwork_code=artwork_code,
             **saved,
         )
+        workspace = get_artwork_folder(artwork)
+        master_path = workspace / saved["relative_path"]
+        certification = certify_artwork(master_path).to_dict()
+        upsert_artwork_certification(artwork_code, certification)
         set_artwork_production_flags(
             artwork_code,
             print_master_ready=True,
@@ -652,7 +676,7 @@ def generate_ratio_files(
 
 
 @app.post("/artworks/{artwork_code}/mockups/generate")
-def generate_mockups_post(artwork_code: str):
+def generate_mockups_post(artwork_code: str, template_key: str = Form(DEFAULT_TEMPLATE_PACK)):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
@@ -675,6 +699,7 @@ def generate_mockups_post(artwork_code: str):
             artwork=dict(artwork),
             source_path=source_path,
             output_folder=workspace / "03 Mockups",
+            template_key=template_key,
         )
         for result in results:
             upsert_artwork_file(
@@ -684,12 +709,16 @@ def generate_mockups_post(artwork_code: str):
                 stored_filename=result["stored_filename"],
                 original_filename=result["original_filename"],
             )
+        save_artwork_mockup_templates(
+            artwork_code,
+            {slot_key: template_key for slot_key in GENERATED_SLOTS},
+        )
         set_artwork_production_flags(artwork_code, mockups_ready=False)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?mockups_generated=8#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?mockups_generated=8&template_pack={template_key}#mockup-workspace",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -728,12 +757,15 @@ def upload_mockup_file(
 
 
 @app.post("/artworks/{artwork_code}/mockups/{slot_key}/generate")
-def generate_one_listing_image_post(artwork_code: str, slot_key: str):
+async def generate_one_listing_image_post(artwork_code: str, slot_key: str, request: Request):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
     if slot_key not in GENERATED_SLOTS:
         raise HTTPException(status_code=400, detail="Invalid listing image slot")
+
+    form = await request.form()
+    template_key = str(form.get(f"{slot_key}_template_key") or DEFAULT_TEMPLATE_PACK)
 
     assignments = {
         row["role"]: row
@@ -754,6 +786,7 @@ def generate_one_listing_image_post(artwork_code: str, slot_key: str):
             artwork=dict(artwork),
             source_path=source_path,
             output_folder=workspace / "03 Mockups",
+            template_key=template_key,
         )
         upsert_artwork_file(
             artwork_code=artwork_code,
@@ -762,12 +795,13 @@ def generate_one_listing_image_post(artwork_code: str, slot_key: str):
             stored_filename=result["stored_filename"],
             original_filename=result["original_filename"],
         )
+        save_artwork_mockup_template(artwork_code, slot_key, template_key)
         set_artwork_production_flags(artwork_code, mockups_ready=False)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?listing_image_generated={slot_key}#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?listing_image_generated={slot_key}&template_pack={template_key}#mockup-workspace",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
