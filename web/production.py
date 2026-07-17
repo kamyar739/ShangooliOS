@@ -123,20 +123,8 @@ def build_workflow_status(
         {
             "key": "master",
             "stage": "Print Production",
-            "label": "Print master uploaded",
+            "label": "Print master ready",
             "complete": master_ready,
-        },
-        {
-            "key": "ratios",
-            "stage": "Print Production",
-            "label": "Required ratios generated",
-            "complete": ratios_generated,
-        },
-        {
-            "key": "ratio_review",
-            "stage": "Print Production",
-            "label": "Ratio files reviewed",
-            "complete": bool(production["ratio_exports_ready"]),
         },
         {
             "key": "mockups",
@@ -187,34 +175,11 @@ def build_workflow_status(
             "href": "#production-setup",
         },
         "master": {
-            "title": "Upload the print master",
+            "title": "Prepare the print master",
             "description": (
-                "Add the high-resolution print master used to generate "
-                "the required print ratios."
+                "Create or Assign the high-resolution master used for production "
             ),
-            "label": "Upload Print Master",
-            "href": "#file-intake",
-        },
-        "ratios": {
-            "title": (
-                f"Generate {', '.join(missing_ratios)}"
-                if missing_ratios
-                else "Set up the required print ratios"
-            ),
-            "description": (
-                "Create the missing ratio files from the approved print master."
-                if missing_ratios
-                else "Choose the required print ratios before generating files."
-            ),
-            "label": "Open Ratio Generator",
-            "href": "#production-setup",
-        },
-        "ratio_review": {
-            "title": "Review the generated ratio files",
-            "description": (
-                "Check each crop and confirm that all required exports are ready."
-            ),
-            "label": "Review Ratios",
+            "label": "Prepare Print Master",
             "href": "#production-setup",
         },
         "mockups": {

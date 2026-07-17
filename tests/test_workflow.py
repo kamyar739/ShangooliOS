@@ -28,7 +28,7 @@ class WorkflowStatusTests(unittest.TestCase):
             required_ratios=[],
             missing_ratios=[],
         )
-
+        print(workflow.next_action)
         self.assertEqual(workflow.current_step["key"], "source")
         self.assertEqual(workflow.current_stage, "Source Artwork")
         self.assertEqual(
@@ -36,7 +36,7 @@ class WorkflowStatusTests(unittest.TestCase):
             "Upload the source artwork",
         )
         self.assertEqual(workflow.completed_steps, 1)
-        self.assertEqual(workflow.progress_percent, 11)
+        self.assertEqual(workflow.progress_percent, 14)
 
     def test_uploaded_source_needs_approval(self):
         workflow = build_workflow_status(
@@ -55,7 +55,7 @@ class WorkflowStatusTests(unittest.TestCase):
         )
         self.assertEqual(workflow.completed_steps, 2)
 
-    def test_missing_ratios_are_named_in_next_action(self):
+    def test_missing_ratios_do_not_block_mockup_workflow(self):
         workflow = build_workflow_status(
             {"status": "production"},
             production_state(approved=True),
@@ -65,11 +65,12 @@ class WorkflowStatusTests(unittest.TestCase):
             missing_ratios=["5:4", "14:11"],
         )
 
-        self.assertEqual(workflow.current_step["key"], "ratios")
-        self.assertEqual(workflow.current_stage, "Print Production")
+        self.assertEqual(workflow.current_step["key"], "mockups")
+
+        self.assertEqual(workflow.current_stage, "Marketing Assets")
         self.assertEqual(
             workflow.next_action["title"],
-            "Generate 5:4, 14:11",
+            "Create and approve the listing images",
         )
 
     def test_completed_files_move_workflow_to_mockups(self):
@@ -86,6 +87,7 @@ class WorkflowStatusTests(unittest.TestCase):
         )
 
         self.assertEqual(workflow.current_step["key"], "mockups")
+        self.assertEqual(workflow.next_action["label"], "Open Mockup Files")
         self.assertEqual(workflow.current_stage, "Marketing Assets")
         self.assertEqual(
             workflow.next_action["title"],
