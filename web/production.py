@@ -71,6 +71,7 @@ class WorkflowStatus:
     total_steps: int
     progress_percent: int
     current_step: dict | None
+    current_stage: str
     next_action: dict
     readiness: str
     readiness_label: str
@@ -89,99 +90,156 @@ def build_workflow_status(
     is_listed = artwork["status"] == "listed"
 
     steps = [
-        {"key": "created", "label": "Artwork created", "complete": True},
-        {"key": "source", "label": "Source artwork uploaded", "complete": source_ready},
+        {
+            "key": "created",
+            "stage": "Artwork Setup",
+            "label": "Artwork created",
+            "complete": True,
+        },
+        {
+            "key": "source",
+            "stage": "Source Artwork",
+            "label": "Source artwork uploaded",
+            "complete": source_ready,
+        },
         {
             "key": "approved",
+            "stage": "Source Artwork",
             "label": "Source artwork approved",
             "complete": bool(production["original_approved"]),
         },
-        {"key": "master", "label": "Print master uploaded", "complete": master_ready},
-        {"key": "ratios", "label": "Required ratios generated", "complete": ratios_generated},
+        {
+            "key": "master",
+            "stage": "Print Production",
+            "label": "Print master uploaded",
+            "complete": master_ready,
+        },
+        {
+            "key": "ratios",
+            "stage": "Print Production",
+            "label": "Required ratios generated",
+            "complete": ratios_generated,
+        },
         {
             "key": "ratio_review",
+            "stage": "Print Production",
             "label": "Ratio files reviewed",
             "complete": bool(production["ratio_exports_ready"]),
         },
         {
             "key": "mockups",
+            "stage": "Marketing Assets",
             "label": "Mockups created and approved",
             "complete": bool(production["mockups_ready"]),
         },
         {
             "key": "listing",
-            "label": "Etsy listing content ready",
+            "stage": "Etsy Listing",
+            "label": "Listing content ready",
             "complete": bool(production["listing_content_ready"]),
         },
-        {"key": "published", "label": "Published", "complete": is_listed},
+        {
+            "key": "published",
+            "stage": "Publishing",
+            "label": "Published",
+            "complete": is_listed,
+        },
     ]
 
     completed_steps = sum(1 for step in steps if step["complete"])
     total_steps = len(steps)
     progress_percent = round((completed_steps / total_steps) * 100)
-    current_step = next((step for step in steps if not step["complete"]), None)
+
+    current_step = next(
+        (step for step in steps if not step["complete"]),
+        None,
+    )
 
     action_map = {
         "source": {
-            "title": "Upload source artwork",
-            "description": "Add the approved source image to begin production.",
+            "title": "Upload the source artwork",
+            "description": (
+                "Add the approved source image to the artwork workspace "
+                "to begin production."
+            ),
             "label": "Upload Source",
             "href": "#file-intake",
         },
         "approved": {
             "title": "Approve the source artwork",
-            "description": "Confirm that the source artwork is ready for production.",
-            "label": "Review Production",
+            "description": (
+                "Review the source image and confirm that it is the final "
+                "version to use for production."
+            ),
+            "label": "Review Source",
             "href": "#production-setup",
         },
         "master": {
             "title": "Upload the print master",
-            "description": "Add the high-resolution master used to create print sizes.",
+            "description": (
+                "Add the high-resolution print master used to generate "
+                "the required print ratios."
+            ),
             "label": "Upload Print Master",
             "href": "#file-intake",
         },
         "ratios": {
-            "title": "Generate missing ratios",
-            "description": (
-                f"Missing: {', '.join(missing_ratios)}"
+            "title": (
+                f"Generate {', '.join(missing_ratios)}"
                 if missing_ratios
-                else "Define the required ratios, then generate the output files."
+                else "Set up the required print ratios"
+            ),
+            "description": (
+                "Create the missing ratio files from the approved print master."
+                if missing_ratios
+                else "Choose the required print ratios before generating files."
             ),
             "label": "Open Ratio Generator",
             "href": "#production-setup",
         },
         "ratio_review": {
-            "title": "Review generated ratios",
-            "description": "Check the crops and confirm that every ratio is acceptable.",
+            "title": "Review the generated ratio files",
+            "description": (
+                "Check each crop and confirm that all required exports are ready."
+            ),
             "label": "Review Ratios",
             "href": "#production-setup",
         },
         "mockups": {
-            "title": "Create and approve mockups",
-            "description": "Prepare the listing mockups that show the artwork in context.",
-            "label": "Open Mockups",
+            "title": "Create and approve the mockups",
+            "description": (
+                "Prepare the listing images that show the artwork clearly "
+                "and in context."
+            ),
+            "label": "Open Mockup Files",
             "href": "#file-intake",
         },
         "listing": {
-            "title": "Finish Etsy listing content",
-            "description": "Complete the title, description, tags, and pricing.",
+            "title": "Finish the Etsy listing content",
+            "description": (
+                "Complete the title, description, tags, pricing, and listing details."
+            ),
             "label": "Edit Artwork Details",
             "href": "#artwork-details",
         },
         "published": {
             "title": "Publish the artwork",
-            "description": "The production package is ready for the final Etsy publishing step.",
+            "description": (
+                "The production package is complete. Review and publish the listing."
+            ),
             "label": "Review Listing Readiness",
             "href": "#validation",
         },
     }
 
     if current_step:
+        current_stage = current_step["stage"]
         next_action = action_map[current_step["key"]]
     else:
+        current_stage = "Complete"
         next_action = {
             "title": "Workflow complete",
-            "description": "This artwork has completed every workflow step.",
+            "description": "This artwork has completed every production step.",
             "label": "View Artwork Details",
             "href": "#artwork-details",
         }
@@ -202,6 +260,7 @@ def build_workflow_status(
         total_steps=total_steps,
         progress_percent=progress_percent,
         current_step=current_step,
+        current_stage=current_stage,
         next_action=next_action,
         readiness=readiness,
         readiness_label=readiness_label,

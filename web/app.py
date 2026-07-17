@@ -253,19 +253,48 @@ def save_artwork(
     story: str = Form(""),
     status_value: str = Form(..., alias="status"),
 ):
+    normalized_status = status_value.strip().lower()
+
+    if normalized_status == "listed":
+        context = _artwork_context(artwork_code)
+        workflow = context["workflow"]
+        current_step = workflow.current_step
+
+        listing_is_ready = (
+            current_step is None
+            or current_step["key"] == "published"
+        )
+
+        if not listing_is_ready:
+            missing_steps = [
+                step["label"]
+                for step in workflow.steps
+                if not step["complete"]
+                and step["key"] != "published"
+            ]
+
+            missing_text = ", ".join(missing_steps)
+
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This artwork cannot be marked Listed yet. "
+                    f"Complete: {missing_text}."
+                ),
+            )
+
     update_artwork(
         artwork_code=artwork_code,
         public_title=public_title,
         working_title=working_title,
         theme=theme,
         story=story,
-        status=status_value,
+        status=normalized_status,
     )
 
-    return templates.TemplateResponse(
-        request=request,
-        name="artwork.html",
-        context=_artwork_context(artwork_code, saved=True),
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

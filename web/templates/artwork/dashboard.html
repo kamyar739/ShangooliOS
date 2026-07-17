@@ -1,34 +1,45 @@
-<section class="command-center card app-card mb-4" aria-labelledby="command-center-title">
+<section class="command-center card app-card mb-4"
+         aria-labelledby="command-center-title">
     <div class="card-body p-4 p-lg-5">
         <div class="command-center-grid">
             <div>
                 <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
-                    <div class="eyebrow mb-0">Artwork Command Center</div>
+                    <div class="eyebrow mb-0">Production Readiness</div>
                     <span class="readiness-pill readiness-{{ workflow.readiness }}">
                         {{ workflow.readiness_label }}
                     </span>
                 </div>
 
-                <h2 id="command-center-title" class="h4 mb-3">
-                    {{ workflow.completed_steps }} of {{ workflow.total_steps }} steps complete
+                <h2 id="command-center-title" class="display-6 mb-1">
+                    {{ workflow.progress_percent }}%
                 </h2>
 
-                <div class="workflow-progress mb-2"
+                <div class="small text-secondary mb-3">
+                    {{ workflow.completed_steps }} of
+                    {{ workflow.total_steps }} steps complete
+                </div>
+
+                <div class="workflow-progress mb-4"
                      role="progressbar"
                      aria-valuenow="{{ workflow.progress_percent }}"
                      aria-valuemin="0"
                      aria-valuemax="100"
                      aria-label="Artwork workflow progress">
                     <div class="workflow-progress-bar"
-                         style="width: {{ workflow.progress_percent }}%"></div>
+                         style="width: {{ workflow.progress_percent }}%">
+                    </div>
                 </div>
-                <div class="small text-secondary mb-4">
-                    {{ workflow.progress_percent }}% complete
+
+                <div class="mb-4">
+                    <div class="eyebrow">Current stage</div>
+                    <div class="h5 mb-0">{{ workflow.current_stage }}</div>
                 </div>
 
                 <div class="next-action-panel">
                     <div class="eyebrow">Next action</div>
-                    <h3 class="h3 mb-2">{{ workflow.next_action['title'] }}</h3>
+                    <h3 class="h3 mb-2">
+                        {{ workflow.next_action['title'] }}
+                    </h3>
                     <p class="text-secondary mb-4">
                         {{ workflow.next_action['description'] }}
                     </p>
@@ -40,15 +51,38 @@
             </div>
 
             <div class="workflow-panel">
-                <div class="eyebrow">Workflow</div>
+                <div class="eyebrow mb-3">Production workflow</div>
+
                 <div class="workflow-list">
+                    {% set state = namespace(stage='') %}
+
                     {% for step in workflow.steps %}
-                    <div class="workflow-step {% if step['complete'] %}is-complete{% elif workflow.current_step and workflow.current_step['key'] == step['key'] %}is-current{% endif %}">
-                        <span class="workflow-step-icon" aria-hidden="true">
-                            {% if step['complete'] %}✓{% elif workflow.current_step and workflow.current_step['key'] == step['key'] %}→{% else %}○{% endif %}
-                        </span>
-                        <span>{{ step['label'] }}</span>
-                    </div>
+                        {% if step['stage'] != state.stage %}
+                            {% set state.stage = step['stage'] %}
+                            <div class="small fw-semibold text-secondary text-uppercase mt-3 mb-2">
+                                {{ step['stage'] }}
+                            </div>
+                        {% endif %}
+
+                        <div class="workflow-step
+                            {% if step['complete'] %}
+                                is-complete
+                            {% elif workflow.current_step
+                                and workflow.current_step['key'] == step['key'] %}
+                                is-current
+                            {% endif %}">
+                            <span class="workflow-step-icon" aria-hidden="true">
+                                {% if step['complete'] %}
+                                    ✓
+                                {% elif workflow.current_step
+                                    and workflow.current_step['key'] == step['key'] %}
+                                    →
+                                {% else %}
+                                    ○
+                                {% endif %}
+                            </span>
+                            <span>{{ step['label'] }}</span>
+                        </div>
                     {% endfor %}
                 </div>
             </div>
