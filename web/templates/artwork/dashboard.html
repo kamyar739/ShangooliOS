@@ -48,6 +48,57 @@
                         {{ workflow.next_action['label'] }}
                     </a>
                 </div>
+
+                <div class="production-alerts mt-4">
+                    <div class="eyebrow mb-2">Production Alerts</div>
+
+                    {% set alerts = namespace(count=0) %}
+
+                    {% for step in workflow.steps %}
+                        {% if not step['complete']
+                            and step['key'] != 'published'
+                            and step['key'] != workflow.current_step['key'] %}
+                            {% set alerts.count = alerts.count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if workflow.current_step
+                        and workflow.current_step['key'] != 'published' %}
+                        <div class="alert alert-warning mb-2" role="alert">
+                            <strong>Action required:</strong>
+                            {{ workflow.current_step['label'] }}.
+                        </div>
+                    {% endif %}
+
+                    {% if alerts.count > 0 %}
+                        <div class="alert alert-light border mb-0">
+                            <div class="fw-semibold mb-2">
+                                Remaining after the current step
+                            </div>
+
+                            <ul class="mb-0 ps-3">
+                                {% for step in workflow.steps %}
+                                    {% if not step['complete']
+                                        and step['key'] != 'published'
+                                        and step['key'] != workflow.current_step['key'] %}
+                                        <li>{{ step['label'] }}</li>
+                                    {% endif %}
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% elif workflow.current_step
+                        and workflow.current_step['key'] == 'published' %}
+                        <div class="alert alert-success mb-0" role="alert">
+                            <strong>No production issues found.</strong>
+                            This artwork is ready to be published.
+                        </div>
+                    {% elif not workflow.current_step %}
+                        <div class="alert alert-success mb-0" role="alert">
+                            <strong>Workflow complete.</strong>
+                            All production steps are finished.
+                        </div>
+                    {% endif %}
+                </div>
             </div>
 
             <div class="workflow-panel">
