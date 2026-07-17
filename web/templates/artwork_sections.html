@@ -116,12 +116,17 @@
 <div id="production-setup" class="card app-card mb-4">
     <div class="card-body p-4 p-lg-5">
         <div class="eyebrow">Production</div>
-        <h2 class="h4 mb-4">Production setup</h2>
+        <h2 class="h4 mb-2">Simple production setup</h2>
+        <p class="text-secondary mb-4">
+            Set the orientation once. ShangooliOS uses a 3:2 master and creates the four standard ShangooliShop outputs.
+        </p>
 
-        <form method="post"
-              action="/artworks/{{ artwork['artwork_code'] }}/production">
+        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/production">
+            <input type="hidden" name="master_ratio" value="3:2">
+            <input type="hidden" name="required_ratios" value="3:2, 4:3, 5:4, 14:11">
+
             <div class="row g-4">
-                <div class="col-md-4">
+                <div class="col-md-5">
                     <label class="form-label">Orientation</label>
                     <select name="orientation" class="form-select">
                         <option value="">Not set</option>
@@ -134,26 +139,20 @@
                     </select>
                 </div>
 
-                <div class="col-md-4">
-                    <label class="form-label">Master Aspect Ratio</label>
-                    <input name="master_ratio" type="text"
-                           class="form-control"
-                           value="{{ production['master_ratio'] or '' }}">
-                </div>
-
-                <div class="col-md-4">
-                    <label class="form-label">Required Output Ratios</label>
-                    <input name="required_ratios" type="text"
-                           class="form-control"
-                           value="{{ production['required_ratios'] or '' }}">
+                <div class="col-md-7">
+                    <label class="form-label">Print ratios</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for ratio in ["3:2", "4:3", "5:4", "14:11"] %}
+                        <span class="badge text-bg-light border px-3 py-2">{{ ratio }}</span>
+                        {% endfor %}
+                    </div>
+                    <div class="form-text">These are saved automatically when you save production.</div>
                 </div>
 
                 <div class="col-12">
                     <div class="production-checklist">
                         {% set checks = [
-                            ("original_approved", "Original artwork approved"),
-                            ("print_master_ready", "Print master prepared"),
-                            ("ratio_exports_ready", "Aspect-ratio exports complete"),
+                            ("original_approved", "Source artwork approved"),
                             ("mockups_ready", "Mockups complete"),
                             ("listing_content_ready", "Listing content ready")
                         ] %}
@@ -163,73 +162,312 @@
                                    type="checkbox" class="form-check-input"
                                    value="true"
                                    {% if production[field] %}checked{% endif %}>
-                            <label for="{{ field }}" class="form-check-label">
-                                {{ label }}
-                            </label>
+                            <label for="{{ field }}" class="form-check-label">{{ label }}</label>
                         </div>
                         {% endfor %}
+                        <input type="hidden" name="print_master_ready"
+                               value="{{ 'true' if production['print_master_ready'] else 'false' }}">
+                        <input type="hidden" name="ratio_exports_ready"
+                               value="{{ 'true' if production['ratio_exports_ready'] else 'false' }}">
                     </div>
                 </div>
 
                 <div class="col-12">
                     <label class="form-label">Production Notes</label>
-                    <textarea name="production_notes" rows="4"
+                    <textarea name="production_notes" rows="3"
                               class="form-control">{{ production["notes"] or "" }}</textarea>
                 </div>
             </div>
 
             <div class="d-flex justify-content-end mt-4">
-                <button type="submit" class="btn btn-primary px-4">
-                    Save Production
-                </button>
+                <button type="submit" class="btn btn-primary px-4">Save Production</button>
             </div>
         </form>
     </div>
 </div>
 
 <div id="file-intake" class="card app-card mb-4">
-    <div class="card-body p-4">
-        <div class="eyebrow">File intake</div>
-        <h2 class="h4 mb-4">Assigned production files</h2>
+    <div class="card-body p-4 p-lg-5">
+        <div class="eyebrow">1. Upload artwork</div>
+        <h2 class="h4 mb-2">Artwork file</h2>
+        <p class="text-secondary mb-4">
+            Choose the approved image. Upload starts immediately, and by default the same file is also saved as the print master.
+        </p>
+
+        {% if request.query_params.get('file_saved') %}
+        <div class="alert alert-success">File saved successfully.</div>
+        {% endif %}
 
         <div class="row g-4">
-            <div class="col-lg-6">
-                <div class="file-role-card">
-                    <h3 class="h6">Approved source artwork</h3>
+            <div class="col-lg-7">
+                <div class="file-role-card h-100">
                     {% if production_summary["source_assignment"] %}
-                    <div class="assigned-file mb-3">
-                        {{ production_summary["source_assignment"]["stored_filename"] }}
+                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                        <div>
+                            <div class="small text-secondary">Current source</div>
+                            <div class="fw-semibold">{{ production_summary["source_assignment"]["stored_filename"] }}</div>
+                        </div>
+                        <a class="btn btn-sm btn-outline-secondary"
+                           target="_blank"
+                           href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source">View</a>
                     </div>
+                    <img class="img-fluid rounded border mb-3"
+                         style="max-height: 320px; width: 100%; object-fit: contain;"
+                         src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source"
+                         alt="Source artwork preview">
                     {% endif %}
-                    <form method="post" enctype="multipart/form-data"
+
+                    <form id="source-upload-form" method="post" enctype="multipart/form-data"
                           action="/artworks/{{ artwork['artwork_code'] }}/files/source">
-                        <input type="file" name="upload"
-                               class="form-control mb-2" required>
-                        <button class="btn btn-outline-primary">
-                            Upload Source
-                        </button>
+                        <label class="form-label fw-semibold">
+                            {% if production_summary["source_ready"] %}Replace artwork{% else %}Choose artwork{% endif %}
+                        </label>
+                        <input id="source-upload" type="file" name="upload"
+                               accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf"
+                               class="form-control" required>
+                        <div class="form-check mt-3">
+                            <input id="use-as-master" name="use_as_master" value="true"
+                                   type="checkbox" class="form-check-input" checked>
+                            <label for="use-as-master" class="form-check-label">
+                                Use this file as the print master
+                            </label>
+                        </div>
+                        <div id="source-upload-status" class="form-text mt-2">
+                            Selecting a file uploads and saves it immediately.
+                        </div>
                     </form>
                 </div>
             </div>
 
-            <div class="col-lg-6">
-                <div class="file-role-card">
+            <div class="col-lg-5">
+                <div class="file-role-card h-100">
                     <h3 class="h6">Print master</h3>
                     {% if production_summary["master_assignment"] %}
                     <div class="assigned-file mb-3">
                         {{ production_summary["master_assignment"]["stored_filename"] }}
                     </div>
+                    <a class="btn btn-sm btn-outline-secondary mb-3" target="_blank"
+                       href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=print_master">View master</a>
+                    {% else %}
+                    <p class="text-secondary">No print master saved yet.</p>
                     {% endif %}
-                    <form method="post" enctype="multipart/form-data"
-                          action="/artworks/{{ artwork['artwork_code'] }}/files/print-master">
-                        <input type="file" name="upload"
-                               class="form-control mb-2" required>
-                        <button class="btn btn-outline-primary">
-                            Upload Print Master
-                        </button>
-                    </form>
+
+                    <details>
+                        <summary class="fw-semibold">Use a different print master</summary>
+                        <form id="master-upload-form" class="mt-3" method="post"
+                              enctype="multipart/form-data"
+                              action="/artworks/{{ artwork['artwork_code'] }}/files/print-master">
+                            <input id="master-upload" type="file" name="upload"
+                                   accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf"
+                                   class="form-control" required>
+                            <div id="master-upload-status" class="form-text mt-2">
+                                Selecting a file uploads it immediately.
+                            </div>
+                        </form>
+                    </details>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<div id="ratio-management" class="card app-card mb-4">
+    <div class="card-body p-4 p-lg-5">
+        <div class="eyebrow">2. Generate print files</div>
+        <div class="mb-4">
+            <h2 class="h4 mb-2">Print outputs</h2>
+            <p class="text-secondary mb-0">All four ratios are created automatically whenever the print master is uploaded or replaced.</p>
+        </div>
+
+        {% if ratio_generation_results %}
+        <div class="alert alert-info">
+            {% for result in ratio_generation_results %}
+            <div>{{ result['ratio'] }}: {{ result['status'] }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not production_summary['master_ready'] %}
+        <div class="alert alert-warning">Upload an artwork and save it as the print master first.</div>
+        {% endif %}
+
+        <div class="row g-3 mb-4">
+            {% for item in production_summary['ratio_status'] %}
+            <div class="col-md-6 col-xl-3">
+                <div class="file-role-card h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="h5 mb-0">{{ item['ratio'] }}</span>
+                        {% if item['exists'] %}
+                        <span class="badge text-bg-success">Ready</span>
+                        {% else %}
+                        <span class="badge text-bg-light border">Missing</span>
+                        {% endif %}
+                    </div>
+
+                    {% if item['exists'] %}
+                    <img class="img-fluid rounded border mb-3"
+                         style="height: 150px; width: 100%; object-fit: contain;"
+                         src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=ratio:{{ item['ratio'] }}"
+                         alt="{{ item['ratio'] }} ratio preview">
+                    <a class="btn btn-sm btn-outline-secondary w-100" target="_blank"
+                       href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=ratio:{{ item['ratio'] }}">
+                        Open full size
+                    </a>
+                    {% else %}
+                    <div class="text-secondary small mb-3">Not generated yet.</div>
+                    <form method="post" enctype="multipart/form-data"
+                          action="/artworks/{{ artwork['artwork_code'] }}/files/ratio">
+                        <input type="hidden" name="ratio" value="{{ item['ratio'] }}">
+                        <input type="file" name="upload" class="form-control form-control-sm mb-2" required>
+                        <button class="btn btn-sm btn-outline-primary w-100">Upload manually</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/ratios/review"
+              class="border rounded p-3">
+            <div class="form-check">
+                <input id="ratios-reviewed" name="reviewed" value="true"
+                       type="checkbox" class="form-check-input"
+                       {% if production['ratio_exports_ready'] %}checked{% endif %}
+                       {% if production_summary['missing_ratios'] %}disabled{% endif %}
+                       onchange="this.form.submit()">
+                <label for="ratios-reviewed" class="form-check-label fw-semibold">
+                    I reviewed all four ratio files and the crops look good
+                </label>
+            </div>
+            {% if production_summary['missing_ratios'] %}
+            <div class="form-text">Upload or replace the print master to create all four ratios automatically.</div>
+            {% else %}
+            <div class="form-text">Checking this saves immediately.</div>
+            {% endif %}
+        </form>
+    </div>
+</div>
+
+<div id="mockup-workspace" class="card app-card mb-4">
+    <div class="card-body p-4 p-lg-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+            <div>
+                <div class="eyebrow">3. Prepare listing images</div>
+                <h2 class="h4 mb-2">Mockup workspace</h2>
+                <p class="text-secondary mb-0">
+                    Upload or replace each required image, then set the order used for the Etsy listing.
+                </p>
+            </div>
+            <div class="mockup-count-pill">
+                {{ 6 - production_summary['missing_mockups']|length }} of 6 ready
+            </div>
+        </div>
+
+        {% if request.query_params.get('mockup_saved') %}
+        <div class="alert alert-success">Mockup saved. Review is reset whenever a mockup is replaced.</div>
+        {% endif %}
+        {% if request.query_params.get('mockup_settings_saved') %}
+        <div class="alert alert-success">Mockup order and review status saved.</div>
+        {% endif %}
+
+        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/settings">
+            <div class="row g-4 mb-4">
+                {% for item in production_summary['mockup_status'] %}
+                <div class="col-md-6 col-xl-4">
+                    <div class="mockup-slot h-100 {% if item['exists'] %}is-ready{% endif %}">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h3 class="h6 mb-1">{{ item['label'] }}</h3>
+                                <div class="small text-secondary">{{ item['description'] }}</div>
+                            </div>
+                            {% if item['exists'] %}
+                            <span class="badge text-bg-success">Ready</span>
+                            {% else %}
+                            <span class="badge text-bg-light border">Missing</span>
+                            {% endif %}
+                        </div>
+
+                        {% if item['exists'] %}
+                        <a href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}"
+                           target="_blank" class="mockup-preview mb-3">
+                            <img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}"
+                                 alt="{{ item['label'] }} mockup preview">
+                        </a>
+                        {% else %}
+                        <div class="mockup-preview mockup-preview-empty mb-3">No image uploaded</div>
+                        {% endif %}
+
+                        <div class="row g-2 align-items-end">
+                            <div class="col-5">
+                                <label class="form-label small">Etsy order</label>
+                                <select name="{{ item['slot_key'] }}_position" class="form-select form-select-sm">
+                                    {% for position in range(1, 7) %}
+                                    <option value="{{ position }}" {% if item['position'] == position %}selected{% endif %}>
+                                        {{ position }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-7">
+                                <button type="button" class="btn btn-sm btn-outline-primary w-100"
+                                        onclick="document.getElementById('mockup-upload-{{ item['slot_key'] }}').click()">
+                                    {% if item['exists'] %}Replace image{% else %}Upload image{% endif %}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="mockup-review-panel">
+                <div class="form-check">
+                    <input id="mockups-reviewed" name="reviewed" value="true"
+                           type="checkbox" class="form-check-input"
+                           {% if production['mockups_ready'] %}checked{% endif %}
+                           {% if production_summary['missing_mockups'] %}disabled{% endif %}>
+                    <label for="mockups-reviewed" class="form-check-label fw-semibold">
+                        I reviewed all six mockups and their Etsy order
+                    </label>
+                    {% if production_summary['missing_mockups'] %}
+                    <div class="form-text">Missing: {{ production_summary['missing_mockups']|join(', ') }}</div>
+                    {% else %}
+                    <div class="form-text">Marking this complete advances the artwork workflow.</div>
+                    {% endif %}
+                </div>
+                <button type="submit" class="btn btn-primary px-4">Save order and review</button>
+            </div>
+        </form>
+
+        {% for item in production_summary['mockup_status'] %}
+        <form id="mockup-form-{{ item['slot_key'] }}" method="post" enctype="multipart/form-data"
+              action="/artworks/{{ artwork['artwork_code'] }}/files/mockup" class="d-none">
+            <input type="hidden" name="slot_key" value="{{ item['slot_key'] }}">
+            <input id="mockup-upload-{{ item['slot_key'] }}" type="file" name="upload"
+                   accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" required
+                   onchange="this.form.submit()">
+        </form>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+(function () {
+    function autoSubmit(inputId, formId, statusId) {
+        const input = document.getElementById(inputId);
+        const form = document.getElementById(formId);
+        const status = document.getElementById(statusId);
+        if (!input || !form) return;
+        input.addEventListener('change', function () {
+            if (!input.files || !input.files.length) return;
+            input.style.pointerEvents = 'none';
+            input.setAttribute('aria-disabled', 'true');
+            if (status) status.textContent = 'Uploading and saving…';
+            form.submit();
+        });
+    }
+    autoSubmit('source-upload', 'source-upload-form', 'source-upload-status');
+    autoSubmit('master-upload', 'master-upload-form', 'master-upload-status');
+})();
+</script>
+

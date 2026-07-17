@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 
 from fastapi import (
     FastAPI,
@@ -9,29 +10,41 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette import status
 
-from app.database import create_artwork as create_artwork_with_workspace
+from app.database import (
+    create_artwork as create_artwork_with_workspace,
+    get_artwork_folder,
+)
 from web.db import (
     archive_artwork,
     archive_collection,
     create_collection,
     get_artwork,
     get_artwork_file_assignments,
+    get_artwork_mockup_order,
+    get_artwork_intelligence,
+    get_artwork_listing_content,
     get_artwork_production,
     get_collection,
     get_dashboard,
     restore_artwork,
+    save_artwork_mockup_order,
     search_artworks,
+    set_artwork_production_flags,
     update_artwork,
+    update_artwork_intelligence,
+    update_artwork_listing_content,
     update_artwork_production,
     update_collection,
     upsert_artwork_file,
 )
 from web.file_intake import save_uploaded_file
+from web.artwork_intelligence import analyze_artwork
+from web.listing_writer import generate_listing_content
 from web.production import (
     build_production_summary,
     list_workspace_files,
@@ -53,6 +66,49 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
+def _generate_required_ratios(artwork, *, overwrite: bool) -> list[dict]:
+    """Generate every configured ratio from the assigned print master."""
+    artwork_code = artwork["artwork_code"]
+    production = get_artwork_production(artwork_code)
+    assignments = get_artwork_file_assignments(artwork_code)
+    assignment_map = {row["role"]: row for row in assignments}
+    source_path = resolve_assigned_file(
+        artwork,
+        assignment_map.get("print_master"),
+    )
+    ratios = [
+        value.strip()
+        for value in (production["required_ratios"] or "").split(",")
+        if value.strip()
+    ]
+
+    results = []
+    for ratio in ratios:
+        result = generate_ratio_output(
+            artwork=artwork,
+            source_path=source_path,
+            ratio=ratio,
+            mode="fit",
+            overwrite=overwrite,
+        )
+        results.append(result)
+        if result["status"] in {"created", "skipped"}:
+            upsert_artwork_file(
+                artwork_code=artwork_code,
+                role=f"ratio:{ratio}",
+                relative_path=result["relative_path"],
+                stored_filename=result["stored_filename"],
+                original_filename=result["stored_filename"],
+            )
+
+    # A new master requires a fresh visual approval, even when generation succeeds.
+    set_artwork_production_flags(
+        artwork_code,
+        ratio_exports_ready=False,
+    )
+    return results
+
+
 def _artwork_context(artwork_code: str, **extra):
     artwork = get_artwork(artwork_code)
 
@@ -70,6 +126,18 @@ def _artwork_context(artwork_code: str, **extra):
         assignments,
     )
 
+    saved_order = {
+        row["slot_key"]: row["position"]
+        for row in get_artwork_mockup_order(artwork_code)
+    }
+    for item in production_summary["mockup_status"]:
+        item["position"] = saved_order.get(
+            item["slot_key"], item["default_position"]
+        )
+    production_summary["mockup_status"].sort(
+        key=lambda item: item["position"]
+    )
+
     context = {
         "artwork": artwork,
         "workspace": inspect_workspace(artwork),
@@ -78,6 +146,8 @@ def _artwork_context(artwork_code: str, **extra):
         "file_assignments": assignments,
         "production_summary": production_summary,
         "workflow": production_summary["workflow"],
+        "artwork_intelligence": get_artwork_intelligence(artwork_code),
+        "listing_content": get_artwork_listing_content(artwork_code),
     }
     context.update(extra)
     return context
@@ -234,6 +304,86 @@ def create_artwork_post(
     )
 
 
+@app.post("/artworks/{artwork_code}/intelligence/analyze")
+def analyze_artwork_post(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+    source = None
+    if assignments.get("source") is not None:
+        try:
+            source = resolve_assigned_file(artwork, assignments.get("source"))
+        except ValueError:
+            source = None
+    result = analyze_artwork(artwork, source)
+    update_artwork_intelligence(artwork_code, **result)
+    return RedirectResponse(url=f"/artworks/{artwork_code}#artwork-intelligence", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/artworks/{artwork_code}/intelligence")
+def save_artwork_intelligence_post(
+    artwork_code: str,
+    theme: str = Form(""), style: str = Form(""), mood: str = Form(""),
+    primary_colors: str = Form(""), suggested_room: str = Form(""),
+    target_customer: str = Form(""), generation_prompt: str = Form(""),
+    negative_prompt: str = Form(""), ai_model: str = Form(""),
+    analysis_notes: str = Form(""),
+):
+    update_artwork_intelligence(
+        artwork_code, theme=theme.strip(), style=style.strip(), mood=mood.strip(),
+        primary_colors=primary_colors.strip(), suggested_room=suggested_room.strip(),
+        target_customer=target_customer.strip(), generation_prompt=generation_prompt.strip(),
+        negative_prompt=negative_prompt.strip(), ai_model=ai_model.strip(),
+        analysis_notes=analysis_notes.strip(),
+    )
+    return RedirectResponse(url=f"/artworks/{artwork_code}#artwork-intelligence", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/artworks/{artwork_code}/listing-content/generate")
+def generate_listing_content_post(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    intelligence = get_artwork_intelligence(artwork_code)
+    result = generate_listing_content(artwork, intelligence)
+    update_artwork_listing_content(artwork_code, **result)
+    set_artwork_production_flags(artwork_code, listing_content_ready=True)
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code}#story-seo-writer",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/listing-content")
+def save_listing_content_post(
+    artwork_code: str,
+    short_story: str = Form(""),
+    long_story: str = Form(""),
+    etsy_title: str = Form(""),
+    etsy_description: str = Form(""),
+    etsy_tags: str = Form(""),
+    alt_text: str = Form(""),
+    keywords: str = Form(""),
+):
+    values = {
+        "short_story": short_story.strip(),
+        "long_story": long_story.strip(),
+        "etsy_title": etsy_title.strip(),
+        "etsy_description": etsy_description.strip(),
+        "etsy_tags": etsy_tags.strip(),
+        "alt_text": alt_text.strip(),
+        "keywords": keywords.strip(),
+    }
+    update_artwork_listing_content(artwork_code, **values)
+    required_ready = all(values[key] for key in ("etsy_title", "etsy_description", "etsy_tags", "alt_text"))
+    set_artwork_production_flags(artwork_code, listing_content_ready=required_ready)
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code}#story-seo-writer",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.get("/artworks/{artwork_code}")
 def artwork_page(request: Request, artwork_code: str):
     return templates.TemplateResponse(
@@ -346,11 +496,14 @@ def save_artwork_production(
 def upload_source_file(
     artwork_code: str,
     upload: UploadFile = File(...),
+    use_as_master: bool = Form(False),
 ):
     artwork = get_artwork(artwork_code)
 
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
+
+    get_artwork_production(artwork_code)
 
     try:
         saved = save_uploaded_file(
@@ -362,6 +515,29 @@ def upload_source_file(
             artwork_code=artwork_code,
             **saved,
         )
+
+        if use_as_master:
+            workspace = get_artwork_folder(artwork)
+            source_path = workspace / saved["relative_path"]
+            master_folder = workspace / "02 Print Files"
+            master_folder.mkdir(parents=True, exist_ok=True)
+            master_filename = (
+                f"{artwork['artwork_code']}_master{source_path.suffix.lower()}"
+            )
+            master_path = master_folder / master_filename
+            shutil.copy2(source_path, master_path)
+            upsert_artwork_file(
+                artwork_code=artwork_code,
+                role="print_master",
+                relative_path=str(master_path.relative_to(workspace)),
+                stored_filename=master_filename,
+                original_filename=saved["original_filename"],
+            )
+            set_artwork_production_flags(
+                artwork_code,
+                print_master_ready=True,
+            )
+            _generate_required_ratios(artwork, overwrite=True)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     finally:
@@ -383,6 +559,8 @@ def upload_print_master(
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
 
+    get_artwork_production(artwork_code)
+
     try:
         saved = save_uploaded_file(
             artwork=artwork,
@@ -393,6 +571,11 @@ def upload_print_master(
             artwork_code=artwork_code,
             **saved,
         )
+        set_artwork_production_flags(
+            artwork_code,
+            print_master_ready=True,
+        )
+        _generate_required_ratios(artwork, overwrite=True)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     finally:
@@ -441,7 +624,6 @@ def upload_ratio_output(
 def generate_ratio_files(
     request: Request,
     artwork_code: str,
-    generation_mode: str = Form("fit"),
     overwrite_existing: bool = Form(False),
 ):
     artwork = get_artwork(artwork_code)
@@ -449,50 +631,13 @@ def generate_ratio_files(
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
 
-    production = get_artwork_production(artwork_code)
-    assignments = get_artwork_file_assignments(artwork_code)
-    assignment_map = {row["role"]: row for row in assignments}
-
     try:
-        source_path = resolve_assigned_file(
+        results = _generate_required_ratios(
             artwork,
-            assignment_map.get("print_master"),
+            overwrite=overwrite_existing,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-
-    ratios = [
-        value.strip()
-        for value in (production["required_ratios"] or "").split(",")
-        if value.strip()
-    ]
-
-    if not ratios:
-        raise HTTPException(
-            status_code=400,
-            detail="No required ratios are defined",
-        )
-
-    results = []
-
-    for ratio in ratios:
-        result = generate_ratio_output(
-            artwork=artwork,
-            source_path=source_path,
-            ratio=ratio,
-            mode=generation_mode,
-            overwrite=overwrite_existing,
-        )
-        results.append(result)
-
-        if result["status"] in {"created", "skipped"}:
-            upsert_artwork_file(
-                artwork_code=artwork_code,
-                role=f"ratio:{ratio}",
-                relative_path=result["relative_path"],
-                stored_filename=result["stored_filename"],
-                original_filename=result["stored_filename"],
-            )
 
     return templates.TemplateResponse(
         request=request,
@@ -501,6 +646,128 @@ def generate_ratio_files(
             artwork_code,
             ratio_generation_results=results,
         ),
+    )
+
+
+@app.post("/artworks/{artwork_code}/files/mockup")
+def upload_mockup_file(
+    artwork_code: str,
+    slot_key: str = Form(...),
+    upload: UploadFile = File(...),
+):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    allowed_slots = {
+        "hero", "room", "detail", "sizes", "lifestyle", "collection"
+    }
+    if slot_key not in allowed_slots:
+        raise HTTPException(status_code=400, detail="Invalid mockup slot")
+
+    try:
+        saved = save_uploaded_file(
+            artwork=artwork,
+            upload=upload,
+            role="mockup",
+            ratio=slot_key,
+        )
+        upsert_artwork_file(artwork_code=artwork_code, **saved)
+        set_artwork_production_flags(artwork_code, mockups_ready=False)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        upload.file.close()
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?mockup_saved={slot_key}#mockup-workspace",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/mockups/settings")
+def save_mockup_settings(
+    artwork_code: str,
+    hero_position: int = Form(...),
+    room_position: int = Form(...),
+    detail_position: int = Form(...),
+    sizes_position: int = Form(...),
+    lifestyle_position: int = Form(...),
+    collection_position: int = Form(...),
+    reviewed: bool = Form(False),
+):
+    positions = {
+        "hero": hero_position,
+        "room": room_position,
+        "detail": detail_position,
+        "sizes": sizes_position,
+        "lifestyle": lifestyle_position,
+        "collection": collection_position,
+    }
+    if sorted(positions.values()) != [1, 2, 3, 4, 5, 6]:
+        raise HTTPException(
+            status_code=400,
+            detail="Use each Etsy position from 1 through 6 exactly once",
+        )
+
+    ordered_slots = [
+        slot for slot, _ in sorted(positions.items(), key=lambda item: item[1])
+    ]
+    save_artwork_mockup_order(artwork_code, ordered_slots)
+
+    context = _artwork_context(artwork_code)
+    if reviewed and not context["production_summary"]["mockups_complete"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Upload all six mockups before marking them reviewed",
+        )
+    set_artwork_production_flags(artwork_code, mockups_ready=reviewed)
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?mockup_settings_saved=1#mockup-workspace",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/artworks/{artwork_code}/files/view")
+def view_assigned_file(artwork_code: str, role: str = Query(...)):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    assignments = {
+        row["role"]: row
+        for row in get_artwork_file_assignments(artwork_code)
+    }
+    assignment = assignments.get(role)
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Assigned file not found")
+
+    workspace = get_artwork_folder(artwork).resolve()
+    file_path = (workspace / assignment["relative_path"]).resolve()
+    try:
+        file_path.relative_to(workspace)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Invalid file path") from error
+
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(file_path)
+
+
+@app.post("/artworks/{artwork_code}/ratios/review")
+def mark_ratio_review(
+    artwork_code: str,
+    reviewed: bool = Form(False),
+):
+    set_artwork_production_flags(
+        artwork_code,
+        ratio_exports_ready=reviewed,
+    )
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?ratio_review_saved=1#ratio-management",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

@@ -4,16 +4,6 @@ from app.database import get_artwork_folder
 from web.file_intake import assigned_file_exists
 
 
-MOCKUP_SLOTS = (
-    ("hero", "Hero", "Primary Etsy image"),
-    ("room", "In-room framed", "Artwork shown in a realistic room"),
-    ("detail", "Close-up detail", "Texture and artwork detail"),
-    ("sizes", "Sizes and ratios", "Available sizes and aspect ratios"),
-    ("lifestyle", "Lifestyle", "Additional styled presentation"),
-    ("collection", "Collection branding", "Celebration Collection identity"),
-)
-
-
 WORKSPACE_CATEGORIES = (
     ("source", "Source Artwork", "01 Source Artwork"),
     ("print", "Print Files", "02 Print Files"),
@@ -81,7 +71,6 @@ class WorkflowStatus:
     total_steps: int
     progress_percent: int
     current_step: dict | None
-    current_stage: str
     next_action: dict
     readiness: str
     readiness_label: str
@@ -100,156 +89,99 @@ def build_workflow_status(
     is_listed = artwork["status"] == "listed"
 
     steps = [
-        {
-            "key": "created",
-            "stage": "Artwork Setup",
-            "label": "Artwork created",
-            "complete": True,
-        },
-        {
-            "key": "source",
-            "stage": "Source Artwork",
-            "label": "Source artwork uploaded",
-            "complete": source_ready,
-        },
+        {"key": "created", "label": "Artwork created", "complete": True},
+        {"key": "source", "label": "Source artwork uploaded", "complete": source_ready},
         {
             "key": "approved",
-            "stage": "Source Artwork",
             "label": "Source artwork approved",
             "complete": bool(production["original_approved"]),
         },
-        {
-            "key": "master",
-            "stage": "Print Production",
-            "label": "Print master uploaded",
-            "complete": master_ready,
-        },
-        {
-            "key": "ratios",
-            "stage": "Print Production",
-            "label": "Required ratios generated",
-            "complete": ratios_generated,
-        },
+        {"key": "master", "label": "Print master uploaded", "complete": master_ready},
+        {"key": "ratios", "label": "Required ratios generated", "complete": ratios_generated},
         {
             "key": "ratio_review",
-            "stage": "Print Production",
             "label": "Ratio files reviewed",
             "complete": bool(production["ratio_exports_ready"]),
         },
         {
             "key": "mockups",
-            "stage": "Marketing Assets",
             "label": "Mockups created and approved",
             "complete": bool(production["mockups_ready"]),
         },
         {
             "key": "listing",
-            "stage": "Etsy Listing",
-            "label": "Listing content ready",
+            "label": "Etsy listing content ready",
             "complete": bool(production["listing_content_ready"]),
         },
-        {
-            "key": "published",
-            "stage": "Publishing",
-            "label": "Published",
-            "complete": is_listed,
-        },
+        {"key": "published", "label": "Published", "complete": is_listed},
     ]
 
     completed_steps = sum(1 for step in steps if step["complete"])
     total_steps = len(steps)
     progress_percent = round((completed_steps / total_steps) * 100)
-
-    current_step = next(
-        (step for step in steps if not step["complete"]),
-        None,
-    )
+    current_step = next((step for step in steps if not step["complete"]), None)
 
     action_map = {
         "source": {
-            "title": "Upload the source artwork",
-            "description": (
-                "Add the approved source image to the artwork workspace "
-                "to begin production."
-            ),
+            "title": "Upload source artwork",
+            "description": "Add the approved source image to begin production.",
             "label": "Upload Source",
             "href": "#file-intake",
         },
         "approved": {
             "title": "Approve the source artwork",
-            "description": (
-                "Review the source image and confirm that it is the final "
-                "version to use for production."
-            ),
-            "label": "Review Source",
+            "description": "Confirm that the source artwork is ready for production.",
+            "label": "Review Production",
             "href": "#production-setup",
         },
         "master": {
             "title": "Upload the print master",
-            "description": (
-                "Add the high-resolution print master used to generate "
-                "the required print ratios."
-            ),
+            "description": "Add the high-resolution master used to create print sizes.",
             "label": "Upload Print Master",
             "href": "#file-intake",
         },
         "ratios": {
-            "title": (
-                f"Generate {', '.join(missing_ratios)}"
-                if missing_ratios
-                else "Set up the required print ratios"
-            ),
+            "title": "Generate missing ratios",
             "description": (
-                "Create the missing ratio files from the approved print master."
+                f"Missing: {', '.join(missing_ratios)}"
                 if missing_ratios
-                else "Choose the required print ratios before generating files."
+                else "Define the required ratios, then generate the output files."
             ),
             "label": "Open Ratio Generator",
             "href": "#production-setup",
         },
         "ratio_review": {
-            "title": "Review the generated ratio files",
-            "description": (
-                "Check each crop and confirm that all required exports are ready."
-            ),
+            "title": "Review generated ratios",
+            "description": "Check the crops and confirm that every ratio is acceptable.",
             "label": "Review Ratios",
             "href": "#production-setup",
         },
         "mockups": {
-            "title": "Create and approve the mockups",
-            "description": (
-                "Prepare the listing images that show the artwork clearly "
-                "and in context."
-            ),
-            "label": "Open Mockup Files",
-            "href": "#mockup-workspace",
+            "title": "Create and approve mockups",
+            "description": "Prepare the listing mockups that show the artwork in context.",
+            "label": "Open Mockups",
+            "href": "#file-intake",
         },
         "listing": {
-            "title": "Finish the Etsy listing content",
-            "description": (
-                "Complete the title, description, tags, pricing, and listing details."
-            ),
+            "title": "Finish Etsy listing content",
+            "description": "Complete the title, description, tags, and pricing.",
             "label": "Edit Artwork Details",
             "href": "#artwork-details",
         },
         "published": {
             "title": "Publish the artwork",
-            "description": (
-                "The production package is complete. Review and publish the listing."
-            ),
+            "description": "The production package is ready for the final Etsy publishing step.",
             "label": "Review Listing Readiness",
             "href": "#validation",
         },
     }
 
     if current_step:
-        current_stage = current_step["stage"]
         next_action = action_map[current_step["key"]]
     else:
-        current_stage = "Complete"
         next_action = {
             "title": "Workflow complete",
-            "description": "This artwork has completed every production step.",
+            "description": "This artwork has completed every workflow step.",
             "label": "View Artwork Details",
             "href": "#artwork-details",
         }
@@ -270,7 +202,6 @@ def build_workflow_status(
         total_steps=total_steps,
         progress_percent=progress_percent,
         current_step=current_step,
-        current_stage=current_stage,
         next_action=next_action,
         readiness=readiness,
         readiness_label=readiness_label,
@@ -345,30 +276,6 @@ def build_production_summary(
         record["ratio"]
         for record in ratio_status
         if not record["exists"]
-    ]
-
-    mockup_status = []
-    for default_position, (slot_key, label, description) in enumerate(
-        MOCKUP_SLOTS, start=1
-    ):
-        assignment = assignment_map.get(f"mockup:{slot_key}")
-        exists = bool(
-            assignment
-            and assigned_file_exists(artwork, assignment["relative_path"])
-        )
-        mockup_status.append(
-            {
-                "slot_key": slot_key,
-                "label": label,
-                "description": description,
-                "default_position": default_position,
-                "assignment": assignment,
-                "exists": exists,
-            }
-        )
-
-    missing_mockups = [
-        record["label"] for record in mockup_status if not record["exists"]
     ]
 
     checklist_fields = (
@@ -452,9 +359,6 @@ def build_production_summary(
         "required_ratios": required_ratios,
         "ratio_status": ratio_status,
         "missing_ratios": missing_ratios,
-        "mockup_status": mockup_status,
-        "missing_mockups": missing_mockups,
-        "mockups_complete": not missing_mockups,
         "source_assignment": source_assignment,
         "source_ready": source_ready,
         "master_assignment": master_assignment,

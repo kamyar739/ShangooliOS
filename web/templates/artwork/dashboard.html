@@ -147,3 +147,98 @@
         </div>
     </div>
 </section>
+<section id="artwork-intelligence" class="card app-card mb-4">
+  <div class="card-body p-4">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+      <div>
+        <div class="eyebrow">Artwork Intelligence</div>
+        <h2 class="h4 mb-1">Reusable creative context</h2>
+        <p class="text-secondary mb-0">Analyze once, edit the results, and reuse this information for mockups, SEO, and listing copy.</p>
+      </div>
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence/analyze">
+        <button class="btn btn-outline-primary" type="submit">Analyze artwork</button>
+      </form>
+    </div>
+
+    <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence">
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label">Theme</label><input class="form-control" name="theme" value="{{ artwork_intelligence['theme'] or artwork['theme'] or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">Style</label><input class="form-control" name="style" value="{{ artwork_intelligence['style'] or '' }}" placeholder="Modern abstract figurative art"></div>
+        <div class="col-md-6"><label class="form-label">Mood</label><input class="form-control" name="mood" value="{{ artwork_intelligence['mood'] or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">Primary colors</label><input class="form-control" name="primary_colors" value="{{ artwork_intelligence['primary_colors'] or '' }}" placeholder="teal, coral, gold, ivory"></div>
+        <div class="col-md-6"><label class="form-label">Suggested rooms</label><input class="form-control" name="suggested_room" value="{{ artwork_intelligence['suggested_room'] or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">Target customer</label><input class="form-control" name="target_customer" value="{{ artwork_intelligence['target_customer'] or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">AI model used</label><input class="form-control" name="ai_model" value="{{ artwork_intelligence['ai_model'] or '' }}" placeholder="Gemini, GPT Image, Midjourney..."></div>
+        <div class="col-12"><label class="form-label">Generation prompt</label><textarea class="form-control" name="generation_prompt" rows="4">{{ artwork_intelligence['generation_prompt'] or '' }}</textarea></div>
+        <div class="col-12"><label class="form-label">Negative prompt / exclusions</label><textarea class="form-control" name="negative_prompt" rows="2">{{ artwork_intelligence['negative_prompt'] or '' }}</textarea></div>
+        <div class="col-12"><label class="form-label">Analysis notes</label><textarea class="form-control" name="analysis_notes" rows="3">{{ artwork_intelligence['analysis_notes'] or '' }}</textarea></div>
+      </div>
+      <div class="d-flex flex-wrap align-items-center gap-3 mt-4">
+        <button class="btn btn-primary" type="submit">Save intelligence</button>
+        {% if artwork_intelligence['analyzed_at'] %}<span class="small text-secondary">Last analyzed {{ artwork_intelligence['analyzed_at'] }}</span>{% endif %}
+      </div>
+    </form>
+  </div>
+</section>
+
+<section id="story-seo-writer" class="card app-card mb-4">
+  <div class="card-body p-4">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+      <div>
+        <div class="eyebrow">Story &amp; SEO Writer</div>
+        <h2 class="h4 mb-1">Listing copy from Artwork Intelligence</h2>
+        <p class="text-secondary mb-0">Generate a strong first draft, edit it here, and save the final copy for publishing.</p>
+      </div>
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listing-content/generate">
+        <button class="btn btn-outline-primary" type="submit">Generate story &amp; SEO</button>
+      </form>
+    </div>
+
+    <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listing-content">
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">Short artwork story</label>
+          <textarea class="form-control" name="short_story" rows="3">{{ listing_content['short_story'] or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Long artwork story</label>
+          <textarea class="form-control" name="long_story" rows="5">{{ listing_content['long_story'] or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <div class="d-flex justify-content-between gap-3">
+            <label class="form-label">Etsy title</label>
+            <span class="small text-secondary">Keep under 140 characters</span>
+          </div>
+          <input class="form-control" name="etsy_title" maxlength="140" value="{{ listing_content['etsy_title'] or '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label">Etsy description</label>
+          <textarea class="form-control" name="etsy_description" rows="12">{{ listing_content['etsy_description'] or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <div class="d-flex justify-content-between gap-3">
+            <label class="form-label">Etsy tags</label>
+            <span class="small text-secondary">Comma-separated; up to 13</span>
+          </div>
+          <textarea class="form-control" name="etsy_tags" rows="3">{{ listing_content['etsy_tags'] or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Image alt text</label>
+          <textarea class="form-control" name="alt_text" rows="3">{{ listing_content['alt_text'] or '' }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Keywords</label>
+          <textarea class="form-control" name="keywords" rows="2">{{ listing_content['keywords'] or '' }}</textarea>
+        </div>
+      </div>
+      <div class="d-flex flex-wrap align-items-center gap-3 mt-4">
+        <button class="btn btn-primary" type="submit">Save story &amp; SEO</button>
+        {% if listing_content['generated_at'] %}
+          <span class="small text-secondary">Last generated {{ listing_content['generated_at'] }}</span>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</section>
+
+

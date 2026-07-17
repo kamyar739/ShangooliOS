@@ -1,0 +1,81 @@
+{#
+Reusable artwork card.
+Expected variables:
+  artwork
+Optional variables:
+  card_variant: "default" or "compact"
+  heading_tag: "h2" or "h3"
+  show_collection, show_working_title, show_theme, show_production
+#}
+{% set compact = card_variant|default("default") == "compact" %}
+{% set title_tag = heading_tag|default("h2") %}
+
+<a href="/artworks/{{ artwork['artwork_code'] }}" class="card-link">
+    <div class="card app-card artwork-card{% if compact %} dashboard-recent-card{% endif %} h-100">
+        <div class="artwork-card-media{% if compact %} dashboard-recent-media{% endif %}">
+            {% if artwork["has_source_image"] %}
+            <img
+                src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source"
+                alt="{{ artwork['public_title'] }}"
+                loading="lazy"
+            >
+            {% else %}
+            <div class="artwork-card-placeholder">
+                <span>No artwork uploaded</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="card-body{% if compact %} dashboard-recent-body{% endif %}">
+            <div class="d-flex justify-content-between align-items-center gap-2 {% if compact %}mb-2{% else %}mb-3{% endif %}">
+                <span class="code-pill">{{ artwork["artwork_code"] }}</span>
+                <span class="status-pill status-{{ artwork['status'] }}">
+                    {{ artwork["status"] }}
+                </span>
+            </div>
+
+            <{{ title_tag }} class="{% if compact %}h6 mb-1{% else %}h5 mb-2{% endif %} text-dark">
+                {{ artwork["public_title"] }}
+            </{{ title_tag }}>
+
+            {% if show_working_title|default(false) and artwork["working_title"] %}
+            <p class="text-muted mb-2">{{ artwork["working_title"] }}</p>
+            {% endif %}
+
+            {% if show_collection|default(false) and artwork["collection_name"] %}
+            <p class="text-muted small {% if compact %}mb-0{% else %}mb-2{% endif %}">
+                {{ artwork["collection_name"] }}
+            </p>
+            {% endif %}
+
+            {% if show_theme|default(false) and artwork["theme"] %}
+            <p class="text-dark {% if show_production|default(false) %}mb-3{% else %}mb-0{% endif %}">
+                {{ artwork["theme"] }}
+            </p>
+            {% endif %}
+
+            {% if show_production|default(false) %}
+                {% set completed =
+                    artwork["original_approved"]
+                    + artwork["print_master_ready"]
+                    + artwork["ratio_exports_ready"]
+                    + artwork["mockups_ready"]
+                    + artwork["listing_content_ready"]
+                %}
+                <div class="production-card-footer">
+                    <div class="small text-muted mb-2">Production {{ completed }}/5</div>
+                    <div class="progress production-progress">
+                        <div class="progress-bar" style="width: {{ completed / 5 * 100 }}%"></div>
+                    </div>
+
+                    {% if artwork["orientation"] or artwork["master_ratio"] %}
+                    <div class="small text-muted mt-2">
+                        {{ artwork["orientation"] or "Orientation not set" }}
+                        {% if artwork["master_ratio"] %}· {{ artwork["master_ratio"] }}{% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</a>

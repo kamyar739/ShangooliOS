@@ -36,34 +36,12 @@
 <div class="row g-4">
     {% for artwork in results %}
     <div class="col-md-6 col-lg-4">
-        <a href="/artworks/{{ artwork['artwork_code'] }}" class="card-link">
-            <div class="card app-card h-100">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between mb-3">
-                        <span class="code-pill">{{ artwork["artwork_code"] }}</span>
-                        <span class="status-pill status-{{ artwork['status'] }}">
-                            {{ artwork["status"] }}
-                        </span>
-                    </div>
-
-                    <h2 class="h5 text-dark">{{ artwork["public_title"] }}</h2>
-
-                    {% if artwork["working_title"] %}
-                    <p class="text-muted mb-2">
-                        {{ artwork["working_title"] }}
-                    </p>
-                    {% endif %}
-
-                    <p class="small text-muted mb-2">
-                        {{ artwork["collection_name"] }}
-                    </p>
-
-                    {% if artwork["theme"] %}
-                    <p class="text-dark mb-0">{{ artwork["theme"] }}</p>
-                    {% endif %}
-                </div>
-            </div>
-        </a>
+        {% set card_variant = "default" %}
+        {% set heading_tag = "h2" %}
+        {% set show_working_title = true %}
+        {% set show_collection = true %}
+        {% set show_theme = true %}
+        {% include "components/artwork_card.html" %}
     </div>
     {% else %}
     <div class="col-12">

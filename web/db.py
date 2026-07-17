@@ -18,15 +18,71 @@ def ensure_production_schema():
             """
             CREATE TABLE IF NOT EXISTS artwork_production (
                 artwork_id INTEGER PRIMARY KEY,
-                orientation TEXT,
-                master_ratio TEXT,
-                required_ratios TEXT,
+                orientation TEXT DEFAULT 'horizontal',
+                master_ratio TEXT DEFAULT '3:2',
+                required_ratios TEXT DEFAULT '3:2, 4:3, 5:4, 14:11',
                 original_approved INTEGER NOT NULL DEFAULT 0,
                 print_master_ready INTEGER NOT NULL DEFAULT 0,
                 ratio_exports_ready INTEGER NOT NULL DEFAULT 0,
                 mockups_ready INTEGER NOT NULL DEFAULT 0,
                 listing_content_ready INTEGER NOT NULL DEFAULT 0,
                 notes TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id)
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artwork_mockup_order (
+                artwork_id INTEGER NOT NULL,
+                slot_key TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id),
+                PRIMARY KEY (artwork_id, slot_key),
+                UNIQUE (artwork_id, position)
+            )
+            """
+        )
+
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artwork_intelligence (
+                artwork_id INTEGER PRIMARY KEY,
+                theme TEXT,
+                style TEXT,
+                mood TEXT,
+                primary_colors TEXT,
+                suggested_room TEXT,
+                target_customer TEXT,
+                generation_prompt TEXT,
+                negative_prompt TEXT,
+                ai_model TEXT,
+                analysis_notes TEXT,
+                analyzed_at TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id)
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artwork_listing_content (
+                artwork_id INTEGER PRIMARY KEY,
+                short_story TEXT,
+                long_story TEXT,
+                etsy_title TEXT,
+                etsy_description TEXT,
+                etsy_tags TEXT,
+                alt_text TEXT,
+                keywords TEXT,
+                generated_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (artwork_id) REFERENCES artworks(id)
@@ -53,8 +109,23 @@ def ensure_production_schema():
 
         conn.execute(
             """
-            INSERT OR IGNORE INTO artwork_production (artwork_id)
-            SELECT id FROM artworks
+            INSERT OR IGNORE INTO artwork_production (
+                artwork_id, orientation, master_ratio, required_ratios
+            )
+            SELECT id, 'horizontal', '3:2', '3:2, 4:3, 5:4, 14:11'
+            FROM artworks
+            """
+        )
+        conn.execute(
+            """
+            UPDATE artwork_production
+            SET
+                orientation = COALESCE(NULLIF(orientation, ''), 'horizontal'),
+                master_ratio = COALESCE(NULLIF(master_ratio, ''), '3:2'),
+                required_ratios = COALESCE(
+                    NULLIF(required_ratios, ''),
+                    '3:2, 4:3, 5:4, 14:11'
+                )
             """
         )
 
@@ -111,7 +182,13 @@ def get_dashboard():
                 a.public_title,
                 a.theme,
                 a.status,
-                c.name AS collection_name
+                c.name AS collection_name,
+                EXISTS (
+                    SELECT 1
+                    FROM artwork_files AS source_file
+                    WHERE source_file.artwork_id = a.id
+                      AND source_file.role = 'source'
+                ) AS has_source_image
             FROM artworks AS a
             JOIN collections AS c
                 ON c.id = a.collection_id
@@ -141,7 +218,13 @@ def search_artworks(query):
                 a.working_title,
                 a.theme,
                 a.status,
-                c.name AS collection_name
+                c.name AS collection_name,
+                EXISTS (
+                    SELECT 1
+                    FROM artwork_files AS source_file
+                    WHERE source_file.artwork_id = a.id
+                      AND source_file.role = 'source'
+                ) AS has_source_image
             FROM artworks AS a
             JOIN collections AS c
                 ON c.id = a.collection_id
@@ -188,7 +271,13 @@ def get_collection(collection_code):
                 p.print_master_ready,
                 p.ratio_exports_ready,
                 p.mockups_ready,
-                p.listing_content_ready
+                p.listing_content_ready,
+                EXISTS (
+                    SELECT 1
+                    FROM artwork_files AS source_file
+                    WHERE source_file.artwork_id = a.id
+                      AND source_file.role = 'source'
+                ) AS has_source_image
             FROM artworks AS a
             LEFT JOIN artwork_production AS p
                 ON p.artwork_id = a.id
@@ -272,7 +361,11 @@ def get_artwork_production(artwork_code):
                 return None
 
             conn.execute(
-                "INSERT INTO artwork_production (artwork_id) VALUES (?)",
+                """
+                INSERT INTO artwork_production (
+                    artwork_id, orientation, master_ratio, required_ratios
+                ) VALUES (?, 'horizontal', '3:2', '3:2, 4:3, 5:4, 14:11')
+                """,
                 (artwork["id"],),
             )
             conn.commit()
@@ -360,6 +453,39 @@ def upsert_artwork_file(
         )
         conn.commit()
 
+
+
+def set_artwork_production_flags(artwork_code, **flags):
+    allowed = {
+        "original_approved",
+        "print_master_ready",
+        "ratio_exports_ready",
+        "mockups_ready",
+        "listing_content_ready",
+    }
+    updates = {key: value for key, value in flags.items() if key in allowed}
+
+    if not updates:
+        return
+
+    assignments = ", ".join(f"{key} = ?" for key in updates)
+    values = [int(bool(value)) for value in updates.values()]
+    values.append(artwork_code.upper())
+
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE artwork_production
+            SET {assignments}, updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_id = (
+                SELECT id FROM artworks WHERE artwork_code = ?
+            )
+            """,
+            values,
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork production record not found")
+        conn.commit()
 
 def update_artwork_production(
     artwork_code,
@@ -670,4 +796,153 @@ def restore_artwork(artwork_code):
         if cursor.rowcount == 0:
             raise ValueError("Archived artwork not found")
 
+        conn.commit()
+
+
+def get_artwork_mockup_order(artwork_code):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT mo.slot_key, mo.position
+            FROM artwork_mockup_order AS mo
+            JOIN artworks AS a ON a.id = mo.artwork_id
+            WHERE a.artwork_code = ?
+            ORDER BY mo.position
+            """,
+            (artwork_code.upper(),),
+        ).fetchall()
+
+
+def save_artwork_mockup_order(artwork_code, ordered_slot_keys):
+    normalized = [value.strip() for value in ordered_slot_keys if value.strip()]
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("Mockup positions must be unique")
+
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+        if artwork is None:
+            raise ValueError("Artwork not found")
+
+        conn.execute(
+            "DELETE FROM artwork_mockup_order WHERE artwork_id = ?",
+            (artwork["id"],),
+        )
+        conn.executemany(
+            """
+            INSERT INTO artwork_mockup_order (artwork_id, slot_key, position)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (artwork["id"], slot_key, position)
+                for position, slot_key in enumerate(normalized, start=1)
+            ],
+        )
+        conn.commit()
+
+
+def get_artwork_intelligence(artwork_code):
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id, theme FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+        if artwork is None:
+            return None
+        conn.execute(
+            "INSERT OR IGNORE INTO artwork_intelligence (artwork_id, theme) VALUES (?, ?)",
+            (artwork["id"], artwork["theme"] or ""),
+        )
+        conn.commit()
+        return conn.execute(
+            """
+            SELECT theme, style, mood, primary_colors, suggested_room,
+                   target_customer, generation_prompt, negative_prompt,
+                   ai_model, analysis_notes, analyzed_at
+            FROM artwork_intelligence
+            WHERE artwork_id = ?
+            """,
+            (artwork["id"],),
+        ).fetchone()
+
+
+def update_artwork_intelligence(artwork_code, **values):
+    allowed = {
+        "theme", "style", "mood", "primary_colors", "suggested_room",
+        "target_customer", "generation_prompt", "negative_prompt",
+        "ai_model", "analysis_notes", "analyzed_at",
+    }
+    fields = [(key, values[key]) for key in values if key in allowed]
+    if not fields:
+        return
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+        if artwork is None:
+            raise ValueError("Artwork not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO artwork_intelligence (artwork_id) VALUES (?)",
+            (artwork["id"],),
+        )
+        assignments = ", ".join(f"{key} = ?" for key, _ in fields)
+        params = [value for _, value in fields] + [artwork["id"]]
+        conn.execute(
+            f"UPDATE artwork_intelligence SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE artwork_id = ?",
+            params,
+        )
+        conn.commit()
+
+
+def get_artwork_listing_content(artwork_code):
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+        if artwork is None:
+            return None
+        conn.execute(
+            "INSERT OR IGNORE INTO artwork_listing_content (artwork_id) VALUES (?)",
+            (artwork["id"],),
+        )
+        conn.commit()
+        return conn.execute(
+            """
+            SELECT short_story, long_story, etsy_title, etsy_description,
+                   etsy_tags, alt_text, keywords, generated_at
+            FROM artwork_listing_content WHERE artwork_id = ?
+            """,
+            (artwork["id"],),
+        ).fetchone()
+
+
+def update_artwork_listing_content(artwork_code, **values):
+    allowed = {
+        "short_story", "long_story", "etsy_title", "etsy_description",
+        "etsy_tags", "alt_text", "keywords", "generated_at",
+    }
+    fields = [(key, values[key]) for key in values if key in allowed]
+    if not fields:
+        return
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+        if artwork is None:
+            raise ValueError("Artwork not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO artwork_listing_content (artwork_id) VALUES (?)",
+            (artwork["id"],),
+        )
+        assignments = ", ".join(f"{key} = ?" for key, _ in fields)
+        params = [value for _, value in fields] + [artwork["id"]]
+        conn.execute(
+            f"UPDATE artwork_listing_content SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE artwork_id = ?",
+            params,
+        )
         conn.commit()

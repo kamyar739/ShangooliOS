@@ -87,6 +87,14 @@ def save_uploaded_file(
         filename = f"{filename_prefix}{extension}"
         role_key = f"ratio:{ratio_value}"
 
+    elif role == "mockup":
+        slot_value = (ratio or "").strip()
+        slot_slug = _ratio_slug(slot_value)
+        folder = workspace / "03 Mockups"
+        filename_prefix = f"{artwork['artwork_code']}_mockup_{slot_slug}"
+        filename = f"{filename_prefix}{extension}"
+        role_key = f"mockup:{slot_value}"
+
     else:
         raise ValueError("Unknown file role")
 

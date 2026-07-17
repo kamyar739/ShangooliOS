@@ -1,1 +1,26 @@
-<div class="mb-4"><a href="/collections/{{ artwork['collection_code'] }}" class="text-decoration-none">← {{ artwork["collection_name"] }}</a></div><div class="page-header mb-4"><div><div class="eyebrow">{{ artwork["artwork_code"] }}</div><h1 class="display-6 fw-bold mb-2">{{ artwork["public_title"] }}</h1></div><div><span class="status-pill status-{{ artwork['status'] }}">{{ artwork["status"] }}</span></div></div>
+<div class="mb-4">
+    <a href="/collections/{{ artwork['collection_code'] }}" class="text-decoration-none">← {{ artwork["collection_name"] }}</a>
+</div>
+
+<div class="page-header artwork-detail-header mb-4">
+    <div class="artwork-detail-title-group">
+        {% if production_summary["source_assignment"] %}
+        <a class="artwork-detail-thumb" href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" target="_blank" aria-label="View source artwork">
+            <img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="{{ artwork['public_title'] }} thumbnail">
+        </a>
+        {% else %}
+        <div class="artwork-detail-thumb artwork-detail-thumb-placeholder" aria-hidden="true">
+            <span>No image</span>
+        </div>
+        {% endif %}
+
+        <div>
+            <div class="eyebrow">{{ artwork["artwork_code"] }}</div>
+            <h1 class="display-6 fw-bold mb-2">{{ artwork["public_title"] }}</h1>
+        </div>
+    </div>
+
+    <div>
+        <span class="status-pill status-{{ artwork['status'] }}">{{ artwork["status"] }}</span>
+    </div>
+</div>
