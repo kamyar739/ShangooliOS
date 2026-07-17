@@ -353,29 +353,32 @@
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
             <div>
                 <div class="eyebrow">3. Prepare listing images</div>
-                <h2 class="h4 mb-2">Mockup workspace</h2>
+                <h2 class="h4 mb-2">Listing Images</h2>
                 <p class="text-secondary mb-0">
-                    Upload or replace each required image, then set the order used for the Etsy listing.
+                    Generate the Modern Minimal image set, replace individual images when needed, then set the Etsy order.
                 </p>
             </div>
             <div class="d-flex flex-wrap gap-2 align-items-center">
                 <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/generate">
-                    <button type="submit" class="btn btn-primary">Generate all 6 mockups</button>
+                    <button type="submit" class="btn btn-primary">Generate all 8 images</button>
                 </form>
                 <div class="mockup-count-pill">
-                    {{ 6 - production_summary['missing_mockups']|length }} of 6 ready
+                    {{ 8 - production_summary['missing_mockups']|length }} of 8 ready
                 </div>
             </div>
         </div>
 
         {% if request.query_params.get('mockups_generated') %}
-        <div class="alert alert-success">All six mockups generated: hero, room, detail, sizes, lifestyle, and collection branding. Review them below; any previous generated versions were replaced.</div>
+        <div class="alert alert-success">All eight listing images were generated with the Modern Minimal pack. Review them below; previous generated versions were replaced.</div>
+        {% endif %}
+        {% if request.query_params.get('listing_image_generated') %}
+        <div class="alert alert-success">The selected listing image was regenerated. The other seven images were left unchanged.</div>
         {% endif %}
         {% if request.query_params.get('mockup_saved') %}
-        <div class="alert alert-success">Mockup saved. Review is reset whenever a mockup is replaced.</div>
+        <div class="alert alert-success">Listing image saved. Review is reset whenever an image is replaced.</div>
         {% endif %}
         {% if request.query_params.get('mockup_settings_saved') %}
-        <div class="alert alert-success">Mockup order and review status saved.</div>
+        <div class="alert alert-success">Listing-image order and review status saved.</div>
         {% endif %}
 
         <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/settings">
@@ -409,17 +412,22 @@
                             <div class="col-5">
                                 <label class="form-label small">Etsy order</label>
                                 <select name="{{ item['slot_key'] }}_position" class="form-select form-select-sm">
-                                    {% for position in range(1, 7) %}
+                                    {% for position in range(1, 9) %}
                                     <option value="{{ position }}" {% if item['position'] == position %}selected{% endif %}>
                                         {{ position }}
                                     </option>
                                     {% endfor %}
                                 </select>
                             </div>
-                            <div class="col-7">
-                                <button type="button" class="btn btn-sm btn-outline-primary w-100"
+                            <div class="col-7 d-grid gap-2">
+                                <button type="submit" class="btn btn-sm btn-outline-primary"
+                                        formaction="/artworks/{{ artwork['artwork_code'] }}/mockups/{{ item['slot_key'] }}/generate"
+                                        formmethod="post">
+                                    {% if item['exists'] %}Regenerate{% else %}Generate{% endif %}
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
                                         onclick="document.getElementById('mockup-upload-{{ item['slot_key'] }}').click()">
-                                    {% if item['exists'] %}Replace image{% else %}Upload image{% endif %}
+                                    {% if item['exists'] %}Upload replacement{% else %}Upload custom{% endif %}
                                 </button>
                             </div>
                         </div>
@@ -435,7 +443,7 @@
                            {% if production['mockups_ready'] %}checked{% endif %}
                            {% if production_summary['missing_mockups'] %}disabled{% endif %}>
                     <label for="mockups-reviewed" class="form-check-label fw-semibold">
-                        I reviewed all six mockups and their Etsy order
+                        I reviewed all eight listing images and their Etsy order
                     </label>
                     {% if production_summary['missing_mockups'] %}
                     <div class="form-text">Missing: {{ production_summary['missing_mockups']|join(', ') }}</div>

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 
 CANVAS_SIZE = (2000, 2000)
-GENERATED_SLOTS = ("hero", "room", "detail", "sizes", "lifestyle", "collection")
+GENERATED_SLOTS = ("hero", "room", "bedroom", "office", "detail", "sizes", "how_it_works", "collection")
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
 
@@ -197,7 +197,7 @@ def _room(artwork: Image.Image, title: str) -> Image.Image:
     return canvas
 
 
-def _lifestyle(artwork: Image.Image, title: str) -> Image.Image:
+def _bedroom(artwork: Image.Image, title: str) -> Image.Image:
     """Minimal bedroom lifestyle mockup rendered without external assets."""
     canvas = Image.new("RGB", CANVAS_SIZE, "#eee9e1")
     draw = ImageDraw.Draw(canvas)
@@ -218,6 +218,67 @@ def _lifestyle(artwork: Image.Image, title: str) -> Image.Image:
     draw.text((120, 1885), "Styled bedroom presentation • Frame shown for display", fill="#6d665e", font=_font(30))
     return canvas
 
+
+
+def _office(artwork: Image.Image, title: str) -> Image.Image:
+    """Calm modern office mockup for an additional buyer context."""
+    canvas = Image.new("RGB", CANVAS_SIZE, "#e8e3da")
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((0, 0, 2000, 1450), fill="#ebe7df")
+    draw.rectangle((0, 1450, 2000, 2000), fill="#b58d6e")
+    # Desk and storage
+    draw.rounded_rectangle((220, 1320, 1780, 1455), radius=24, fill="#765a45")
+    draw.rectangle((300, 1450, 360, 1900), fill="#624936")
+    draw.rectangle((1640, 1450, 1700, 1900), fill="#624936")
+    draw.rectangle((260, 420, 650, 1230), fill="#d6cfc5")
+    for y in (600, 800, 1000):
+        draw.line((290, y, 620, y), fill="#a79e93", width=8)
+    # Monitor, lamp, books and plant
+    draw.rounded_rectangle((1130, 1190, 1570, 1430), radius=20, fill="#323438")
+    draw.rectangle((1315, 1430, 1385, 1510), fill="#323438")
+    draw.rectangle((1230, 1510, 1470, 1540), fill="#323438")
+    draw.rectangle((760, 1280, 840, 1450), fill="#8d6c54")
+    draw.polygon([(700, 1290), (900, 1290), (855, 1090), (745, 1090)], fill="#d6c7ae")
+    draw.rectangle((455, 1235, 680, 1310), fill="#7c8d80")
+    draw.rectangle((470, 1160, 665, 1235), fill="#b7775e")
+    draw.ellipse((1570, 1100, 1830, 1320), fill="#7c977b")
+    draw.rectangle((1665, 1280, 1735, 1450), fill="#84634c")
+    _paste_framed_art(canvas, artwork, (760, 180, 1510, 1020), frame_color="#2d2b29")
+    draw.text((120, 1880), "MODERN OFFICE PRESENTATION • FRAME SHOWN FOR DISPLAY", fill="#68615a", font=_font(29))
+    return canvas
+
+
+def _how_it_works(artwork: Image.Image, title: str) -> Image.Image:
+    """Clear ordering explainer that reduces common buyer questions."""
+    canvas = Image.new("RGB", CANVAS_SIZE, "#f7f3ec")
+    draw = ImageDraw.Draw(canvas)
+    draw.text((120, 105), "HOW IT WORKS", fill="#282522", font=_font(78, bold=True))
+    draw.text((120, 220), "From artwork selection to a finished wall display.", fill="#6b655e", font=_font(36))
+
+    art = _fit(artwork, (650, 650))
+    draw.rounded_rectangle((105, 390, 805, 1120), radius=28, fill="#ffffff", outline="#d9d2c8", width=5)
+    canvas.paste(art, (455 - art.width // 2, 745 - art.height // 2))
+    draw.text((180, 1160), "1  CHOOSE YOUR SIZE", fill="#282522", font=_font(42, bold=True))
+    draw.text((180, 1230), "Select the ratio and dimensions that fit your wall.", fill="#6b655e", font=_font(30))
+
+    steps = [
+        ("2", "WE PRINT IT", "Your artwork is professionally produced to order."),
+        ("3", "FRAME OR HANG", "Add your preferred frame and display it your way."),
+        ("4", "ENJOY THE ROOM", "Bring color, movement, and personality into your space."),
+    ]
+    y = 440
+    for number, heading, body in steps:
+        draw.ellipse((970, y, 1100, y + 130), fill="#2d2b29")
+        num_box = draw.textbbox((0, 0), number, font=_font(54, bold=True))
+        draw.text((1035 - (num_box[2]-num_box[0])/2, y + 28), number, fill="#fffaf2", font=_font(54, bold=True))
+        draw.text((1160, y + 5), heading, fill="#282522", font=_font(42, bold=True))
+        draw.multiline_text((1160, y + 70), body, fill="#6b655e", font=_font(30), spacing=8)
+        y += 360
+
+    draw.line((120, 1735, 1880, 1735), fill="#d8d0c6", width=4)
+    draw.text((120, 1790), "Artwork only • Frame and decorative objects are not included", fill="#6b655e", font=_font(31))
+    draw.text((120, 1860), "SHANGOOLISHOP", fill="#282522", font=_font(38, bold=True))
+    return canvas
 
 def _collection(artwork: Image.Image, title: str) -> Image.Image:
     canvas = Image.new("RGB", CANVAS_SIZE, "#282522")
@@ -285,7 +346,7 @@ def _sizes(artwork: Image.Image, title: str) -> Image.Image:
 
 
 def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path) -> list[dict]:
-    """Generate all six dependable listing mockups and return assignment-ready metadata."""
+    """Generate all eight listing images and return assignment-ready metadata."""
     source = _load_artwork(source_path)
     title = artwork.get("public_title") or artwork.get("working_title") or ""
     code = artwork["artwork_code"]
@@ -293,9 +354,11 @@ def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path) -
     builders = {
         "hero": _hero,
         "room": _room,
+        "bedroom": _bedroom,
+        "office": _office,
         "detail": _detail,
         "sizes": _sizes,
-        "lifestyle": _lifestyle,
+        "how_it_works": _how_it_works,
         "collection": _collection,
     }
     results: list[dict] = []
@@ -313,3 +376,32 @@ def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path) -
             }
         )
     return results
+
+
+def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, output_folder: Path) -> dict:
+    """Generate one listing image without replacing the other seven."""
+    if slot_key not in GENERATED_SLOTS:
+        raise ValueError(f"Unknown listing image slot: {slot_key}")
+    source = _load_artwork(source_path)
+    title = artwork.get("public_title") or artwork.get("working_title") or ""
+    builders = {
+        "hero": _hero,
+        "room": _room,
+        "bedroom": _bedroom,
+        "office": _office,
+        "detail": _detail,
+        "sizes": _sizes,
+        "how_it_works": _how_it_works,
+        "collection": _collection,
+    }
+    code = artwork["artwork_code"]
+    filename = f"{code}_listing_{slot_key}.jpg"
+    destination = output_folder / filename
+    _save(builders[slot_key](source, title), destination)
+    return {
+        "slot_key": slot_key,
+        "role": f"mockup:{slot_key}",
+        "path": destination,
+        "stored_filename": filename,
+        "original_filename": filename,
+    }

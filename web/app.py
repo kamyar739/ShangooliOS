@@ -45,7 +45,7 @@ from web.db import (
 from web.file_intake import save_uploaded_file
 from web.artwork_intelligence import analyze_artwork
 from web.listing_writer import generate_listing_content
-from web.mockup_generator import generate_mockups
+from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, generate_mockups
 from web.production import (
     build_production_summary,
     list_workspace_files,
@@ -689,7 +689,7 @@ def generate_mockups_post(artwork_code: str):
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?mockups_generated=6#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?mockups_generated=8#mockup-workspace",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -703,9 +703,7 @@ def upload_mockup_file(
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
 
-    allowed_slots = {
-        "hero", "room", "detail", "sizes", "lifestyle", "collection"
-    }
+    allowed_slots = set(GENERATED_SLOTS)
     if slot_key not in allowed_slots:
         raise HTTPException(status_code=400, detail="Invalid mockup slot")
 
@@ -729,29 +727,66 @@ def upload_mockup_file(
     )
 
 
-@app.post("/artworks/{artwork_code}/mockups/settings")
-def save_mockup_settings(
-    artwork_code: str,
-    hero_position: int = Form(...),
-    room_position: int = Form(...),
-    detail_position: int = Form(...),
-    sizes_position: int = Form(...),
-    lifestyle_position: int = Form(...),
-    collection_position: int = Form(...),
-    reviewed: bool = Form(False),
-):
-    positions = {
-        "hero": hero_position,
-        "room": room_position,
-        "detail": detail_position,
-        "sizes": sizes_position,
-        "lifestyle": lifestyle_position,
-        "collection": collection_position,
+@app.post("/artworks/{artwork_code}/mockups/{slot_key}/generate")
+def generate_one_listing_image_post(artwork_code: str, slot_key: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    if slot_key not in GENERATED_SLOTS:
+        raise HTTPException(status_code=400, detail="Invalid listing image slot")
+
+    assignments = {
+        row["role"]: row
+        for row in get_artwork_file_assignments(artwork_code)
     }
-    if sorted(positions.values()) != [1, 2, 3, 4, 5, 6]:
+    source_assignment = assignments.get("print_master") or assignments.get("source")
+    if source_assignment is None:
         raise HTTPException(
             status_code=400,
-            detail="Use each Etsy position from 1 through 6 exactly once",
+            detail="Upload an artwork file before generating listing images",
+        )
+
+    try:
+        source_path = resolve_assigned_file(artwork, source_assignment)
+        workspace = get_artwork_folder(artwork)
+        result = generate_listing_image(
+            slot_key=slot_key,
+            artwork=dict(artwork),
+            source_path=source_path,
+            output_folder=workspace / "03 Mockups",
+        )
+        upsert_artwork_file(
+            artwork_code=artwork_code,
+            role=result["role"],
+            relative_path=str(result["path"].relative_to(workspace)),
+            stored_filename=result["stored_filename"],
+            original_filename=result["original_filename"],
+        )
+        set_artwork_production_flags(artwork_code, mockups_ready=False)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?listing_image_generated={slot_key}#mockup-workspace",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/mockups/settings")
+async def save_mockup_settings(artwork_code: str, request: Request):
+    form = await request.form()
+    positions = {}
+    try:
+        for slot_key in GENERATED_SLOTS:
+            positions[slot_key] = int(form[f"{slot_key}_position"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail="Every listing image needs an Etsy position") from error
+
+    expected = list(range(1, len(GENERATED_SLOTS) + 1))
+    if sorted(positions.values()) != expected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Use each Etsy position from 1 through {len(GENERATED_SLOTS)} exactly once",
         )
 
     ordered_slots = [
@@ -760,10 +795,11 @@ def save_mockup_settings(
     save_artwork_mockup_order(artwork_code, ordered_slots)
 
     context = _artwork_context(artwork_code)
+    reviewed = form.get("reviewed") == "true"
     if reviewed and not context["production_summary"]["mockups_complete"]:
         raise HTTPException(
             status_code=400,
-            detail="Upload all six mockups before marking them reviewed",
+            detail="Generate or upload all eight listing images before marking them reviewed",
         )
     set_artwork_production_flags(artwork_code, mockups_ready=reviewed)
 

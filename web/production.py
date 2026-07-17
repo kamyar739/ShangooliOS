@@ -5,11 +5,13 @@ from web.file_intake import assigned_file_exists
 
 
 MOCKUP_SLOTS = (
-    ("hero", "Hero", "Primary Etsy image"),
-    ("room", "In-room framed", "Artwork shown in a realistic room"),
-    ("detail", "Close-up detail", "Texture and artwork detail"),
-    ("sizes", "Sizes and ratios", "Available sizes and aspect ratios"),
-    ("lifestyle", "Lifestyle", "Additional styled presentation"),
+    ("hero", "Hero", "Primary Etsy search image"),
+    ("room", "Living room", "Artwork shown in a modern living room"),
+    ("bedroom", "Bedroom", "Warm lifestyle presentation"),
+    ("office", "Office", "Artwork shown in a modern workspace"),
+    ("detail", "Close-up detail", "Color and composition detail"),
+    ("sizes", "Sizes and ratios", "Available aspect-ratio guide"),
+    ("how_it_works", "How it works", "Ordering and display explanation"),
     ("collection", "Collection branding", "Celebration Collection identity"),
 )
 
@@ -139,7 +141,7 @@ def build_workflow_status(
         {
             "key": "mockups",
             "stage": "Marketing Assets",
-            "label": "Mockups created and approved",
+            "label": "Listing images created and approved",
             "complete": bool(production["mockups_ready"]),
         },
         {
@@ -216,7 +218,7 @@ def build_workflow_status(
             "href": "#production-setup",
         },
         "mockups": {
-            "title": "Create and approve the mockups",
+            "title": "Create and approve the listing images",
             "description": (
                 "Prepare the listing images that show the artwork clearly "
                 "and in context."

@@ -89,7 +89,7 @@ class WorkflowStatusTests(unittest.TestCase):
         self.assertEqual(workflow.current_stage, "Marketing Assets")
         self.assertEqual(
             workflow.next_action["title"],
-            "Create and approve the mockups",
+            "Create and approve the listing images",
         )
 
     def test_listing_ready_stops_at_publish(self):
