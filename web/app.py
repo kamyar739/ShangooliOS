@@ -45,6 +45,7 @@ from web.db import (
 from web.file_intake import save_uploaded_file
 from web.artwork_intelligence import analyze_artwork
 from web.listing_writer import generate_listing_content
+from web.mockup_generator import generate_mockups
 from web.production import (
     build_production_summary,
     list_workspace_files,
@@ -648,6 +649,49 @@ def generate_ratio_files(
         ),
     )
 
+
+
+@app.post("/artworks/{artwork_code}/mockups/generate")
+def generate_mockups_post(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    assignments = {
+        row["role"]: row
+        for row in get_artwork_file_assignments(artwork_code)
+    }
+    source_assignment = assignments.get("print_master") or assignments.get("source")
+    if source_assignment is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Upload an artwork file before generating mockups",
+        )
+
+    try:
+        source_path = resolve_assigned_file(artwork, source_assignment)
+        workspace = get_artwork_folder(artwork)
+        results = generate_mockups(
+            artwork=dict(artwork),
+            source_path=source_path,
+            output_folder=workspace / "03 Mockups",
+        )
+        for result in results:
+            upsert_artwork_file(
+                artwork_code=artwork_code,
+                role=result["role"],
+                relative_path=str(result["path"].relative_to(workspace)),
+                stored_filename=result["stored_filename"],
+                original_filename=result["original_filename"],
+            )
+        set_artwork_production_flags(artwork_code, mockups_ready=False)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?mockups_generated=3#mockup-workspace",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 @app.post("/artworks/{artwork_code}/files/mockup")
 def upload_mockup_file(

@@ -358,11 +358,19 @@
                     Upload or replace each required image, then set the order used for the Etsy listing.
                 </p>
             </div>
-            <div class="mockup-count-pill">
-                {{ 6 - production_summary['missing_mockups']|length }} of 6 ready
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/generate">
+                    <button type="submit" class="btn btn-primary">Generate first 3 mockups</button>
+                </form>
+                <div class="mockup-count-pill">
+                    {{ 6 - production_summary['missing_mockups']|length }} of 6 ready
+                </div>
             </div>
         </div>
 
+        {% if request.query_params.get('mockups_generated') %}
+        <div class="alert alert-success">Hero, close-up detail, and sizes &amp; ratios mockups generated. Review them below; any previous versions in those slots were replaced.</div>
+        {% endif %}
         {% if request.query_params.get('mockup_saved') %}
         <div class="alert alert-success">Mockup saved. Review is reset whenever a mockup is replaced.</div>
         {% endif %}

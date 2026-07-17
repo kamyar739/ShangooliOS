@@ -1,6 +1,8 @@
 from pathlib import Path
 import sqlite3
 
+from app.database import initialize_database
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATABASE_PATH = PROJECT_ROOT / "data" / "shangooli.db"
 
@@ -11,6 +13,7 @@ def get_connection():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+initialize_database()
 
 def ensure_production_schema():
     with get_connection() as conn:
@@ -131,7 +134,7 @@ def ensure_production_schema():
 
         conn.commit()
 
-
+initialize_database()
 ensure_production_schema()
 
 
