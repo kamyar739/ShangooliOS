@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 
 CANVAS_SIZE = (2000, 2000)
-GENERATED_SLOTS = ("hero", "detail", "sizes")
+GENERATED_SLOTS = ("hero", "room", "detail", "sizes", "lifestyle", "collection")
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
 
@@ -129,6 +129,121 @@ def _detail(artwork: Image.Image, title: str) -> Image.Image:
     return canvas
 
 
+
+def _paste_framed_art(
+    canvas: Image.Image,
+    artwork: Image.Image,
+    box: tuple[int, int, int, int],
+    *,
+    frame_color: str = "#2f2b28",
+    mat_color: str = "#faf8f3",
+    shadow_offset: tuple[int, int] = (24, 28),
+) -> None:
+    """Place artwork into a straight-on frame while preserving its proportions."""
+    left, top, right, bottom = box
+    frame_w = right - left
+    frame_h = bottom - top
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    ox, oy = shadow_offset
+    sd.rectangle((left + ox, top + oy, right + ox, bottom + oy), fill=(0, 0, 0, 72))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(24))
+    canvas.alpha_composite(shadow) if canvas.mode == "RGBA" else canvas.paste(Image.alpha_composite(canvas.convert("RGBA"), shadow).convert("RGB"))
+
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((left, top, right, bottom), fill=frame_color)
+    outer = 28
+    draw.rectangle((left + outer, top + outer, right - outer, bottom - outer), fill=mat_color)
+    inner_pad = 55
+    target = (max(1, frame_w - 2 * (outer + inner_pad)), max(1, frame_h - 2 * (outer + inner_pad)))
+    art = _fit(artwork, target)
+    art_x = left + (frame_w - art.width) // 2
+    art_y = top + (frame_h - art.height) // 2
+    canvas.paste(art, (art_x, art_y))
+
+
+def _room(artwork: Image.Image, title: str) -> Image.Image:
+    """Warm modern living-room mockup rendered without external template assets."""
+    canvas = Image.new("RGB", CANVAS_SIZE, "#ddd5c8")
+    draw = ImageDraw.Draw(canvas)
+    # Wall and floor
+    draw.rectangle((0, 0, 2000, 1450), fill="#e9e2d8")
+    draw.rectangle((0, 1450, 2000, 2000), fill="#b99372")
+    for y in range(1460, 2000, 85):
+        draw.line((0, y, 2000, y - 35), fill="#a87f61", width=5)
+    # Window and curtains
+    draw.rectangle((90, 180, 580, 1060), fill="#c7d8dd")
+    draw.rectangle((120, 210, 550, 1030), fill="#edf4f5")
+    draw.line((335, 210, 335, 1030), fill="#c2cccf", width=12)
+    draw.line((120, 620, 550, 620), fill="#c2cccf", width=12)
+    draw.polygon([(40, 120), (180, 120), (140, 1120), (0, 1120)], fill="#c8b29d")
+    draw.polygon([(490, 120), (650, 120), (700, 1120), (560, 1120)], fill="#c8b29d")
+    # Sofa
+    draw.rounded_rectangle((230, 1260, 1740, 1790), radius=70, fill="#c9c0b2")
+    draw.rounded_rectangle((300, 1120, 1670, 1530), radius=60, fill="#d7d0c5")
+    draw.rounded_rectangle((340, 1220, 760, 1530), radius=45, fill="#b6a89a")
+    draw.rounded_rectangle((1190, 1220, 1610, 1530), radius=45, fill="#8e9b8f")
+    # Side table and plant
+    draw.ellipse((1570, 1500, 1880, 1605), fill="#765b48")
+    draw.rectangle((1705, 1580, 1740, 1870), fill="#765b48")
+    draw.ellipse((1560, 1750, 1880, 1840), fill="#6d503e")
+    draw.rectangle((90, 1300, 210, 1650), fill="#7b5f4a")
+    draw.ellipse((35, 1180, 265, 1390), fill="#7e967d")
+    draw.ellipse((50, 1080, 180, 1320), fill="#6f8d70")
+    draw.ellipse((130, 1040, 260, 1330), fill="#86a184")
+
+    _paste_framed_art(canvas, artwork, (770, 180, 1515, 1015))
+    draw.text((760, 1055), "IN-ROOM FRAMED MOCKUP", fill="#68615a", font=_font(28, bold=True))
+    return canvas
+
+
+def _lifestyle(artwork: Image.Image, title: str) -> Image.Image:
+    """Minimal bedroom lifestyle mockup rendered without external assets."""
+    canvas = Image.new("RGB", CANVAS_SIZE, "#eee9e1")
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((0, 0, 2000, 1420), fill="#f1eee8")
+    draw.rectangle((0, 1420, 2000, 2000), fill="#cbb9a6")
+    # Bed
+    draw.rounded_rectangle((260, 1170, 1760, 1860), radius=55, fill="#e5ded5")
+    draw.rounded_rectangle((330, 1070, 1690, 1500), radius=50, fill="#faf8f3")
+    draw.rounded_rectangle((390, 1140, 850, 1460), radius=45, fill="#d4c7bb")
+    draw.rounded_rectangle((1110, 1140, 1570, 1460), radius=45, fill="#c8d0c8")
+    draw.polygon([(340, 1480), (1650, 1480), (1760, 1900), (250, 1900)], fill="#b7a799")
+    # Lamps and side tables
+    for x in (140, 1700):
+        draw.rectangle((x, 1430, x + 170, 1510), fill="#7a5d47")
+        draw.rectangle((x + 65, 1220, x + 100, 1430), fill="#755e4f")
+        draw.polygon([(x + 15, 1210), (x + 150, 1210), (x + 120, 1035), (x + 45, 1035)], fill="#d9cbb8")
+    _paste_framed_art(canvas, artwork, (590, 130, 1410, 940), frame_color="#ad8b57")
+    draw.text((120, 1885), "Styled bedroom presentation • Frame shown for display", fill="#6d665e", font=_font(30))
+    return canvas
+
+
+def _collection(artwork: Image.Image, title: str) -> Image.Image:
+    canvas = Image.new("RGB", CANVAS_SIZE, "#282522")
+    draw = ImageDraw.Draw(canvas)
+    # Decorative celebration arcs
+    draw.arc((80, 90, 850, 860), 195, 350, fill="#d6a764", width=34)
+    draw.arc((1200, 1180, 2050, 2030), 15, 170, fill="#9f7660", width=38)
+    art = _fit(artwork, (1180, 1050))
+    frame_x = 410
+    frame_y = 180
+    frame_w = 1180
+    frame_h = 1100
+    draw.rectangle((frame_x, frame_y, frame_x + frame_w, frame_y + frame_h), fill="#f6f1e8")
+    art_x = frame_x + (frame_w - art.width) // 2
+    art_y = frame_y + (frame_h - art.height) // 2
+    canvas.paste(art, (art_x, art_y))
+
+    draw.text((160, 1370), "THE CELEBRATION COLLECTION", fill="#d6a764", font=_font(40, bold=True))
+    display_title = (title.strip() or "Joyful Contemporary Art")[:46]
+    draw.text((160, 1450), display_title, fill="#fffaf2", font=_font(72, bold=True))
+    draw.text((160, 1570), "Art that brings movement, color, and joy into the room.", fill="#d8d0c7", font=_font(35))
+    draw.line((160, 1690, 1840, 1690), fill="#645d57", width=3)
+    draw.text((160, 1760), "SHANGOOLISHOP", fill="#fffaf2", font=_font(46, bold=True))
+    draw.text((160, 1835), "Original artwork • Professionally printed", fill="#aaa29a", font=_font(30))
+    return canvas
+
 def _ratio_thumbnail(artwork: Image.Image, ratio: tuple[int, int], max_size: tuple[int, int]) -> Image.Image:
     width, height = ratio
     if artwork.width >= artwork.height:
@@ -170,12 +285,19 @@ def _sizes(artwork: Image.Image, title: str) -> Image.Image:
 
 
 def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path) -> list[dict]:
-    """Generate the dependable v1 mockups and return assignment-ready metadata."""
+    """Generate all six dependable listing mockups and return assignment-ready metadata."""
     source = _load_artwork(source_path)
     title = artwork.get("public_title") or artwork.get("working_title") or ""
     code = artwork["artwork_code"]
 
-    builders = {"hero": _hero, "detail": _detail, "sizes": _sizes}
+    builders = {
+        "hero": _hero,
+        "room": _room,
+        "detail": _detail,
+        "sizes": _sizes,
+        "lifestyle": _lifestyle,
+        "collection": _collection,
+    }
     results: list[dict] = []
     for slot_key in GENERATED_SLOTS:
         filename = f"{code}_mockup_{slot_key}.jpg"

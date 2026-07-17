@@ -5,7 +5,7 @@ from PIL import Image
 from web.mockup_generator import CANVAS_SIZE, generate_mockups
 
 
-def test_generate_mockups_creates_three_listing_images(tmp_path: Path):
+def test_generate_mockups_creates_six_listing_images(tmp_path: Path):
     source = tmp_path / "source.png"
     Image.new("RGB", (1200, 800), "#cc6633").save(source)
     output = tmp_path / "mockups"
@@ -16,7 +16,9 @@ def test_generate_mockups_creates_three_listing_images(tmp_path: Path):
         output_folder=output,
     )
 
-    assert [item["slot_key"] for item in results] == ["hero", "detail", "sizes"]
+    assert [item["slot_key"] for item in results] == [
+        "hero", "room", "detail", "sizes", "lifestyle", "collection"
+    ]
     for item in results:
         assert item["path"].is_file()
         with Image.open(item["path"]) as generated:

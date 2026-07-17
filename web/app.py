@@ -689,7 +689,7 @@ def generate_mockups_post(artwork_code: str):
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?mockups_generated=3#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?mockups_generated=6#mockup-workspace",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

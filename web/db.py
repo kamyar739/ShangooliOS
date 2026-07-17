@@ -13,7 +13,6 @@ def get_connection():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-initialize_database()
 
 def ensure_production_schema():
     with get_connection() as conn:
@@ -133,6 +132,7 @@ def ensure_production_schema():
         )
 
         conn.commit()
+
 
 initialize_database()
 ensure_production_schema()
