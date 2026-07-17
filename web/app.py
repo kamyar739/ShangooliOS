@@ -239,7 +239,10 @@ def artwork_page(request: Request, artwork_code: str):
     return templates.TemplateResponse(
         request=request,
         name="artwork.html",
-        context=_artwork_context(artwork_code),
+        context=_artwork_context(
+            artwork_code,
+            workflow_error=request.query_params.get("workflow_error"),
+        ),
     )
 
 
@@ -275,12 +278,21 @@ def save_artwork(
 
             missing_text = ", ".join(missing_steps)
 
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "This artwork cannot be marked Listed yet. "
-                    f"Complete: {missing_text}."
+            from urllib.parse import urlencode
+
+            message = (
+                "This artwork cannot be marked Listed yet. "
+                f"Complete: {missing_text}."
+            )
+
+            query_string = urlencode({"workflow_error": message})
+
+            return RedirectResponse(
+                url=(
+                    f"/artworks/{artwork_code.upper()}"
+                    f"?{query_string}"
                 ),
+                status_code=status.HTTP_303_SEE_OTHER,
             )
 
     update_artwork(
