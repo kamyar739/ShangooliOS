@@ -53,3 +53,13 @@ data/shangooli.db
 # Local artwork production files
 assets/collections/*/*/01 Source Artwork/
 assets/collections/*/*/02 Print Files/
+
+# Generated artwork
+assets/collections/**/03 Mockups/
+
+# Database backups
+data/*backup*.db
+
+
+
+

@@ -1,5 +1,4 @@
 from pathlib import Path
-import shutil
 
 from fastapi import (
     FastAPI,
@@ -26,6 +25,7 @@ from web.db import (
     get_artwork,
     get_artwork_file_assignments,
     get_artwork_certification,
+    get_print_master_certification,	
     get_artwork_mockup_order,
     get_artwork_mockup_templates,
     get_artwork_intelligence,
@@ -46,6 +46,7 @@ from web.db import (
     update_collection,
     upsert_artwork_file,
     upsert_artwork_certification,
+    upsert_print_master_certification,
 )
 from web.file_intake import save_uploaded_file
 from web.artwork_intelligence import analyze_artwork
@@ -53,6 +54,7 @@ from web.artwork_certifier import certify_artwork
 from web.listing_writer import generate_listing_content
 from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, generate_mockups
 from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
+from web.print_master import build_print_master, load_print_master_manifest
 from web.production import (
     build_production_summary,
     list_workspace_files,
@@ -164,9 +166,11 @@ def _artwork_context(artwork_code: str, **extra):
         "artwork_intelligence": get_artwork_intelligence(artwork_code),
         "listing_content": get_artwork_listing_content(artwork_code),
         "certification": get_artwork_certification(artwork_code),
+        "print_master_certification": get_print_master_certification(artwork_code),
         "template_packs": template_pack_options(),
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
+        "print_master_manifest": load_print_master_manifest(artwork),
     }
     context.update(extra)
     return context
@@ -540,23 +544,22 @@ def upload_source_file(
         upsert_artwork_certification(artwork_code, certification)
 
         if use_as_master:
-            master_folder = workspace / "02 Print Files"
-            master_folder.mkdir(parents=True, exist_ok=True)
-            master_filename = (
-                f"{artwork['artwork_code']}_master{source_path.suffix.lower()}"
-            )
-            master_path = master_folder / master_filename
-            shutil.copy2(source_path, master_path)
+            master = build_print_master(artwork, source_path)
             upsert_artwork_file(
                 artwork_code=artwork_code,
                 role="print_master",
-                relative_path=str(master_path.relative_to(workspace)),
-                stored_filename=master_filename,
+                relative_path=master.relative_path,
+                stored_filename=master.master_filename,
                 original_filename=saved["original_filename"],
             )
             set_artwork_production_flags(
                 artwork_code,
                 print_master_ready=True,
+            )
+            master_path = workspace / master.relative_path
+            upsert_print_master_certification(
+                artwork_code,
+                certify_artwork(master_path).to_dict(),
             )
             _generate_required_ratios(artwork, overwrite=True)
     except ValueError as error:
@@ -566,6 +569,46 @@ def upload_source_file(
 
     return RedirectResponse(
         url=f"/artworks/{artwork_code.upper()}?file_saved=source",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/print-master/build")
+def create_print_master_from_source(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    assignments = {
+        row["role"]: row
+        for row in get_artwork_file_assignments(artwork_code)
+    }
+    source_assignment = assignments.get("source")
+    if source_assignment is None:
+        raise HTTPException(status_code=400, detail="Upload source artwork first")
+
+    try:
+        source_path = resolve_assigned_file(artwork, source_assignment)
+        master = build_print_master(artwork, source_path)
+        upsert_artwork_file(
+            artwork_code=artwork_code,
+            role="print_master",
+            relative_path=master.relative_path,
+            stored_filename=master.master_filename,
+            original_filename=source_assignment["original_filename"],
+        )
+        set_artwork_production_flags(artwork_code, print_master_ready=True)
+        master_path = get_artwork_folder(artwork) / master.relative_path
+        upsert_print_master_certification(
+            artwork_code,
+            certify_artwork(master_path).to_dict(),
+        )
+        _generate_required_ratios(artwork, overwrite=True)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?master_built=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -595,7 +638,7 @@ def upload_print_master(
         workspace = get_artwork_folder(artwork)
         master_path = workspace / saved["relative_path"]
         certification = certify_artwork(master_path).to_dict()
-        upsert_artwork_certification(artwork_code, certification)
+	upsert_print_master_certification(artwork_code, certification)        
         set_artwork_production_flags(
             artwork_code,
             print_master_ready=True,

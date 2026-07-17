@@ -246,10 +246,28 @@
                     <div class="assigned-file mb-3">
                         {{ production_summary["master_assignment"]["stored_filename"] }}
                     </div>
+                    {% if print_master_manifest %}
+                    <div class="small text-secondary mb-3">
+                        {{ print_master_manifest['source_width'] }}×{{ print_master_manifest['source_height'] }}
+                        → {{ print_master_manifest['master_width'] }}×{{ print_master_manifest['master_height'] }} px<br>
+                        {{ print_master_manifest['method'] }}
+                        {% if print_master_manifest['resized'] %} · {{ print_master_manifest['scale_factor'] }}×{% endif %}
+                    </div>
+                    {% endif %}
                     <a class="btn btn-sm btn-outline-secondary mb-3" target="_blank"
                        href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=print_master">View master</a>
+                    {% if production_summary['source_ready'] %}
+                    <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/print-master/build" class="mb-3">
+                        <button class="btn btn-sm btn-primary">Rebuild from source</button>
+                    </form>
+                    {% endif %}
                     {% else %}
                     <p class="text-secondary">No print master saved yet.</p>
+                    {% if production_summary['source_ready'] %}
+                    <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/print-master/build" class="mb-3">
+                        <button class="btn btn-sm btn-primary">Create print master</button>
+                    </form>
+                    {% endif %}
                     {% endif %}
 
                     <details>

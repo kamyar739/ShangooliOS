@@ -134,6 +134,34 @@ def ensure_production_schema():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS print_master_certification (
+                artwork_id INTEGER PRIMARY KEY,
+                valid INTEGER NOT NULL DEFAULT 0,
+                width INTEGER,
+                height INTEGER,
+                mode TEXT,
+                format TEXT,
+                orientation TEXT,
+                source_ratio REAL,
+                closest_ratio TEXT,
+                master_ratio TEXT,
+                required_ratios TEXT,
+                score INTEGER,
+                status TEXT,
+                largest_recommended_print TEXT,
+                print_capability_json TEXT,
+                warnings_json TEXT,
+                certified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id)
+            )
+            """
+	)
+
+
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS artwork_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 artwork_id INTEGER NOT NULL,
@@ -1132,3 +1160,103 @@ def get_artwork_certification(artwork_code):
         result["warnings"] = json.loads(result.pop("warnings_json") or "[]")
         result["required_ratios"] = [x.strip() for x in (result["required_ratios"] or "").split(",") if x.strip()]
         return result
+
+
+def upsert_print_master_certification(artwork_code, certification):
+    import json
+
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+
+        if artwork is None:
+            raise ValueError("Artwork not found")
+
+        conn.execute(
+            """
+            INSERT INTO print_master_certification (
+                artwork_id, valid, width, height, mode, format, orientation,
+                source_ratio, closest_ratio, master_ratio, required_ratios,
+                score, status, largest_recommended_print,
+                print_capability_json, warnings_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(artwork_id) DO UPDATE SET
+                valid=excluded.valid,
+                width=excluded.width,
+                height=excluded.height,
+                mode=excluded.mode,
+                format=excluded.format,
+                orientation=excluded.orientation,
+                source_ratio=excluded.source_ratio,
+                closest_ratio=excluded.closest_ratio,
+                master_ratio=excluded.master_ratio,
+                required_ratios=excluded.required_ratios,
+                score=excluded.score,
+                status=excluded.status,
+                largest_recommended_print=excluded.largest_recommended_print,
+                print_capability_json=excluded.print_capability_json,
+                warnings_json=excluded.warnings_json,
+                certified_at=CURRENT_TIMESTAMP,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                artwork["id"],
+                int(certification["valid"]),
+                certification["width"],
+                certification["height"],
+                certification["mode"],
+                certification["format"],
+                certification["orientation"],
+                certification["source_ratio"],
+                certification["closest_ratio"],
+                certification["master_ratio"],
+                ", ".join(certification["required_ratios"]),
+                certification["score"],
+                certification["status"],
+                certification["largest_recommended_print"],
+                json.dumps(certification["print_capability"]),
+                json.dumps(certification["warnings"]),
+            ),
+        )
+        conn.commit()
+
+
+def get_print_master_certification(artwork_code):
+    import json
+
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT c.*
+            FROM print_master_certification c
+            JOIN artworks a ON a.id = c.artwork_id
+            WHERE a.artwork_code = ?
+            """,
+            (artwork_code.upper(),),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        result = dict(row)
+        result["print_capability"] = json.loads(
+            result.pop("print_capability_json") or "[]"
+        )
+        result["warnings"] = json.loads(
+            result.pop("warnings_json") or "[]"
+        )
+        result["required_ratios"] = [
+            value.strip()
+            for value in (result["required_ratios"] or "").split(",")
+            if value.strip()
+        ]
+        return result
+
+
+
+
+
+
+
