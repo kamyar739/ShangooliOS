@@ -118,13 +118,20 @@
         <div class="eyebrow">Production</div>
         <h2 class="h4 mb-2">Simple production setup</h2>
         <p class="text-secondary mb-4">
-            Set the orientation once. ShangooliOS uses a 3:2 master and creates the four standard ShangooliShop outputs.
+            Set the orientation once. ShangooliOS automatically selects the correct master ratio and creates the standard ShangooliShop print outputs.
         </p>
+            <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/production">
+            <input
+                type="hidden"
+                name="master_ratio"
+                value="{{ production['master_ratio'] or '' }}"
+            >
 
-        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/production">
-            <input type="hidden" name="master_ratio" value="3:2">
-            <input type="hidden" name="required_ratios" value="3:2, 4:3, 5:4, 14:11">
-
+            <input
+                type="hidden"
+                name="required_ratios"
+                value="{{ production['required_ratios'] or '' }}"
+            > 
             <div class="row g-4">
                 <div class="col-md-5">
                     <label class="form-label">Orientation</label>
@@ -141,13 +148,21 @@
 
                 <div class="col-md-7">
                     <label class="form-label">Print ratios</label>
+
                     <div class="d-flex flex-wrap gap-2">
-                        {% for ratio in ["3:2", "4:3", "5:4", "14:11"] %}
-                        <span class="badge text-bg-light border px-3 py-2">{{ ratio }}</span>
-                        {% endfor %}
-                    </div>
-                    <div class="form-text">These are saved automatically when you save production.</div>
-                </div>
+                        {% for ratio in (production["required_ratios"] or "").split(",") %}
+                            {% if ratio.strip() %}
+                                <span class="badge text-bg-light border px-3 py-2">
+                                    {{ ratio.strip() }}
+                                </span>
+                           {% endif %}
+                       {% endfor %}
+                   </div>
+
+                   <div class="form-text">
+                   These are saved automatically when you save production.
+                   </div>
+               </div>
 
                 <div class="col-12">
                     <div class="production-checklist">

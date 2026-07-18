@@ -638,7 +638,7 @@ def upload_print_master(
         workspace = get_artwork_folder(artwork)
         master_path = workspace / saved["relative_path"]
         certification = certify_artwork(master_path).to_dict()
-	upsert_print_master_certification(artwork_code, certification)        
+        upsert_print_master_certification(artwork_code, certification)        
         set_artwork_production_flags(
             artwork_code,
             print_master_ready=True,
