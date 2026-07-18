@@ -59,6 +59,7 @@ from web.production import (
     build_production_summary,
     list_workspace_files,
 )
+from web.ratio_profiles import get_ratio_profile
 from web.ratio_generator import (
     generate_ratio_output,
     resolve_assigned_file,
@@ -487,8 +488,6 @@ def save_artwork(
 def save_artwork_production(
     artwork_code: str,
     orientation: str = Form(""),
-    master_ratio: str = Form(""),
-    required_ratios: str = Form(""),
     original_approved: bool = Form(False),
     print_master_ready: bool = Form(False),
     ratio_exports_ready: bool = Form(False),
@@ -496,11 +495,13 @@ def save_artwork_production(
     listing_content_ready: bool = Form(False),
     production_notes: str = Form(""),
 ):
+    ratio_profile = get_ratio_profile(orientation)
+
     update_artwork_production(
         artwork_code=artwork_code,
         orientation=orientation,
-        master_ratio=master_ratio,
-        required_ratios=required_ratios,
+        master_ratio=ratio_profile["master_ratio"],
+        required_ratios=", ".join(ratio_profile["required_ratios"]),
         original_approved=original_approved,
         print_master_ready=print_master_ready,
         ratio_exports_ready=ratio_exports_ready,
@@ -638,7 +639,7 @@ def upload_print_master(
         workspace = get_artwork_folder(artwork)
         master_path = workspace / saved["relative_path"]
         certification = certify_artwork(master_path).to_dict()
-	upsert_print_master_certification(artwork_code, certification)        
+        upsert_print_master_certification(artwork_code, certification)        
         set_artwork_production_flags(
             artwork_code,
             print_master_ready=True,
