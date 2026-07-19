@@ -112,6 +112,8 @@ class MarketplaceExportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Marketplace package", response.text)
         self.assertIn("Download export package", response.text)
+        self.assertLess(response.text.index("Save listing"), response.text.index("Marketplace package"))
+        self.assertLess(response.text.index("Marketplace package"), response.text.index("Etsy publication"))
 
     @patch("web.marketplace_export.get_artwork_folder")
     def test_export_rejects_incomplete_listing(self, folder):
@@ -123,6 +125,25 @@ class MarketplaceExportTests(unittest.TestCase):
         response = self.client.post(f"/listings/{self.listing_id}/export")
         self.assertEqual(response.status_code, 400)
         self.assertIn("publishing checklist", response.text)
+
+    @patch("web.marketplace_export.get_artwork_folder")
+    def test_ready_listing_can_be_exported_then_recorded_as_published(self, folder):
+        folder.return_value = self.workspace
+        export_response = self.client.post(f"/listings/{self.listing_id}/export")
+        self.assertEqual(export_response.status_code, 200)
+
+        publish_response = self.client.post(
+            f"/listings/{self.listing_id}/publish",
+            data={
+                "marketplace_url": "https://www.etsy.com/listing/123456789/unbound",
+                "external_listing_id": "123456789",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(publish_response.status_code, 303)
+        published = db.get_listing(self.listing_id)
+        self.assertEqual(published["status"], "published")
+        self.assertEqual(published["external_listing_id"], "123456789")
 
 
 if __name__ == "__main__":

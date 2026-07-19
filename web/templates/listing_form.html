@@ -32,51 +32,8 @@
     </div>
   </div>
 </div>
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-body p-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
-    <div>
-      <div class="eyebrow">Marketplace package</div>
-      <h2 class="h4 mb-1">Export for {{ listing['marketplace'] }}</h2>
-      {% if export_state['ready'] %}
-      <p class="text-muted mb-0">Includes listing copy, metadata, checklist, and {{ export_state['image_count'] }} ordered image{% if export_state['image_count'] != 1 %}s{% endif %}.</p>
-      {% else %}
-      <p class="text-muted mb-0">Complete before export: {{ export_state['blockers']|join(', ') }}.</p>
-      {% endif %}
-    </div>
-    <form method="post" action="/listings/{{ listing['id'] }}/export">
-      <button class="btn btn-success" type="submit" {% if not export_state['ready'] %}disabled{% endif %}>Download export package</button>
-    </form>
-  </div>
-</div>
 {% endif %}
-{% if listing %}
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-body p-4">
-    <div class="eyebrow">Etsy publication</div>
-    {% if listing['status'] == 'published' and listing['marketplace_url'] %}
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-      <div>
-        <h2 class="h4 mb-1">Published on Etsy</h2>
-        <p class="text-muted mb-0">Listing ID {{ listing['external_listing_id'] }} · {{ listing['published_at'] }}</p>
-      </div>
-      <a class="btn btn-success" href="{{ listing['marketplace_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy listing</a>
-    </div>
-    {% else %}
-    <h2 class="h4 mb-1">Record the published listing</h2>
-    <p class="text-muted mb-3">After publishing on Etsy, save its URL and listing ID here.</p>
-    <form method="post" action="/listings/{{ listing['id'] }}/publish">
-      <div class="row g-3 align-items-end">
-        <div class="col-md-8"><label class="form-label">Etsy listing URL</label><input class="form-control" type="url" name="marketplace_url" placeholder="https://www.etsy.com/listing/..." required></div>
-        <div class="col-md-4"><label class="form-label">Etsy listing ID</label><input class="form-control" name="external_listing_id" inputmode="numeric" pattern="[0-9]+" required></div>
-        <div class="col-12 d-flex justify-content-end"><button class="btn btn-success" type="submit" {% if not readiness['ready'] %}disabled{% endif %}>Mark as published</button></div>
-      </div>
-    </form>
-    {% if not readiness['ready'] %}<p class="small text-muted mt-2 mb-0">Complete the readiness checklist before publishing.</p>{% endif %}
-    {% endif %}
-  </div>
-</div>
-{% endif %}
-<div class="card border-0 shadow-sm"><div class="card-body p-4">
+<div class="card border-0 shadow-sm {% if listing %}mb-4{% endif %}"><div class="card-body p-4">
 <form method="post" action="{% if listing %}/listings/{{ listing['id'] }}{% else %}/artworks/{{ artwork['artwork_code'] }}/listings/new{% endif %}">
 <div class="row g-3">
 <div class="col-md-6"><label class="form-label">Marketplace</label><input class="form-control" name="marketplace" required value="{{ listing['marketplace'] if listing else 'Etsy' }}"></div>
@@ -105,4 +62,47 @@
 <form id="duplicate-listing" method="post" action="/listings/{{ listing['id'] }}/duplicate"></form>
 {% endif %}
 </div></div>
+{% if listing and readiness %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body p-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <div class="eyebrow">Next step · Marketplace package</div>
+      <h2 class="h4 mb-1">Export for {{ listing['marketplace'] }}</h2>
+      {% if export_state['ready'] %}
+      <p class="text-muted mb-0">Includes listing copy, metadata, checklist, and {{ export_state['image_count'] }} ordered image{% if export_state['image_count'] != 1 %}s{% endif %}.</p>
+      {% else %}
+      <p class="text-muted mb-0">Complete before export: {{ export_state['blockers']|join(', ') }}.</p>
+      {% endif %}
+    </div>
+    <form method="post" action="/listings/{{ listing['id'] }}/export">
+      <button class="btn btn-success" type="submit" {% if not export_state['ready'] %}disabled{% endif %}>Download export package</button>
+    </form>
+  </div>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-4">
+    <div class="eyebrow">Final step · Etsy publication</div>
+    {% if listing['status'] == 'published' and listing['marketplace_url'] %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div>
+        <h2 class="h4 mb-1">Published on Etsy</h2>
+        <p class="text-muted mb-0">Listing ID {{ listing['external_listing_id'] }} · {{ listing['published_at'] }}</p>
+      </div>
+      <a class="btn btn-success" href="{{ listing['marketplace_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy listing</a>
+    </div>
+    {% else %}
+    <h2 class="h4 mb-1">Record the published listing</h2>
+    <p class="text-muted mb-3">After publishing on Etsy, save its URL and listing ID here.</p>
+    <form method="post" action="/listings/{{ listing['id'] }}/publish">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-8"><label class="form-label">Etsy listing URL</label><input class="form-control" type="url" name="marketplace_url" placeholder="https://www.etsy.com/listing/..." required></div>
+        <div class="col-md-4"><label class="form-label">Etsy listing ID</label><input class="form-control" name="external_listing_id" inputmode="numeric" pattern="[0-9]+" required></div>
+        <div class="col-12 d-flex justify-content-end"><button class="btn btn-success" type="submit" {% if not readiness['ready'] %}disabled{% endif %}>Mark as published</button></div>
+      </div>
+    </form>
+    {% if not readiness['ready'] %}<p class="small text-muted mt-2 mb-0">Complete the readiness checklist before publishing.</p>{% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 {% endblock %}

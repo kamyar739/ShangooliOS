@@ -18,3 +18,18 @@ Expected final output:
 CEL: The Celebration Collection | active | target 8
 DEN: Dental Collection | planned | target 20
 ```
+
+## Run the web app
+
+```bash
+cd ~/Documents/ShangooliOS
+.venv/bin/uvicorn web.app:app --reload
+```
+
+Open `http://127.0.0.1:8000` in a browser.
+
+## Run the tests
+
+```bash
+.venv/bin/python -m pytest -q
+```
