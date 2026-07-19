@@ -3,6 +3,7 @@ import sqlite3
 
 from app.database import initialize_database
 from web.etsy_validation import validate_etsy_listing
+from web.printify import validate_printify_product
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATABASE_PATH = PROJECT_ROOT / "data" / "shangooli.db"
@@ -209,9 +210,17 @@ def ensure_production_schema():
             "marketplace_url",
             "external_listing_id",
             "published_at",
+            "printify_product_url",
+            "printify_product_id",
+            "printify_provider",
+            "printify_sizes",
+            "printify_base_cost_cents",
         ):
             if column_name not in listing_columns:
-                conn.execute(f"ALTER TABLE listings ADD COLUMN {column_name} TEXT")
+                column_type = "INTEGER" if column_name.endswith("_cents") else "TEXT"
+                conn.execute(
+                    f"ALTER TABLE listings ADD COLUMN {column_name} {column_type}"
+                )
 
         conn.execute(
             """
@@ -1333,7 +1342,8 @@ def list_listings(status=None):
     query = """
         SELECT l.id, l.marketplace, l.product, l.title, l.price_cents,
                l.status, l.marketplace_url, l.external_listing_id,
-               l.published_at, l.updated_at, a.artwork_code, a.public_title,
+               l.published_at, l.printify_product_url, l.updated_at,
+               a.artwork_code, a.public_title,
                c.name AS collection_name
         FROM listings AS l
         JOIN artworks AS a ON a.id = l.artwork_id
@@ -1369,6 +1379,9 @@ def get_artwork_listings(artwork_code):
             SELECT l.id, l.marketplace, l.product, l.title, l.description,
                    l.tags, l.price_cents, l.status, l.marketplace_url,
                    l.external_listing_id, l.published_at,
+                   l.printify_product_url, l.printify_product_id,
+                   l.printify_provider, l.printify_sizes,
+                   l.printify_base_cost_cents,
                    l.created_at, l.updated_at
             FROM listings AS l
             JOIN artworks AS a ON a.id = l.artwork_id
@@ -1386,6 +1399,9 @@ def get_listing(listing_id):
             SELECT l.id, l.marketplace, l.product, l.title, l.description,
                    l.tags, l.price_cents, l.status, l.marketplace_url,
                    l.external_listing_id, l.published_at,
+                   l.printify_product_url, l.printify_product_id,
+                   l.printify_provider, l.printify_sizes,
+                   l.printify_base_cost_cents,
                    l.created_at, l.updated_at,
                    a.artwork_code, a.public_title, c.code AS collection_code,
                    c.name AS collection_name
@@ -1524,6 +1540,13 @@ def publish_listing(listing_id, *, marketplace_url, external_listing_id):
         raise ValueError("Listing not found")
     if not readiness["ready"]:
         raise ValueError("Complete the listing readiness checklist before publishing")
+    listing = get_listing(listing_id)
+    printify = validate_printify_product(listing)
+    if not printify["ready"]:
+        raise ValueError(
+            "Complete the Printify product details before publishing: "
+            + ", ".join(printify["blockers"])
+        )
 
     with get_connection() as conn:
         conn.execute(
@@ -1535,6 +1558,42 @@ def publish_listing(listing_id, *, marketplace_url, external_listing_id):
             WHERE id = ?
             """,
             (normalized_url, normalized_id, listing_id),
+        )
+        conn.commit()
+
+
+def save_printify_product(
+    listing_id, *, product_url, product_id, provider, sizes, base_cost_cents
+):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise ValueError("Listing not found")
+    values = {
+        "product": listing["product"],
+        "printify_product_url": (product_url or "").strip(),
+        "printify_product_id": (product_id or "").strip(),
+        "printify_provider": (provider or "").strip(),
+        "printify_sizes": (sizes or "").strip(),
+        "printify_base_cost_cents": base_cost_cents,
+    }
+    validation = validate_printify_product(values)
+    if not validation["ready"]:
+        raise ValueError("Complete the Printify details: " + ", ".join(validation["blockers"]))
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE listings
+            SET printify_product_url = ?, printify_product_id = ?,
+                printify_provider = ?, printify_sizes = ?,
+                printify_base_cost_cents = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                values["printify_product_url"], values["printify_product_id"],
+                values["printify_provider"], values["printify_sizes"],
+                values["printify_base_cost_cents"], listing_id,
+            ),
         )
         conn.commit()
 

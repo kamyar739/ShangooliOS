@@ -131,6 +131,14 @@ class MarketplaceExportTests(unittest.TestCase):
         folder.return_value = self.workspace
         export_response = self.client.post(f"/listings/{self.listing_id}/export")
         self.assertEqual(export_response.status_code, 200)
+        db.save_printify_product(
+            self.listing_id,
+            product_url="https://printify.com/app/products/example",
+            product_id="printify-123",
+            provider="Print Provider",
+            sizes="8x10, 12x16",
+            base_cost_cents=1200,
+        )
 
         publish_response = self.client.post(
             f"/listings/{self.listing_id}/publish",

@@ -43,6 +43,7 @@ from web.db import (
     restore_artwork,
     list_listings,
     publish_listing,
+    save_printify_product,
     save_artwork_mockup_order,
     save_artwork_mockup_template,
     save_artwork_mockup_templates,
@@ -64,6 +65,7 @@ from web.artwork_certifier import certify_artwork
 from web.listing_writer import generate_listing_content
 from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, generate_mockups
 from web.marketplace_export import build_listing_export, inspect_listing_export
+from web.printify import validate_printify_product
 from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
 from web.print_master import build_print_master, load_print_master_manifest
 from web.production import (
@@ -320,6 +322,7 @@ def listing_page(request: Request, listing_id: int):
             ),
             "readiness": readiness,
             "export_state": inspect_listing_export(listing, readiness),
+            "printify_state": validate_printify_product(listing),
         },
     )
 
@@ -393,6 +396,33 @@ def publish_listing_post(
         raise HTTPException(status_code=code, detail=str(error)) from error
     return RedirectResponse(
         url=f"/listings/{listing_id}?published=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/printify")
+def save_printify_product_post(
+    listing_id: int,
+    product_url: str = Form(...),
+    product_id: str = Form(...),
+    provider: str = Form(...),
+    sizes: str = Form(...),
+    base_cost: str = Form(...),
+):
+    try:
+        save_printify_product(
+            listing_id,
+            product_url=product_url,
+            product_id=product_id,
+            provider=provider,
+            sizes=sizes,
+            base_cost_cents=_price_to_cents(base_cost),
+        )
+    except ValueError as error:
+        code = 404 if "not found" in str(error).lower() else 400
+        raise HTTPException(status_code=code, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}?printify_saved=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

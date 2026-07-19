@@ -174,6 +174,16 @@ class ListingManagementTests(ListingTests):
         self.assertEqual(response.status_code, 400)
 
 class ListingReadinessTests(ListingTests):
+    def _save_printify(self, listing_id):
+        db.save_printify_product(
+            listing_id,
+            product_url="https://printify.com/app/products/example",
+            product_id="printify-123",
+            provider="Print Provider",
+            sizes="8x10, 12x16",
+            base_cost_cents=1200,
+        )
+
     def _complete_listing_readiness(self):
         with db.get_connection() as connection:
             artwork_id = connection.execute(
@@ -262,6 +272,7 @@ class ListingReadinessTests(ListingTests):
             title="Unbound Poster", description="Description",
             tags="one, two", price_cents=3995, status="ready",
         )
+        self._save_printify(listing_id)
         response = self.client.post(
             f"/listings/{listing_id}/publish",
             data={
@@ -280,6 +291,45 @@ class ListingReadinessTests(ListingTests):
         page = self.client.get(f"/listings/{listing_id}")
         self.assertIn("Open Etsy listing", page.text)
         self.assertIn("https://www.etsy.com/listing/123456789/unbound", page.text)
+
+    def test_printify_product_can_be_saved_for_physical_listing(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.post(
+            f"/listings/{listing_id}/printify",
+            data={
+                "product_url": "https://printify.com/app/products/example",
+                "product_id": "printify-123",
+                "provider": "Print Provider",
+                "sizes": "8x10, 12x16",
+                "base_cost": "12.00",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["printify_product_id"], "printify-123")
+        self.assertEqual(listing["printify_base_cost_cents"], 1200)
+
+    def test_physical_listing_cannot_publish_without_printify_product(self):
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.post(
+            f"/listings/{listing_id}/publish",
+            data={
+                "marketplace_url": "https://www.etsy.com/listing/123456789/unbound",
+                "external_listing_id": "123456789",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Printify product details", response.text)
 
     def test_publish_listing_requires_readiness(self):
         listing_id = db.create_listing(

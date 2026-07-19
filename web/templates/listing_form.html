@@ -6,6 +6,7 @@
 {% if request.query_params.get('saved') %}<div class="alert alert-success">Listing saved.</div>{% endif %}
 {% if request.query_params.get('duplicated') %}<div class="alert alert-success">Listing duplicated as a new draft.</div>{% endif %}
 {% if request.query_params.get('published') %}<div class="alert alert-success">Listing marked as published.</div>{% endif %}
+{% if request.query_params.get('printify_saved') %}<div class="alert alert-success">Printify product saved.</div>{% endif %}
 {% if listing and readiness %}
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body p-4">
@@ -63,6 +64,26 @@
 {% endif %}
 </div></div>
 {% if listing and readiness %}
+{% if printify_state['required'] %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body p-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+      <div><div class="eyebrow">Print provider</div><h2 class="h4 mb-1">Printify product</h2><p class="text-muted mb-0">Record the product used to fulfill this physical listing.</p></div>
+      {% if printify_state['ready'] %}<a class="btn btn-outline-success" href="{{ listing['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Open Printify</a>{% endif %}
+    </div>
+    <form method="post" action="/listings/{{ listing['id'] }}/printify">
+      <div class="row g-3">
+        <div class="col-md-8"><label class="form-label">Printify product URL</label><input class="form-control" type="url" name="product_url" required value="{{ listing['printify_product_url'] or '' }}"></div>
+        <div class="col-md-4"><label class="form-label">Product ID</label><input class="form-control" name="product_id" required value="{{ listing['printify_product_id'] or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">Print provider</label><input class="form-control" name="provider" required value="{{ listing['printify_provider'] or '' }}"></div>
+        <div class="col-md-6"><label class="form-label">Base production cost (USD)</label><div class="input-group"><span class="input-group-text">$</span><input class="form-control" name="base_cost" inputmode="decimal" required value="{{ '%.2f'|format(listing['printify_base_cost_cents'] / 100) if listing['printify_base_cost_cents'] else '' }}"></div></div>
+        <div class="col-12"><label class="form-label">Available sizes</label><input class="form-control" name="sizes" placeholder="8×10, 12×16, 18×24" required value="{{ listing['printify_sizes'] or '' }}"></div>
+        <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary" type="submit">Save Printify product</button></div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body p-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
     <div>
@@ -97,10 +118,10 @@
       <div class="row g-3 align-items-end">
         <div class="col-md-8"><label class="form-label">Etsy listing URL</label><input class="form-control" type="url" name="marketplace_url" placeholder="https://www.etsy.com/listing/..." required></div>
         <div class="col-md-4"><label class="form-label">Etsy listing ID</label><input class="form-control" name="external_listing_id" inputmode="numeric" pattern="[0-9]+" required></div>
-        <div class="col-12 d-flex justify-content-end"><button class="btn btn-success" type="submit" {% if not readiness['ready'] %}disabled{% endif %}>Mark as published</button></div>
+        <div class="col-12 d-flex justify-content-end"><button class="btn btn-success" type="submit" {% if not readiness['ready'] or not printify_state['ready'] %}disabled{% endif %}>Mark as published</button></div>
       </div>
     </form>
-    {% if not readiness['ready'] %}<p class="small text-muted mt-2 mb-0">Complete the readiness checklist before publishing.</p>{% endif %}
+    {% if not readiness['ready'] %}<p class="small text-muted mt-2 mb-0">Complete the readiness checklist before publishing.</p>{% elif not printify_state['ready'] %}<p class="small text-muted mt-2 mb-0">Save the Printify product details before publishing.</p>{% endif %}
     {% endif %}
   </div>
 </div>

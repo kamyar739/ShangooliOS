@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS listings (
     marketplace_url TEXT,
     external_listing_id TEXT,
     published_at TEXT,
+    printify_product_url TEXT,
+    printify_product_id TEXT,
+    printify_provider TEXT,
+    printify_sizes TEXT,
+    printify_base_cost_cents INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
