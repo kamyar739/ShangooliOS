@@ -201,6 +201,16 @@ def ensure_production_schema():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)"
         )
+        listing_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(listings)").fetchall()
+        }
+        for column_name in (
+            "marketplace_url",
+            "external_listing_id",
+            "published_at",
+        ):
+            if column_name not in listing_columns:
+                conn.execute(f"ALTER TABLE listings ADD COLUMN {column_name} TEXT")
 
         conn.execute(
             """
@@ -1321,7 +1331,8 @@ def list_listings(status=None):
 
     query = """
         SELECT l.id, l.marketplace, l.product, l.title, l.price_cents,
-               l.status, l.updated_at, a.artwork_code, a.public_title,
+               l.status, l.marketplace_url, l.external_listing_id,
+               l.published_at, l.updated_at, a.artwork_code, a.public_title,
                c.name AS collection_name
         FROM listings AS l
         JOIN artworks AS a ON a.id = l.artwork_id
@@ -1355,7 +1366,9 @@ def get_artwork_listings(artwork_code):
         return conn.execute(
             """
             SELECT l.id, l.marketplace, l.product, l.title, l.description,
-                   l.tags, l.price_cents, l.status, l.created_at, l.updated_at
+                   l.tags, l.price_cents, l.status, l.marketplace_url,
+                   l.external_listing_id, l.published_at,
+                   l.created_at, l.updated_at
             FROM listings AS l
             JOIN artworks AS a ON a.id = l.artwork_id
             WHERE a.artwork_code = ?
@@ -1370,7 +1383,9 @@ def get_listing(listing_id):
         return conn.execute(
             """
             SELECT l.id, l.marketplace, l.product, l.title, l.description,
-                   l.tags, l.price_cents, l.status, l.created_at, l.updated_at,
+                   l.tags, l.price_cents, l.status, l.marketplace_url,
+                   l.external_listing_id, l.published_at,
+                   l.created_at, l.updated_at,
                    a.artwork_code, a.public_title, c.code AS collection_code,
                    c.name AS collection_name
             FROM listings AS l
@@ -1493,6 +1508,40 @@ def update_listing(listing_id, *, marketplace, product, title, description,
         )
         if cursor.rowcount == 0:
             raise ValueError("Listing not found")
+        conn.commit()
+
+
+def publish_listing(listing_id, *, marketplace_url, external_listing_id):
+    from urllib.parse import urlparse
+
+    normalized_url = (marketplace_url or "").strip()
+    normalized_id = (external_listing_id or "").strip()
+    parsed_url = urlparse(normalized_url)
+    hostname = (parsed_url.hostname or "").lower()
+    if parsed_url.scheme not in ("http", "https") or not (
+        hostname == "etsy.com" or hostname.endswith(".etsy.com")
+    ):
+        raise ValueError("Enter a valid Etsy listing URL")
+    if not normalized_id.isdigit():
+        raise ValueError("Enter the numeric Etsy listing ID")
+
+    readiness = get_listing_readiness(listing_id)
+    if readiness is None:
+        raise ValueError("Listing not found")
+    if not readiness["ready"]:
+        raise ValueError("Complete the listing readiness checklist before publishing")
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE listings
+            SET marketplace_url = ?, external_listing_id = ?,
+                published_at = CURRENT_TIMESTAMP, status = 'published',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (normalized_url, normalized_id, listing_id),
+        )
         conn.commit()
 
 

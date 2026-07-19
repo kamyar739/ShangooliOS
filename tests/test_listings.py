@@ -92,6 +92,7 @@ class ListingTests(unittest.TestCase):
         response = self.client.get("/artworks/CEL-001/listings/new")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Create listing", response.text)
+        self.assertNotIn('<option value="published"', response.text)
 
         response = self.client.post(
             "/artworks/CEL-001/listings/new",
@@ -173,6 +174,32 @@ class ListingManagementTests(ListingTests):
         self.assertEqual(response.status_code, 400)
 
 class ListingReadinessTests(ListingTests):
+    def _complete_listing_readiness(self):
+        with db.get_connection() as connection:
+            artwork_id = connection.execute(
+                "SELECT id FROM artworks WHERE artwork_code='CEL-001'"
+            ).fetchone()["id"]
+            connection.executemany(
+                """
+                INSERT INTO artwork_files (
+                    artwork_id, role, relative_path, stored_filename, original_filename
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (artwork_id, "source", "source.png", "source.png", "source.png"),
+                    (artwork_id, "print_master", "master.png", "master.png", "master.png"),
+                ],
+            )
+            connection.execute(
+                """
+                UPDATE artwork_production
+                SET print_master_ready=1, ratio_exports_ready=1, mockups_ready=1
+                WHERE artwork_id=?
+                """,
+                (artwork_id,),
+            )
+            connection.commit()
+
     def test_readiness_reports_missing_and_complete_items(self):
         listing_id = db.create_listing(
             "CEL-001", marketplace="Etsy", product="Poster",
@@ -227,6 +254,84 @@ class ListingReadinessTests(ListingTests):
         self.assertIn("7 items remaining", response.text)
         self.assertIn("Source artwork", response.text)
         self.assertIn("Price", response.text)
+
+    def test_publish_listing_records_etsy_details_and_timestamp(self):
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.post(
+            f"/listings/{listing_id}/publish",
+            data={
+                "marketplace_url": "https://www.etsy.com/listing/123456789/unbound",
+                "external_listing_id": "123456789",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("published=1", response.headers["location"])
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["status"], "published")
+        self.assertEqual(listing["external_listing_id"], "123456789")
+        self.assertIsNotNone(listing["published_at"])
+
+        page = self.client.get(f"/listings/{listing_id}")
+        self.assertIn("Open Etsy listing", page.text)
+        self.assertIn("https://www.etsy.com/listing/123456789/unbound", page.text)
+
+    def test_publish_listing_requires_readiness(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Incomplete", description="", tags="",
+            price_cents=0, status="draft",
+        )
+        response = self.client.post(
+            f"/listings/{listing_id}/publish",
+            data={
+                "marketplace_url": "https://www.etsy.com/listing/123456789/incomplete",
+                "external_listing_id": "123456789",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("readiness checklist", response.text)
+
+    def test_publish_listing_rejects_invalid_etsy_details(self):
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.post(
+            f"/listings/{listing_id}/publish",
+            data={
+                "marketplace_url": "https://example.com/listing/abc",
+                "external_listing_id": "not-a-number",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("valid Etsy listing URL", response.text)
+
+    def test_standard_edit_cannot_mark_listing_published(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.post(
+            f"/listings/{listing_id}",
+            data={
+                "marketplace": "Etsy", "product": "Poster",
+                "title": "Unbound Poster", "description": "Description",
+                "tags": "one, two", "price": "39.95",
+                "listing_status": "published",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Etsy publishing section", response.text)
+        self.assertEqual(db.get_listing(listing_id)["status"], "ready")
 
 class ListingVisualReadinessTests(ListingTests):
     def test_readiness_includes_percentage(self):

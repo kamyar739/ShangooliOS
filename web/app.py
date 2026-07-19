@@ -42,6 +42,7 @@ from web.db import (
     get_artwork_listings,
     restore_artwork,
     list_listings,
+    publish_listing,
     save_artwork_mockup_order,
     save_artwork_mockup_template,
     save_artwork_mockup_templates,
@@ -266,7 +267,7 @@ def new_listing_form(request: Request, artwork_code: str):
             "artwork": artwork,
             "listing": None,
             "prefill": content,
-            "statuses": ("draft", "ready", "published", "archived"),
+            "statuses": ("draft", "ready", "archived"),
         },
     )
 
@@ -282,6 +283,11 @@ def create_listing_post(
     price: str = Form("0.00"),
     listing_status: str = Form("draft"),
 ):
+    if listing_status == "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Create the listing first, then use the Etsy publishing section",
+        )
     try:
         listing_id = create_listing(
             artwork_code, marketplace=marketplace.strip() or "Etsy",
@@ -307,7 +313,11 @@ def listing_page(request: Request, listing_id: int):
         name="listing_form.html",
         context={
             "artwork": listing, "listing": listing, "prefill": None,
-            "statuses": ("draft", "ready", "published", "archived"),
+            "statuses": (
+                ("draft", "ready", "published", "archived")
+                if listing["status"] == "published"
+                else ("draft", "ready", "archived")
+            ),
             "readiness": readiness,
             "export_state": inspect_listing_export(listing, readiness),
         },
@@ -342,6 +352,14 @@ def update_listing_post(
     price: str = Form("0.00"),
     listing_status: str = Form("draft"),
 ):
+    current_listing = get_listing(listing_id)
+    if current_listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing_status == "published" and current_listing["status"] != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Use the Etsy publishing section to mark this listing published",
+        )
     try:
         update_listing(
             listing_id, marketplace=marketplace.strip() or "Etsy",
@@ -354,6 +372,27 @@ def update_listing_post(
         raise HTTPException(status_code=code, detail=str(error)) from error
     return RedirectResponse(
         url=f"/listings/{listing_id}?saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/publish")
+def publish_listing_post(
+    listing_id: int,
+    marketplace_url: str = Form(...),
+    external_listing_id: str = Form(...),
+):
+    try:
+        publish_listing(
+            listing_id,
+            marketplace_url=marketplace_url,
+            external_listing_id=external_listing_id,
+        )
+    except ValueError as error:
+        code = 404 if "not found" in str(error).lower() else 400
+        raise HTTPException(status_code=code, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}?published=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

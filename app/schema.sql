@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS listings (
     tags TEXT,
     price_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
     status TEXT NOT NULL DEFAULT 'draft',
+    marketplace_url TEXT,
+    external_listing_id TEXT,
+    published_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

@@ -41,6 +41,7 @@
 </td>
 <td><span class="status-pill listing-status-{{ item['status'] }}">{{ item['status'] }}</span></td>
 <td class="text-end text-nowrap">
+    {% if item['marketplace_url'] %}<a class="btn btn-sm btn-success" href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy</a>{% endif %}
     <a class="btn btn-sm btn-outline-secondary" href="/artworks/{{ item['artwork_code'] }}">Artwork</a>
     <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/duplicate">
         <button class="btn btn-sm btn-outline-primary" type="submit">Duplicate</button>
