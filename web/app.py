@@ -62,6 +62,7 @@ from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
 from web.listing_writer import generate_listing_content
 from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, generate_mockups
+from web.marketplace_export import build_listing_export, inspect_listing_export
 from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
 from web.print_master import build_print_master, load_print_master_manifest
 from web.production import (
@@ -300,14 +301,33 @@ def listing_page(request: Request, listing_id: int):
     listing = get_listing(listing_id)
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
+    readiness = get_listing_readiness(listing_id)
     return templates.TemplateResponse(
         request=request,
         name="listing_form.html",
         context={
             "artwork": listing, "listing": listing, "prefill": None,
             "statuses": ("draft", "ready", "published", "archived"),
-            "readiness": get_listing_readiness(listing_id),
+            "readiness": readiness,
+            "export_state": inspect_listing_export(listing, readiness),
         },
+    )
+
+
+@app.post("/listings/{listing_id}/export")
+def export_listing_post(listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    readiness = get_listing_readiness(listing_id)
+    try:
+        result = build_listing_export(listing, readiness)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return FileResponse(
+        path=result["path"],
+        filename=result["filename"],
+        media_type="application/zip",
     )
 
 

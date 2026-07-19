@@ -1,0 +1,131 @@
+import json
+import re
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+from app.database import get_artwork_folder
+from web.production import MOCKUP_SLOTS
+
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _slug(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+    return cleaned.strip("-") or "marketplace"
+
+
+def _ordered_listing_images(mockup_folder: Path) -> list[Path]:
+    if not mockup_folder.is_dir():
+        return []
+
+    images = [
+        path
+        for path in mockup_folder.iterdir()
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+    slot_positions = {slot: position for position, (slot, _, _) in enumerate(MOCKUP_SLOTS)}
+
+    def sort_key(path: Path):
+        slot = next(
+            (slot for slot in slot_positions if f"_listing_{slot}_" in path.name.lower()),
+            None,
+        )
+        return (slot_positions.get(slot, len(slot_positions)), path.name.lower())
+
+    return sorted(images, key=sort_key)
+
+
+def inspect_listing_export(listing, readiness: dict) -> dict:
+    workspace = get_artwork_folder(listing)
+    images = _ordered_listing_images(workspace / "03 Mockups")
+    blockers = [item["label"] for item in readiness["items"] if not item["passed"]]
+    if not images and "Listing images" not in blockers:
+        blockers.append("Listing image files")
+    return {
+        "ready": not blockers,
+        "blockers": blockers,
+        "images": images,
+        "image_count": len(images),
+        "export_folder": workspace / "04 Exports",
+    }
+
+
+def build_listing_export(listing, readiness: dict) -> dict:
+    export_state = inspect_listing_export(listing, readiness)
+    if not export_state["ready"]:
+        raise ValueError(
+            "Complete the publishing checklist first: "
+            + ", ".join(export_state["blockers"])
+        )
+
+    export_folder = export_state["export_folder"]
+    export_folder.mkdir(parents=True, exist_ok=True)
+    marketplace_slug = _slug(listing["marketplace"])
+    archive_name = (
+        f"{listing['artwork_code']}_listing_{listing['id']}_{marketplace_slug}.zip"
+    )
+    archive_path = export_folder / archive_name
+    created_at = datetime.now(timezone.utc).isoformat()
+    tags = [tag.strip() for tag in (listing["tags"] or "").split(",") if tag.strip()]
+
+    image_entries = []
+    for position, image_path in enumerate(export_state["images"], start=1):
+        packaged_name = f"images/{position:02d}_{image_path.name}"
+        image_entries.append(
+            {
+                "position": position,
+                "filename": packaged_name,
+                "source_filename": image_path.name,
+            }
+        )
+
+    manifest = {
+        "schema_version": 1,
+        "created_at": created_at,
+        "listing": {
+            "id": listing["id"],
+            "artwork_code": listing["artwork_code"],
+            "artwork_title": listing["public_title"],
+            "collection": listing["collection_name"],
+            "marketplace": listing["marketplace"],
+            "product": listing["product"],
+            "title": listing["title"],
+            "description": listing["description"] or "",
+            "tags": tags,
+            "price_cents": listing["price_cents"],
+            "price_usd": f"{listing['price_cents'] / 100:.2f}",
+            "status": listing["status"],
+        },
+        "images": image_entries,
+        "checklist": readiness["items"],
+    }
+
+    listing_text = (
+        f"TITLE\n{listing['title']}\n\n"
+        f"PRICE (USD)\n${listing['price_cents'] / 100:.2f}\n\n"
+        f"PRODUCT\n{listing['product']}\n\n"
+        f"DESCRIPTION\n{listing['description'] or ''}\n\n"
+        f"TAGS\n{', '.join(tags)}\n"
+    )
+    checklist_text = "PUBLISH CHECKLIST\n\n" + "\n".join(
+        f"[{'x' if item['passed'] else ' '}] {item['label']}"
+        for item in readiness["items"]
+    )
+
+    temporary_path = archive_path.with_suffix(".zip.tmp")
+    with zipfile.ZipFile(temporary_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("listing.txt", listing_text)
+        archive.writestr("listing.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+        archive.writestr("publish-checklist.txt", checklist_text + "\n")
+        for entry, image_path in zip(image_entries, export_state["images"]):
+            archive.write(image_path, entry["filename"])
+    temporary_path.replace(archive_path)
+
+    return {
+        "path": archive_path,
+        "filename": archive_name,
+        "image_count": len(image_entries),
+        "created_at": created_at,
+    }
