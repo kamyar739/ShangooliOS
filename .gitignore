@@ -60,6 +60,7 @@ assets/collections/**/03 Mockups/
 # Database backups
 data/*backup*.db
 
-
+.venv-intel-backup/
+.pytest_cache/
 
 

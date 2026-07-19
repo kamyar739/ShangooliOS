@@ -179,6 +179,31 @@ def ensure_production_schema():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS listings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artwork_id INTEGER NOT NULL,
+                marketplace TEXT NOT NULL DEFAULT 'Etsy',
+                product TEXT NOT NULL DEFAULT 'Poster',
+                title TEXT NOT NULL,
+                description TEXT,
+                tags TEXT,
+                price_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
+                status TEXT NOT NULL DEFAULT 'draft',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_listings_artwork_id ON listings(artwork_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)"
+        )
+
+        conn.execute(
+            """
             INSERT OR IGNORE INTO artwork_production (
                 artwork_id, orientation, master_ratio, required_ratios
             )
@@ -270,11 +295,35 @@ def get_dashboard():
             """
         ).fetchall()
 
-        return {
-            "collections": collections,
-            "stats": stats,
-            "recent_artworks": recent_artworks,
-        }
+    listing_rows = [dict(row) for row in list_listings()]
+    work_queue = []
+    ready_to_publish = []
+    for listing in listing_rows:
+        readiness = get_listing_readiness(listing["id"])
+        listing["readiness"] = readiness
+        if readiness["ready"]:
+            if listing["status"] not in ("published", "archived"):
+                ready_to_publish.append(listing)
+        elif listing["status"] != "archived":
+            listing["missing_labels"] = [
+                item["label"] for item in readiness["items"] if not item["passed"]
+            ]
+            work_queue.append(listing)
+
+    listing_counts = get_listing_status_counts()
+    return {
+        "collections": collections,
+        "stats": stats,
+        "recent_artworks": recent_artworks,
+        "listing_stats": {
+            "total": listing_counts["all"],
+            "ready_to_publish": len(ready_to_publish),
+            "needs_attention": len(work_queue),
+            "published": listing_counts["published"],
+        },
+        "listing_work_queue": work_queue[:6],
+        "ready_to_publish": ready_to_publish[:4],
+    }
 
 
 def search_artworks(query):
@@ -1260,3 +1309,214 @@ def get_print_master_certification(artwork_code):
 
 
 
+
+
+LISTING_STATUSES = ("draft", "ready", "published", "archived")
+
+
+def list_listings(status=None):
+    normalized_status = (status or "").strip().lower()
+    if normalized_status and normalized_status not in LISTING_STATUSES:
+        raise ValueError("Invalid listing status")
+
+    query = """
+        SELECT l.id, l.marketplace, l.product, l.title, l.price_cents,
+               l.status, l.updated_at, a.artwork_code, a.public_title,
+               c.name AS collection_name
+        FROM listings AS l
+        JOIN artworks AS a ON a.id = l.artwork_id
+        JOIN collections AS c ON c.id = a.collection_id
+    """
+    params = ()
+    if normalized_status:
+        query += " WHERE l.status = ?"
+        params = (normalized_status,)
+    query += " ORDER BY l.updated_at DESC, l.id DESC"
+
+    with get_connection() as conn:
+        return conn.execute(query, params).fetchall()
+
+
+def get_listing_status_counts():
+    counts = {status: 0 for status in LISTING_STATUSES}
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS total FROM listings GROUP BY status"
+        ).fetchall()
+    for row in rows:
+        if row["status"] in counts:
+            counts[row["status"]] = row["total"]
+    counts["all"] = sum(counts.values())
+    return counts
+
+
+def get_artwork_listings(artwork_code):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT l.id, l.marketplace, l.product, l.title, l.description,
+                   l.tags, l.price_cents, l.status, l.created_at, l.updated_at
+            FROM listings AS l
+            JOIN artworks AS a ON a.id = l.artwork_id
+            WHERE a.artwork_code = ?
+            ORDER BY l.updated_at DESC, l.id DESC
+            """,
+            (artwork_code.upper(),),
+        ).fetchall()
+
+
+def get_listing(listing_id):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT l.id, l.marketplace, l.product, l.title, l.description,
+                   l.tags, l.price_cents, l.status, l.created_at, l.updated_at,
+                   a.artwork_code, a.public_title, c.code AS collection_code,
+                   c.name AS collection_name
+            FROM listings AS l
+            JOIN artworks AS a ON a.id = l.artwork_id
+            JOIN collections AS c ON c.id = a.collection_id
+            WHERE l.id = ?
+            """,
+            (listing_id,),
+        ).fetchone()
+
+
+
+def get_listing_readiness(listing_id):
+    """Return the simple, user-facing checklist for publishing a listing."""
+    with get_connection() as conn:
+        listing = conn.execute(
+            """
+            SELECT l.id, l.title, l.description, l.tags, l.price_cents,
+                   a.id AS artwork_id, a.artwork_code,
+                   p.print_master_ready, p.ratio_exports_ready, p.mockups_ready
+            FROM listings AS l
+            JOIN artworks AS a ON a.id = l.artwork_id
+            LEFT JOIN artwork_production AS p ON p.artwork_id = a.id
+            WHERE l.id = ?
+            """,
+            (listing_id,),
+        ).fetchone()
+        if listing is None:
+            return None
+
+        roles = {
+            row["role"]
+            for row in conn.execute(
+                "SELECT role FROM artwork_files WHERE artwork_id = ?",
+                (listing["artwork_id"],),
+            ).fetchall()
+        }
+
+    items = [
+        {"key": "source", "label": "Source artwork", "passed": "source" in roles},
+        {
+            "key": "print_master",
+            "label": "Print master",
+            "passed": "print_master" in roles or bool(listing["print_master_ready"]),
+        },
+        {
+            "key": "ratios",
+            "label": "Aspect-ratio exports",
+            "passed": bool(listing["ratio_exports_ready"]),
+        },
+        {
+            "key": "mockups",
+            "label": "Listing images",
+            "passed": bool(listing["mockups_ready"]),
+        },
+        {"key": "title", "label": "Title", "passed": bool((listing["title"] or "").strip())},
+        {
+            "key": "description",
+            "label": "Description",
+            "passed": bool((listing["description"] or "").strip()),
+        },
+        {"key": "tags", "label": "Tags", "passed": bool((listing["tags"] or "").strip())},
+        {"key": "price", "label": "Price", "passed": listing["price_cents"] > 0},
+    ]
+    completed = sum(1 for item in items if item["passed"])
+    total = len(items)
+    return {
+        "items": items,
+        "completed": completed,
+        "total": total,
+        "remaining": total - completed,
+        "percentage": round((completed / total) * 100) if total else 0,
+        "ready": completed == total,
+    }
+
+def create_listing(artwork_code, *, marketplace, product, title, description,
+                   tags, price_cents, status="draft"):
+    if status not in LISTING_STATUSES:
+        raise ValueError("Invalid listing status")
+    if price_cents < 0:
+        raise ValueError("Price cannot be negative")
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.upper(),),
+        ).fetchone()
+        if artwork is None:
+            raise ValueError("Artwork not found")
+        cursor = conn.execute(
+            """
+            INSERT INTO listings (
+                artwork_id, marketplace, product, title, description, tags,
+                price_cents, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (artwork["id"], marketplace, product, title, description, tags,
+             price_cents, status),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def update_listing(listing_id, *, marketplace, product, title, description,
+                   tags, price_cents, status):
+    if status not in LISTING_STATUSES:
+        raise ValueError("Invalid listing status")
+    if price_cents < 0:
+        raise ValueError("Price cannot be negative")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET marketplace = ?, product = ?, title = ?, description = ?,
+                tags = ?, price_cents = ?, status = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (marketplace, product, title, description, tags, price_cents,
+             status, listing_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
+        conn.commit()
+
+
+def duplicate_listing(listing_id):
+    source = get_listing(listing_id)
+    if source is None:
+        raise ValueError("Listing not found")
+    title = source["title"]
+    copy_title = title if title.lower().endswith(" copy") else f"{title} Copy"
+    return create_listing(
+        source["artwork_code"],
+        marketplace=source["marketplace"],
+        product=source["product"],
+        title=copy_title,
+        description=source["description"] or "",
+        tags=source["tags"] or "",
+        price_cents=source["price_cents"],
+        status="draft",
+    )
+
+
+def delete_listing(listing_id):
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
+        conn.commit()

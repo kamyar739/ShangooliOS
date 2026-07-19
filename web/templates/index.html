@@ -7,15 +7,16 @@
 <div class="hero-panel mb-5">
     <div>
         <div class="eyebrow">ShangooliShop</div>
-        <h1 class="display-6 fw-bold mb-2">Creative dashboard</h1>
+        <h1 class="display-6 fw-bold mb-2">Production dashboard</h1>
         <p class="text-muted mb-0">
-            Manage collections and keep artwork moving toward completion.
+            See what is ready, what needs attention, and what to work on next.
         </p>
     </div>
 
-    <a href="/collections/new" class="btn btn-primary btn-lg">
-        + New Collection
-    </a>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="/listings" class="btn btn-outline-primary btn-lg">View Listings</a>
+        <a href="/collections/new" class="btn btn-primary btn-lg">+ New Collection</a>
+    </div>
 </div>
 
 <div class="row g-4 mb-5">
@@ -25,25 +26,91 @@
             <div class="metric-value">{{ stats["total_artworks"] or 0 }}</div>
         </div>
     </div>
-
     <div class="col-6 col-lg-3">
-        <div class="metric-card">
-            <div class="metric-label">In progress</div>
-            <div class="metric-value">{{ stats["in_progress"] or 0 }}</div>
+        <a href="/listings" class="card-link">
+            <div class="metric-card h-100">
+                <div class="metric-label">Listings</div>
+                <div class="metric-value">{{ listing_stats["total"] }}</div>
+            </div>
+        </a>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="metric-card h-100 dashboard-metric-ready">
+            <div class="metric-label">Ready to publish</div>
+            <div class="metric-value">{{ listing_stats["ready_to_publish"] }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="metric-card h-100 dashboard-metric-attention">
+            <div class="metric-label">Needs attention</div>
+            <div class="metric-value">{{ listing_stats["needs_attention"] }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-5">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h2 class="h4 mb-1">Listing work queue</h2>
+                <p class="text-muted mb-0">Open the listings that still have missing items.</p>
+            </div>
+            <a href="/listings" class="btn btn-sm btn-outline-secondary">All listings</a>
+        </div>
+
+        <div class="dashboard-queue">
+            {% for listing in listing_work_queue %}
+            <a href="/listings/{{ listing['id'] }}" class="dashboard-queue-item">
+                <div class="dashboard-queue-main">
+                    <div class="fw-semibold text-dark">{{ listing["title"] }}</div>
+                    <div class="text-muted small">{{ listing["artwork_code"] }} · {{ listing["public_title"] }}</div>
+                    <div class="small mt-1">
+                        Missing: {{ listing["missing_labels"][:3] | join(", ") }}{% if listing["missing_labels"]|length > 3 %} +{{ listing["missing_labels"]|length - 3 }} more{% endif %}
+                    </div>
+                </div>
+                <div class="dashboard-queue-progress">
+                    <strong>{{ listing["readiness"]["percentage"] }}%</strong>
+                    <div class="listing-readiness-track">
+                        <div class="listing-readiness-fill" style="width: {{ listing['readiness']['percentage'] }}%"></div>
+                    </div>
+                    <span class="text-muted small">{{ listing["readiness"]["remaining"] }} remaining</span>
+                </div>
+            </a>
+            {% else %}
+            <div class="empty-state">
+                {% if listing_stats["total"] == 0 %}
+                    No listings yet. Open an artwork to create the first listing.
+                {% else %}
+                    Nothing needs attention. Your active listings are complete.
+                {% endif %}
+            </div>
+            {% endfor %}
         </div>
     </div>
 
-    <div class="col-6 col-lg-3">
-        <div class="metric-card">
-            <div class="metric-label">Approved</div>
-            <div class="metric-value">{{ stats["approved"] or 0 }}</div>
+    <div class="col-lg-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h2 class="h4 mb-1">Ready to publish</h2>
+                <p class="text-muted mb-0">Complete listings awaiting publication.</p>
+            </div>
         </div>
-    </div>
-
-    <div class="col-6 col-lg-3">
-        <div class="metric-card">
-            <div class="metric-label">Listed</div>
-            <div class="metric-value">{{ stats["listed"] or 0 }}</div>
+        <div class="dashboard-ready-list">
+            {% for listing in ready_to_publish %}
+            <a href="/listings/{{ listing['id'] }}" class="dashboard-ready-item">
+                <div>
+                    <div class="fw-semibold text-dark">{{ listing["title"] }}</div>
+                    <div class="text-muted small">{{ listing["artwork_code"] }}</div>
+                </div>
+                <span class="status-pill listing-status-ready">Ready</span>
+            </a>
+            {% else %}
+            <div class="empty-state compact-empty-state">No complete listings waiting.</div>
+            {% endfor %}
+        </div>
+        <div class="dashboard-published-count mt-3">
+            <span>Published listings</span>
+            <strong>{{ listing_stats["published"] }}</strong>
         </div>
     </div>
 </div>
@@ -58,30 +125,17 @@
 <div class="row g-4 mb-5">
     {% for collection in collections %}
     <div class="col-md-6 col-lg-4">
-        <a
-            href="/collections/{{ collection['code'] }}"
-            class="card-link"
-        >
+        <a href="/collections/{{ collection['code'] }}" class="card-link">
             <div class="card app-card collection-card h-100">
                 <div class="card-body">
                     <div class="d-flex justify-content-between mb-4">
                         <span class="code-pill">{{ collection["code"] }}</span>
-                        <span class="status-pill status-{{ collection['status'] }}">
-                            {{ collection["status"] }}
-                        </span>
+                        <span class="status-pill status-{{ collection['status'] }}">{{ collection["status"] }}</span>
                     </div>
-
-                    <h3 class="h5 text-dark mb-2">
-                        {{ collection["name"] }}
-                    </h3>
-
-                    <p class="text-muted mb-4">
-                        Target: {{ collection["target_artwork_count"] or 0 }}
-                    </p>
-
+                    <h3 class="h5 text-dark mb-2">{{ collection["name"] }}</h3>
+                    <p class="text-muted mb-4">Target: {{ collection["target_artwork_count"] or 0 }}</p>
                     <div class="collection-count">
-                        {{ collection["artwork_count"] or 0 }}
-                        artwork{% if collection["artwork_count"] != 1 %}s{% endif %}
+                        {{ collection["artwork_count"] or 0 }} artwork{% if collection["artwork_count"] != 1 %}s{% endif %}
                     </div>
                 </div>
             </div>
@@ -106,11 +160,7 @@
         {% include "components/artwork_card.html" %}
     </div>
     {% else %}
-    <div class="col-12">
-        <div class="empty-state">
-            No active artwork yet.
-        </div>
-    </div>
+    <div class="col-12"><div class="empty-state">No active artwork yet.</div></div>
     {% endfor %}
 </div>
 

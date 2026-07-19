@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Listings — ShangooliOS{% endblock %}
+{% block content %}
+<div class="page-header mb-4">
+    <div>
+        <div class="eyebrow">Publishing</div>
+        <h1 class="display-6 fw-bold">Listings</h1>
+        <p class="text-muted mb-0">Manage draft, ready, published, and archived listings.</p>
+    </div>
+</div>
+
+<div class="listing-filter-bar mb-4">
+    <a class="listing-filter {% if not active_status %}active{% endif %}" href="/listings">
+        All <span>{{ status_counts['all'] }}</span>
+    </a>
+    {% for value in statuses %}
+    <a class="listing-filter {% if active_status == value %}active{% endif %}" href="/listings?status={{ value }}">
+        {{ value|title }} <span>{{ status_counts[value] }}</span>
+    </a>
+    {% endfor %}
+</div>
+
+<div class="card border-0 shadow-sm"><div class="card-body p-0">
+{% if listings %}
+<div class="table-responsive"><table class="table align-middle mb-0 listing-table">
+<thead><tr><th>Listing</th><th>Artwork</th><th>Marketplace</th><th>Product</th><th>Price</th><th>Readiness</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+<tbody>{% for item in listings %}<tr>
+<td><a href="/listings/{{ item['id'] }}" class="fw-semibold text-decoration-none">{{ item['title'] }}</a></td>
+<td><a href="/artworks/{{ item['artwork_code'] }}" class="text-decoration-none">{{ item['artwork_code'] }} — {{ item['public_title'] }}</a></td>
+<td>{{ item['marketplace'] }}</td><td>{{ item['product'] }}</td>
+<td>${{ '%.2f'|format(item['price_cents'] / 100) }}</td>
+<td>
+  {% set readiness = item['readiness'] %}
+  <a href="/listings/{{ item['id'] }}" class="listing-readiness-link" aria-label="Open listing readiness">
+    <div class="listing-readiness-summary">
+      <span class="fw-semibold">{% if readiness['ready'] %}Ready{% else %}{{ readiness['percentage'] }}%{% endif %}</span>
+      <span class="text-muted small">{{ readiness['completed'] }}/{{ readiness['total'] }}</span>
+    </div>
+    <div class="listing-readiness-track"><div class="listing-readiness-fill {% if readiness['ready'] %}is-ready{% endif %}" style="width: {{ readiness['percentage'] }}%"></div></div>
+  </a>
+</td>
+<td><span class="status-pill listing-status-{{ item['status'] }}">{{ item['status'] }}</span></td>
+<td class="text-end text-nowrap">
+    <a class="btn btn-sm btn-outline-secondary" href="/artworks/{{ item['artwork_code'] }}">Artwork</a>
+    <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/duplicate">
+        <button class="btn btn-sm btn-outline-primary" type="submit">Duplicate</button>
+    </form>
+</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}
+<div class="p-4 text-muted">
+    {% if active_status %}No {{ active_status }} listings.{% else %}No listings have been created yet.{% endif %}
+</div>
+{% endif %}
+</div></div>
+{% endblock %}

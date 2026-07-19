@@ -22,6 +22,9 @@ from web.db import (
     archive_artwork,
     archive_collection,
     create_collection,
+    create_listing,
+    duplicate_listing,
+    delete_listing,
     get_artwork,
     get_artwork_file_assignments,
     get_artwork_certification,
@@ -33,7 +36,12 @@ from web.db import (
     get_artwork_production,
     get_collection,
     get_dashboard,
+    get_listing,
+    get_listing_readiness,
+    get_listing_status_counts,
+    get_artwork_listings,
     restore_artwork,
+    list_listings,
     save_artwork_mockup_order,
     save_artwork_mockup_template,
     save_artwork_mockup_templates,
@@ -44,6 +52,7 @@ from web.db import (
     update_artwork_listing_content,
     update_artwork_production,
     update_collection,
+    update_listing,
     upsert_artwork_file,
     upsert_artwork_certification,
     upsert_print_master_certification,
@@ -75,6 +84,18 @@ BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(title="ShangooliOS")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+def _price_to_cents(price: str) -> int:
+    from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+    try:
+        value = Decimal(price.strip()).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, AttributeError):
+        raise HTTPException(status_code=400, detail="Enter a valid price")
+    if value < 0:
+        raise HTTPException(status_code=400, detail="Price cannot be negative")
+    return int(value * 100)
 
 
 def _generate_required_ratios(artwork, *, overwrite: bool) -> list[dict]:
@@ -166,6 +187,7 @@ def _artwork_context(artwork_code: str, **extra):
         "workflow": production_summary["workflow"],
         "artwork_intelligence": get_artwork_intelligence(artwork_code),
         "listing_content": get_artwork_listing_content(artwork_code),
+        "listings": get_artwork_listings(artwork_code),
         "certification": get_artwork_certification(artwork_code),
         "print_master_certification": get_print_master_certification(artwork_code),
         "template_packs": template_pack_options(),
@@ -200,6 +222,146 @@ def search_page(
             "query": query,
             "results": search_artworks(query) if query else [],
         },
+    )
+
+
+@app.get("/listings")
+def listings_page(
+    request: Request,
+    listing_status: str = Query("", alias="status"),
+):
+    normalized_status = listing_status.strip().lower()
+    try:
+        listing_rows = list_listings(normalized_status or None)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    listings = []
+    for row in listing_rows:
+        item = dict(row)
+        item["readiness"] = get_listing_readiness(item["id"])
+        listings.append(item)
+    return templates.TemplateResponse(
+        request=request,
+        name="listings.html",
+        context={
+            "listings": listings,
+            "active_status": normalized_status,
+            "statuses": ("draft", "ready", "published", "archived"),
+            "status_counts": get_listing_status_counts(),
+        },
+    )
+
+
+@app.get("/artworks/{artwork_code}/listings/new")
+def new_listing_form(request: Request, artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    content = get_artwork_listing_content(artwork_code)
+    return templates.TemplateResponse(
+        request=request,
+        name="listing_form.html",
+        context={
+            "artwork": artwork,
+            "listing": None,
+            "prefill": content,
+            "statuses": ("draft", "ready", "published", "archived"),
+        },
+    )
+
+
+@app.post("/artworks/{artwork_code}/listings/new")
+def create_listing_post(
+    artwork_code: str,
+    marketplace: str = Form("Etsy"),
+    product: str = Form("Poster"),
+    title: str = Form(...),
+    description: str = Form(""),
+    tags: str = Form(""),
+    price: str = Form("0.00"),
+    listing_status: str = Form("draft"),
+):
+    try:
+        listing_id = create_listing(
+            artwork_code, marketplace=marketplace.strip() or "Etsy",
+            product=product.strip() or "Poster", title=title.strip(),
+            description=description.strip(), tags=tags.strip(),
+            price_cents=_price_to_cents(price), status=listing_status,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.get("/listings/{listing_id}")
+def listing_page(request: Request, listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return templates.TemplateResponse(
+        request=request,
+        name="listing_form.html",
+        context={
+            "artwork": listing, "listing": listing, "prefill": None,
+            "statuses": ("draft", "ready", "published", "archived"),
+            "readiness": get_listing_readiness(listing_id),
+        },
+    )
+
+
+@app.post("/listings/{listing_id}")
+def update_listing_post(
+    listing_id: int,
+    marketplace: str = Form("Etsy"),
+    product: str = Form("Poster"),
+    title: str = Form(...),
+    description: str = Form(""),
+    tags: str = Form(""),
+    price: str = Form("0.00"),
+    listing_status: str = Form("draft"),
+):
+    try:
+        update_listing(
+            listing_id, marketplace=marketplace.strip() or "Etsy",
+            product=product.strip() or "Poster", title=title.strip(),
+            description=description.strip(), tags=tags.strip(),
+            price_cents=_price_to_cents(price), status=listing_status,
+        )
+    except ValueError as error:
+        code = 404 if "not found" in str(error).lower() else 400
+        raise HTTPException(status_code=code, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}?saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/duplicate")
+def duplicate_listing_post(listing_id: int):
+    try:
+        new_listing_id = duplicate_listing(listing_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{new_listing_id}?duplicated=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/delete")
+def delete_listing_post(listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    try:
+        delete_listing(listing_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/artworks/{listing['artwork_code']}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{% if listing %}{{ listing['title'] }}{% else %}New Listing{% endif %} — ShangooliOS{% endblock %}
+{% block content %}
+<div class="mb-4"><a href="/artworks/{{ artwork['artwork_code'] }}" class="text-decoration-none">← {{ artwork['artwork_code'] }} — {{ artwork['public_title'] }}</a></div>
+<div class="page-header mb-4"><div><div class="eyebrow">{{ artwork['collection_name'] if listing else 'Publishing' }}</div><h1 class="display-6 fw-bold">{% if listing %}Edit listing{% else %}Create listing{% endif %}</h1></div></div>
+{% if request.query_params.get('saved') %}<div class="alert alert-success">Listing saved.</div>{% endif %}
+{% if request.query_params.get('duplicated') %}<div class="alert alert-success">Listing duplicated as a new draft.</div>{% endif %}
+{% if listing and readiness %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body p-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+      <div>
+        <div class="eyebrow">Listing readiness</div>
+        <h2 class="h4 mb-1">{% if readiness['ready'] %}Ready to publish{% else %}{{ readiness['remaining'] }} item{% if readiness['remaining'] != 1 %}s{% endif %} remaining{% endif %}</h2>
+        <p class="text-muted mb-0">{{ readiness['completed'] }} of {{ readiness['total'] }} checks complete.</p>
+      </div>
+      <span class="status-pill {% if readiness['ready'] %}listing-status-ready{% else %}listing-status-draft{% endif %}">{% if readiness['ready'] %}Ready{% else %}{{ readiness['percentage'] }}%{% endif %}</span>
+    </div>
+    <div class="readiness-progress mb-4" role="progressbar" aria-label="Listing readiness" aria-valuenow="{{ readiness['percentage'] }}" aria-valuemin="0" aria-valuemax="100">
+      <div class="readiness-progress-fill {% if readiness['ready'] %}is-ready{% endif %}" style="width: {{ readiness['percentage'] }}%"></div>
+    </div>
+    <div class="row g-2">
+      {% for item in readiness['items'] %}
+      <div class="col-md-6">
+        <div class="readiness-check {% if item['passed'] %}is-complete{% else %}is-missing{% endif %}">
+          <span class="readiness-check-icon">{% if item['passed'] %}✓{% else %}○{% endif %}</span>
+          <span>{{ item['label'] }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+<div class="card border-0 shadow-sm"><div class="card-body p-4">
+<form method="post" action="{% if listing %}/listings/{{ listing['id'] }}{% else %}/artworks/{{ artwork['artwork_code'] }}/listings/new{% endif %}">
+<div class="row g-3">
+<div class="col-md-6"><label class="form-label">Marketplace</label><input class="form-control" name="marketplace" required value="{{ listing['marketplace'] if listing else 'Etsy' }}"></div>
+<div class="col-md-6"><label class="form-label">Product</label><input class="form-control" name="product" required value="{{ listing['product'] if listing else 'Poster' }}"></div>
+<div class="col-12"><label class="form-label">Title</label><input class="form-control" name="title" maxlength="140" required value="{{ listing['title'] if listing else (prefill['etsy_title'] if prefill and prefill['etsy_title'] else artwork['public_title']) }}"></div>
+<div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="10">{{ listing['description'] if listing else (prefill['etsy_description'] if prefill and prefill['etsy_description'] else '') }}</textarea></div>
+<div class="col-12"><label class="form-label">Tags</label><textarea class="form-control" name="tags" rows="3" placeholder="Comma-separated tags">{{ listing['tags'] if listing else (prefill['etsy_tags'] if prefill and prefill['etsy_tags'] else '') }}</textarea></div>
+<div class="col-md-6"><label class="form-label">Price (USD)</label><div class="input-group"><span class="input-group-text">$</span><input class="form-control" name="price" inputmode="decimal" required value="{{ '%.2f'|format(listing['price_cents'] / 100) if listing else '0.00' }}"></div></div>
+<div class="col-md-6"><label class="form-label">Status</label><select class="form-select" name="listing_status">{% for value in statuses %}<option value="{{ value }}" {% if listing and listing['status'] == value or not listing and value == 'draft' %}selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></div>
+</div>
+<div class="d-flex justify-content-between align-items-center mt-4 gap-3">
+<div class="d-flex gap-2">
+{% if listing %}
+<button class="btn btn-outline-danger" type="submit" form="delete-listing" onclick="return confirm('Delete this listing?')">Delete listing</button>
+<button class="btn btn-outline-primary" type="submit" form="duplicate-listing">Duplicate listing</button>
+{% endif %}
+</div>
+<div class="d-flex gap-2">
+<a class="btn btn-outline-secondary" href="/listings">All listings</a>
+<button class="btn btn-primary" type="submit">{% if listing %}Save listing{% else %}Create listing{% endif %}</button>
+</div>
+</div>
+</form>
+{% if listing %}
+<form id="delete-listing" method="post" action="/listings/{{ listing['id'] }}/delete"></form>
+<form id="duplicate-listing" method="post" action="/listings/{{ listing['id'] }}/duplicate"></form>
+{% endif %}
+</div></div>
+{% endblock %}

@@ -558,3 +558,34 @@
 })();
 </script>
 
+
+
+<section class="card border-0 shadow-sm mt-4">
+    <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <div class="eyebrow">Publishing</div>
+                <h2 class="h4 mb-0">Listings</h2>
+            </div>
+            <a class="btn btn-outline-primary" href="/artworks/{{ artwork['artwork_code'] }}/listings/new">Create listing</a>
+        </div>
+        {% if listings %}
+        <div class="list-group list-group-flush">
+            {% for item in listings %}
+            <a class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center" href="/listings/{{ item['id'] }}">
+                <span>
+                    <strong>{{ item['title'] }}</strong><br>
+                    <small class="text-muted">{{ item['marketplace'] }} · {{ item['product'] }}</small>
+                </span>
+                <span class="text-end">
+                    <span class="badge text-bg-secondary">{{ item['status'] }}</span><br>
+                    <small>${{ '%.2f'|format(item['price_cents'] / 100) }}</small>
+                </span>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No listings yet. Create one when the artwork is ready to sell.</p>
+        {% endif %}
+    </div>
+</section>

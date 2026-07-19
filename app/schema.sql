@@ -48,3 +48,25 @@ ON collections(brand_id);
 
 CREATE INDEX IF NOT EXISTS idx_artworks_collection_id
 ON artworks(collection_id);
+
+CREATE TABLE IF NOT EXISTS listings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artwork_id INTEGER NOT NULL,
+    marketplace TEXT NOT NULL DEFAULT 'Etsy',
+    product TEXT NOT NULL DEFAULT 'Poster',
+    title TEXT NOT NULL,
+    description TEXT,
+    tags TEXT,
+    price_cents INTEGER NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (artwork_id) REFERENCES artworks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_listings_artwork_id
+ON listings(artwork_id);
+
+CREATE INDEX IF NOT EXISTS idx_listings_status
+ON listings(status);
