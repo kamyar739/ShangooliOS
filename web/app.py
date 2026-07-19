@@ -44,6 +44,7 @@ from web.db import (
     list_listings,
     publish_listing,
     save_printify_product,
+    mark_printify_etsy_connected,
     save_artwork_mockup_order,
     save_artwork_mockup_template,
     save_artwork_mockup_templates,
@@ -66,6 +67,7 @@ from web.listing_writer import generate_listing_content
 from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, generate_mockups
 from web.marketplace_export import build_listing_export, inspect_listing_export
 from web.printify import validate_printify_product
+from web.printify_handoff import build_printify_handoff, inspect_printify_handoff
 from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
 from web.print_master import build_print_master, load_print_master_manifest
 from web.production import (
@@ -310,6 +312,7 @@ def listing_page(request: Request, listing_id: int):
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
     readiness = get_listing_readiness(listing_id)
+    printify_state = validate_printify_product(listing)
     return templates.TemplateResponse(
         request=request,
         name="listing_form.html",
@@ -322,7 +325,11 @@ def listing_page(request: Request, listing_id: int):
             ),
             "readiness": readiness,
             "export_state": inspect_listing_export(listing, readiness),
-            "printify_state": validate_printify_product(listing),
+            "printify_state": printify_state,
+            "printify_handoff": (
+                inspect_printify_handoff(listing, readiness)
+                if printify_state["required"] else None
+            ),
         },
     )
 
@@ -423,6 +430,33 @@ def save_printify_product_post(
         raise HTTPException(status_code=code, detail=str(error)) from error
     return RedirectResponse(
         url=f"/listings/{listing_id}?printify_saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/printify-export")
+def export_printify_handoff_post(listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    try:
+        result = build_printify_handoff(listing, get_listing_readiness(listing_id))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return FileResponse(
+        path=result["path"], filename=result["filename"], media_type="application/zip"
+    )
+
+
+@app.post("/listings/{listing_id}/printify-connected")
+def mark_printify_connected_post(listing_id: int):
+    try:
+        mark_printify_etsy_connected(listing_id)
+    except ValueError as error:
+        code = 404 if "not found" in str(error).lower() else 400
+        raise HTTPException(status_code=code, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}?printify_connected=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

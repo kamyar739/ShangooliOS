@@ -7,6 +7,7 @@
 {% if request.query_params.get('duplicated') %}<div class="alert alert-success">Listing duplicated as a new draft.</div>{% endif %}
 {% if request.query_params.get('published') %}<div class="alert alert-success">Listing marked as published.</div>{% endif %}
 {% if request.query_params.get('printify_saved') %}<div class="alert alert-success">Printify product saved.</div>{% endif %}
+{% if request.query_params.get('printify_connected') %}<div class="alert alert-success">Printify product marked as connected to Etsy.</div>{% endif %}
 {% if listing and readiness %}
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body p-4">
@@ -69,7 +70,7 @@
   <div class="card-body p-4">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
       <div><div class="eyebrow">Print provider</div><h2 class="h4 mb-1">Printify product</h2><p class="text-muted mb-0">Record the product used to fulfill this physical listing.</p></div>
-      {% if printify_state['ready'] %}<a class="btn btn-outline-success" href="{{ listing['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Open Printify</a>{% endif %}
+      {% if printify_state['ready'] %}<div class="d-flex gap-2"><a class="btn btn-outline-success" href="{{ listing['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Open Printify</a><form method="post" action="/listings/{{ listing['id'] }}/printify-export"><button class="btn btn-success" type="submit" {% if not printify_handoff['ready'] %}disabled{% endif %}>Download Printify package</button></form></div>{% endif %}
     </div>
     <form method="post" action="/listings/{{ listing['id'] }}/printify">
       <div class="row g-3">
@@ -81,6 +82,14 @@
         <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary" type="submit">Save Printify product</button></div>
       </div>
     </form>
+    {% if printify_state['ready'] and not printify_handoff['ready'] %}<p class="small text-muted mt-3 mb-0">Complete before handoff: {{ printify_handoff['blockers']|join(', ') }}.</p>{% endif %}
+    {% if listing['status'] == 'published' and printify_state['ready'] %}
+      {% if listing['printify_etsy_connected_at'] %}
+      <div class="alert alert-success mt-3 mb-0">Connected to Etsy · {{ listing['printify_etsy_connected_at'] }}</div>
+      {% else %}
+      <form class="d-flex justify-content-end mt-3" method="post" action="/listings/{{ listing['id'] }}/printify-connected"><button class="btn btn-outline-success" type="submit">Mark connected to Etsy</button></form>
+      {% endif %}
+    {% endif %}
   </div>
 </div>
 {% endif %}

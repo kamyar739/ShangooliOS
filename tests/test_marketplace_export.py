@@ -55,6 +55,10 @@ class MarketplaceExportTests(unittest.TestCase):
         mockups.mkdir(parents=True)
         (mockups / "CEL-001_listing_room_style.jpg").write_bytes(b"room")
         (mockups / "CEL-001_listing_hero_style.jpg").write_bytes(b"hero")
+        print_files = self.workspace / "02 Print Files"
+        print_files.mkdir(parents=True)
+        (print_files / "CEL-001_ratio_4x5.png").write_bytes(b"ratio-4x5")
+        (print_files / "CEL-001_ratio_2x3.png").write_bytes(b"ratio-2x3")
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -152,6 +156,49 @@ class MarketplaceExportTests(unittest.TestCase):
         published = db.get_listing(self.listing_id)
         self.assertEqual(published["status"], "published")
         self.assertEqual(published["external_listing_id"], "123456789")
+
+    @patch("web.printify_handoff.get_artwork_folder")
+    def test_printify_handoff_contains_print_files_metadata_and_checklist(self, folder):
+        folder.return_value = self.workspace
+        db.save_printify_product(
+            self.listing_id,
+            product_url="https://printify.com/app/products/example",
+            product_id="printify-123",
+            provider="Print Provider",
+            sizes="8x10, 12x16",
+            base_cost_cents=1200,
+        )
+        response = self.client.post(f"/listings/{self.listing_id}/printify-export")
+        self.assertEqual(response.status_code, 200)
+        with zipfile.ZipFile(BytesIO(response.content)) as archive:
+            names = archive.namelist()
+            self.assertIn("printify.json", names)
+            self.assertIn("printify-setup-checklist.txt", names)
+            self.assertIn("print-files/CEL-001_ratio_4x5.png", names)
+            manifest = json.loads(archive.read("printify.json"))
+            self.assertEqual(manifest["printify"]["sizes"], ["8x10", "12x16"])
+            self.assertEqual(manifest["printify"]["provider"], "Print Provider")
+
+    def test_published_listing_can_be_marked_connected_to_etsy(self):
+        db.save_printify_product(
+            self.listing_id,
+            product_url="https://printify.com/app/products/example",
+            product_id="printify-123",
+            provider="Print Provider",
+            sizes="8x10, 12x16",
+            base_cost_cents=1200,
+        )
+        db.publish_listing(
+            self.listing_id,
+            marketplace_url="https://www.etsy.com/listing/123456789/unbound",
+            external_listing_id="123456789",
+        )
+        response = self.client.post(
+            f"/listings/{self.listing_id}/printify-connected",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertIsNotNone(db.get_listing(self.listing_id)["printify_etsy_connected_at"])
 
 
 if __name__ == "__main__":

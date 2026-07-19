@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS listings (
     printify_provider TEXT,
     printify_sizes TEXT,
     printify_base_cost_cents INTEGER,
+    printify_etsy_connected_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

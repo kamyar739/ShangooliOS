@@ -215,6 +215,7 @@ def ensure_production_schema():
             "printify_provider",
             "printify_sizes",
             "printify_base_cost_cents",
+            "printify_etsy_connected_at",
         ):
             if column_name not in listing_columns:
                 column_type = "INTEGER" if column_name.endswith("_cents") else "TEXT"
@@ -1342,7 +1343,8 @@ def list_listings(status=None):
     query = """
         SELECT l.id, l.marketplace, l.product, l.title, l.price_cents,
                l.status, l.marketplace_url, l.external_listing_id,
-               l.published_at, l.printify_product_url, l.updated_at,
+               l.published_at, l.printify_product_url,
+               l.printify_etsy_connected_at, l.updated_at,
                a.artwork_code, a.public_title,
                c.name AS collection_name
         FROM listings AS l
@@ -1382,6 +1384,7 @@ def get_artwork_listings(artwork_code):
                    l.printify_product_url, l.printify_product_id,
                    l.printify_provider, l.printify_sizes,
                    l.printify_base_cost_cents,
+                   l.printify_etsy_connected_at,
                    l.created_at, l.updated_at
             FROM listings AS l
             JOIN artworks AS a ON a.id = l.artwork_id
@@ -1402,6 +1405,7 @@ def get_listing(listing_id):
                    l.printify_product_url, l.printify_product_id,
                    l.printify_provider, l.printify_sizes,
                    l.printify_base_cost_cents,
+                   l.printify_etsy_connected_at,
                    l.created_at, l.updated_at,
                    a.artwork_code, a.public_title, c.code AS collection_code,
                    c.name AS collection_name
@@ -1594,6 +1598,28 @@ def save_printify_product(
                 values["printify_provider"], values["printify_sizes"],
                 values["printify_base_cost_cents"], listing_id,
             ),
+        )
+        conn.commit()
+
+
+def mark_printify_etsy_connected(listing_id):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise ValueError("Listing not found")
+    printify = validate_printify_product(listing)
+    if not printify["ready"]:
+        raise ValueError("Complete the Printify product details first")
+    if listing["status"] != "published" or not listing["marketplace_url"]:
+        raise ValueError("Publish the Etsy listing before recording the connection")
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE listings
+            SET printify_etsy_connected_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (listing_id,),
         )
         conn.commit()
 
