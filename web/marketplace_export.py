@@ -40,7 +40,11 @@ def _ordered_listing_images(mockup_folder: Path) -> list[Path]:
 def inspect_listing_export(listing, readiness: dict) -> dict:
     workspace = get_artwork_folder(listing)
     images = _ordered_listing_images(workspace / "03 Mockups")
-    blockers = [item["label"] for item in readiness["items"] if not item["passed"]]
+    blockers = [
+        item.get("detail") or item["label"]
+        for item in readiness["items"]
+        if not item["passed"]
+    ]
     if not images and "Listing images" not in blockers:
         blockers.append("Listing image files")
     return {

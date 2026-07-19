@@ -333,6 +333,30 @@ class ListingReadinessTests(ListingTests):
         self.assertIn("Etsy publishing section", response.text)
         self.assertEqual(db.get_listing(listing_id)["status"], "ready")
 
+    def test_etsy_validation_problem_blocks_publication_and_is_explained(self):
+        self._complete_listing_readiness()
+        tags = ", ".join(f"tag {number}" for number in range(1, 15))
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags=tags, price_cents=3995, status="ready",
+        )
+
+        page = self.client.get(f"/listings/{listing_id}")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("There are 14 tags; Etsy allows up to 13.", page.text)
+        self.assertIn("Complete the readiness checklist before publishing.", page.text)
+
+        response = self.client.post(
+            f"/listings/{listing_id}/publish",
+            data={
+                "marketplace_url": "https://www.etsy.com/listing/123456789/unbound",
+                "external_listing_id": "123456789",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("readiness checklist", response.text)
+
 class ListingVisualReadinessTests(ListingTests):
     def test_readiness_includes_percentage(self):
         listing_id = db.create_listing(

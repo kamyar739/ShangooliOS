@@ -2,6 +2,7 @@ from pathlib import Path
 import sqlite3
 
 from app.database import initialize_database
+from web.etsy_validation import validate_etsy_listing
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATABASE_PATH = PROJECT_ROOT / "data" / "shangooli.db"
@@ -1441,15 +1442,8 @@ def get_listing_readiness(listing_id):
             "label": "Listing images",
             "passed": bool(listing["mockups_ready"]),
         },
-        {"key": "title", "label": "Title", "passed": bool((listing["title"] or "").strip())},
-        {
-            "key": "description",
-            "label": "Description",
-            "passed": bool((listing["description"] or "").strip()),
-        },
-        {"key": "tags", "label": "Tags", "passed": bool((listing["tags"] or "").strip())},
-        {"key": "price", "label": "Price", "passed": listing["price_cents"] > 0},
     ]
+    items.extend(validate_etsy_listing(listing))
     completed = sum(1 for item in items if item["passed"])
     total = len(items)
     return {
