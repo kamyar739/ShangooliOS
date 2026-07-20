@@ -72,7 +72,44 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Unbound Poster", response.text)
         self.assertIn("Missing: Source artwork", response.text)
         self.assertIn('aria-label="Dashboard navigation"', response.text)
+        self.assertIn('href="/collections"', response.text)
+        self.assertNotIn("Start here", response.text)
+        self.assertIn('href="/?view=attention"', response.text)
+        self.assertIn('data-app-wait', response.text)
+        self.assertIn('app-wait-spinner', response.text)
+
+        dashboard_focus = self.client.get("/?view=attention")
+        self.assertIn("Listings with missing items", dashboard_focus.text)
+        self.assertIn("Unbound Poster", dashboard_focus.text)
+        self.assertIn('href="/?view=artworks"', dashboard_focus.text)
+
+        focused = self.client.get("/listings?view=attention")
+        self.assertEqual(focused.status_code, 200)
+        self.assertIn("Listings that need attention", focused.text)
+        self.assertIn("Unbound Poster", focused.text)
+        self.assertIn('href="/?view=attention"', focused.text)
+        self.assertIn("Back to dashboard", focused.text)
+
+    def test_collections_filter_keeps_collection_cards_and_updates_artwork_panel(self):
+        response = self.client.get("/collections?collection=CEL")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('href="/collections?collection=CEL"', response.text)
+        self.assertIn('aria-current="true"', response.text)
+        self.assertIn("Viewing artwork below", response.text)
+        self.assertIn("Celebration artwork", response.text)
+        self.assertIn("Unbound", response.text)
         self.assertIn('href="/collections/CEL"', response.text)
+
+        missing = self.client.get("/collections?collection=MISSING")
+        self.assertEqual(missing.status_code, 404)
+
+        collection_page = self.client.get("/collections/CEL")
+        self.assertIn('href="/collections?collection=CEL"', collection_page.text)
+        self.assertIn("All collections", collection_page.text)
+
+        new_collection = self.client.get("/collections/new")
+        self.assertIn('href="/collections"', new_collection.text)
+        self.assertIn("Back to collections", new_collection.text)
 
     def test_dashboard_shows_ready_to_publish(self):
         self._complete_artwork_files()
@@ -86,6 +123,17 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Ready to publish", response.text)
         self.assertIn("Complete Unbound", response.text)
         self.assertIn("Nothing needs attention", response.text)
+        self.assertIn('href="/?view=ready"', response.text)
+
+        dashboard_focus = self.client.get("/?view=ready")
+        self.assertIn("Completed listings awaiting publication", dashboard_focus.text)
+        self.assertIn("Complete Unbound", dashboard_focus.text)
+
+        focused = self.client.get("/listings?view=ready")
+        self.assertEqual(focused.status_code, 200)
+        self.assertIn("Showing complete listings", focused.text)
+        self.assertIn("Complete Unbound", focused.text)
+        self.assertIn('href="/?view=ready"', focused.text)
 
     def test_certified_master_locks_production_orientation(self):
         with db.get_connection() as connection:
@@ -127,16 +175,19 @@ class DashboardTests(unittest.TestCase):
             'aria-label="Collection and artwork workflow"', artwork_page.text
         )
         labels = [
-            "1. Artwork details",
-            "2. Source artwork",
-            "3. Print production",
-            "4. Listing images",
-            "5. Listing &amp; SEO",
-            "6. Printify product",
-            "7. Etsy publishing",
+            "Artwork details",
+            "Source artwork",
+            "Print production",
+            "Listing images",
+            "Listing &amp; SEO",
+            "Printify product",
+            "Etsy publishing",
         ]
         positions = [artwork_page.text.index(label) for label in labels]
         self.assertEqual(positions, sorted(positions))
+        self.assertIn('aria-label="Artwork workflow steps"', artwork_page.text)
+        sidebar_end = artwork_page.text.index("</aside>")
+        self.assertNotIn('data-workflow-link=', artwork_page.text[:sidebar_end])
         for stage in ("details", "source", "print", "mockups", "listing"):
             self.assertIn(f'data-workflow-stage="{stage}"', artwork_page.text)
 

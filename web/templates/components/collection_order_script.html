@@ -15,7 +15,11 @@
     const target = event.target.closest('[data-collection-code]');
     if (!dragged || !target || target === dragged) return;
     const box = target.getBoundingClientRect();
-    list.insertBefore(dragged, event.clientY < box.top + box.height / 2 ? target : target.nextSibling);
+    const sameRow = Math.abs(event.clientY - (box.top + box.height / 2)) < box.height / 2;
+    const insertBefore = sameRow
+      ? event.clientX < box.left + box.width / 2
+      : event.clientY < box.top + box.height / 2;
+    list.insertBefore(dragged, insertBefore ? target : target.nextSibling);
   });
   list.addEventListener('dragend', async () => {
     if (!dragged) return;

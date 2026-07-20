@@ -3,8 +3,9 @@
 {% block content %}
 <div class="workflow-shell">
   {% include "components/workflow_sidebar.html" %}
-  <div class="workflow-stage-content" data-workflow-controller>
+  <div class="workflow-stage-content workflow-compact" data-workflow-controller>
     {% include "artwork/header.html" %}
+    {% include "components/workflow_step_buttons.html" %}
     <div class="workflow-task-heading">
       <div class="eyebrow" data-workflow-step-label></div>
       <h2 class="h3 mb-1" data-workflow-step-title></h2>

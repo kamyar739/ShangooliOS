@@ -7,7 +7,7 @@
 {% include "components/dashboard_sidebar.html" %}
 <main class="workflow-stage-content">
 
-<div class="hero-panel mb-5">
+<div class="hero-panel dashboard-hero mb-5">
     <div>
         <div class="eyebrow">ShangooliShop</div>
         <h1 class="display-6 fw-bold mb-2">Production dashboard</h1>
@@ -16,41 +16,68 @@
         </p>
     </div>
 
-    <div class="d-flex gap-2 flex-wrap">
-        <a href="/listings" class="btn btn-outline-primary btn-lg">View Listings</a>
-        <a href="/collections/new" class="btn btn-primary btn-lg">+ New Collection</a>
-    </div>
 </div>
 
 <div class="row g-4 mb-5">
     <div class="col-6 col-lg-3">
-        <div class="metric-card">
+        <a href="/?view=artworks" class="dashboard-metric-link {% if dashboard_view == 'artworks' %}is-selected{% endif %}">
+        <div class="metric-card dashboard-action-metric metric-artworks">
             <div class="metric-label">Artworks</div>
             <div class="metric-value">{{ stats["total_artworks"] or 0 }}</div>
+            <div class="metric-action">Browse collections <span>→</span></div>
         </div>
+        </a>
     </div>
     <div class="col-6 col-lg-3">
-        <a href="/listings" class="card-link">
-            <div class="metric-card h-100">
+        <a href="/?view=listings" class="dashboard-metric-link {% if dashboard_view == 'listings' %}is-selected{% endif %}">
+            <div class="metric-card h-100 dashboard-action-metric metric-listings">
                 <div class="metric-label">Listings</div>
                 <div class="metric-value">{{ listing_stats["total"] }}</div>
+                <div class="metric-action">View all listings <span>→</span></div>
             </div>
         </a>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="metric-card h-100 dashboard-metric-ready">
+        <a href="/?view=ready" class="dashboard-metric-link {% if dashboard_view == 'ready' %}is-selected{% endif %}">
+        <div class="metric-card h-100 dashboard-metric-ready dashboard-action-metric metric-ready">
             <div class="metric-label">Ready to publish</div>
             <div class="metric-value">{{ listing_stats["ready_to_publish"] }}</div>
+            <div class="metric-action">Review ready listings <span>→</span></div>
         </div>
+        </a>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="metric-card h-100 dashboard-metric-attention">
+        <a href="/?view=attention" class="dashboard-metric-link {% if dashboard_view == 'attention' %}is-selected{% endif %}">
+        <div class="metric-card h-100 dashboard-metric-attention dashboard-action-metric metric-attention">
             <div class="metric-label">Needs attention</div>
             <div class="metric-value">{{ listing_stats["needs_attention"] }}</div>
+            <div class="metric-action">Show missing items <span>→</span></div>
         </div>
+        </a>
     </div>
 </div>
 
+{% if dashboard_view == 'artworks' %}
+<section class="dashboard-filtered-workspace">
+  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Artworks</div><h2 class="h4 mb-1">Recently updated artwork</h2><p class="text-muted mb-0">Open an artwork or browse its collection.</p></div><a class="btn btn-sm btn-outline-primary" href="/collections">All collections</a></div>
+  <div class="row g-3 dashboard-recent-grid mt-1">{% for artwork in recent_artworks %}<div class="col-auto">{% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = true %}{% include "components/artwork_card.html" %}</div>{% else %}<div class="empty-state">No active artwork yet.</div>{% endfor %}</div>
+</section>
+{% elif dashboard_view == 'listings' %}
+<section class="dashboard-filtered-workspace">
+  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Listings</div><h2 class="h4 mb-1">All listing work</h2><p class="text-muted mb-0">Open a listing to continue its publishing workflow.</p></div><a class="btn btn-sm btn-outline-primary" href="/listings">Manage listings</a></div>
+  <div class="dashboard-queue mt-3">{% for listing in dashboard_listings %}<a href="/listings/{{ listing['id'] }}" class="dashboard-queue-item"><div><strong class="text-dark d-block">{{ listing['title'] }}</strong><span class="text-muted small">{{ listing['artwork_code'] }} · {{ listing['status']|title }}</span></div><div class="dashboard-queue-progress"><strong>{{ listing['readiness']['percentage'] }}%</strong><div class="listing-readiness-track"><div class="listing-readiness-fill {% if listing['readiness']['ready'] %}is-ready{% endif %}" style="width:{{ listing['readiness']['percentage'] }}%"></div></div></div></a>{% else %}<div class="empty-state">No listings yet.</div>{% endfor %}</div>
+</section>
+{% elif dashboard_view == 'attention' %}
+<section class="dashboard-filtered-workspace">
+  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Needs attention</div><h2 class="h4 mb-1">Listings with missing items</h2><p class="text-muted mb-0">Complete these checks before publishing.</p></div><a class="btn btn-sm btn-outline-primary" href="/listings?view=attention">Open focused list</a></div>
+  <div class="dashboard-queue mt-3">{% for listing in listing_work_queue %}<a href="/listings/{{ listing['id'] }}" class="dashboard-queue-item"><div class="dashboard-queue-main"><div class="fw-semibold text-dark">{{ listing['title'] }}</div><div class="text-muted small">{{ listing['artwork_code'] }} · {{ listing['public_title'] }}</div><div class="small mt-1">Missing: {{ listing['missing_labels'][:3]|join(', ') }}</div></div><div class="dashboard-queue-progress"><strong>{{ listing['readiness']['percentage'] }}%</strong><div class="listing-readiness-track"><div class="listing-readiness-fill" style="width:{{ listing['readiness']['percentage'] }}%"></div></div><span class="text-muted small">{{ listing['readiness']['remaining'] }} remaining</span></div></a>{% else %}<div class="empty-state">Nothing needs attention.</div>{% endfor %}</div>
+</section>
+{% elif dashboard_view == 'ready' %}
+<section class="dashboard-filtered-workspace">
+  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Ready to publish</div><h2 class="h4 mb-1">Completed listings awaiting publication</h2><p class="text-muted mb-0">Review and publish these listings.</p></div><a class="btn btn-sm btn-outline-primary" href="/listings?view=ready">Open focused list</a></div>
+  <div class="dashboard-ready-list mt-3">{% for listing in ready_to_publish %}<a href="/listings/{{ listing['id'] }}" class="dashboard-ready-item"><div><div class="fw-semibold text-dark">{{ listing['title'] }}</div><div class="text-muted small">{{ listing['artwork_code'] }}</div></div><span class="status-pill listing-status-ready">Ready</span></a>{% else %}<div class="empty-state">No complete listings are waiting.</div>{% endfor %}</div>
+</section>
+{% else %}
 <div class="row g-4 mb-5">
     <div class="col-lg-8">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -117,6 +144,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 {% if false %}
 <div id="collections" class="d-flex justify-content-between align-items-center mb-3">

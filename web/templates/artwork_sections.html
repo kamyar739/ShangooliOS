@@ -556,6 +556,7 @@
             input.style.pointerEvents = 'none';
             input.setAttribute('aria-disabled', 'true');
             if (status) status.textContent = 'Uploading and saving…';
+            if (window.showAppWait) window.showAppWait('Uploading artwork…');
             form.submit();
         });
     }

@@ -4,38 +4,5 @@
     {% include "components/sidebar_masthead.html" %}
     {% set primary_nav_active = "listings" if workflow_nav['active_stage'] in ['listing', 'printify', 'etsy'] else "collections" %}
     {% include "components/primary_navigation.html" %}
-    <a class="workflow-root-link" href="/collections"><span>←</span> All collections</a>
-    <div class="workflow-context-block">
-      <div class="workflow-sidebar-label">Collection</div>
-      <a class="workflow-collection-link" href="/collections/{{ workflow_nav['collection']['code'] }}">
-        <span class="workflow-code">{{ workflow_nav['collection']['code'] }}</span>
-        <strong>{{ workflow_nav['collection']['name'] }}</strong>
-      </a>
-    </div>
-
-    <div class="workflow-context-block">
-      <div class="workflow-sidebar-label">Artwork</div>
-      <div class="workflow-selected-artwork"><span>{{ workflow_nav['artwork']['code'] }}</span><strong>{{ workflow_nav['artwork']['title'] }}</strong></div>
-    </div>
-
-    <details class="workflow-artwork-picker">
-      <summary><span class="workflow-sidebar-label">Change artwork</span><span>⌄</span></summary>
-      <div class="workflow-artwork-list">
-        {% for nav_artwork in workflow_nav['collection_artworks'] %}
-        <a href="/artworks/{{ nav_artwork['artwork_code'] }}" class="{% if nav_artwork['artwork_code'] == workflow_nav['artwork']['code'] %}is-active{% endif %}">
-          <span>{{ nav_artwork['artwork_code'] }}</span><span class="text-truncate">{{ nav_artwork['public_title'] }}</span>
-        </a>
-        {% endfor %}
-      </div>
-    </details>
-
-    <nav class="workflow-stage-list">
-      {% for stage in workflow_nav['stages'] %}
-      <a href="{{ stage['href'] }}" data-workflow-link="{{ stage['key'] }}" class="{% if stage['key'] == workflow_nav['active_stage'] %}is-current{% endif %}">
-        <span class="workflow-stage-icon">{% if stage['complete'] %}✓{% elif stage['key'] == workflow_nav['active_stage'] %}→{% else %}○{% endif %}</span>
-        <span>{{ loop.index }}. {{ stage['label'] }}</span>
-      </a>
-      {% endfor %}
-    </nav>
   </div>
 </aside>

@@ -1,0 +1,23 @@
+<div class="mb-3">
+  <a href="{{ workflow_back_href }}" class="context-nav-link"><span aria-hidden="true">←</span> {{ workflow_back_label }}</a>
+</div>
+<div class="page-header artwork-detail-header workflow-context-header mb-3">
+  <div class="artwork-detail-title-group">
+    {% if listing and listing['has_source_image'] %}
+    <a class="artwork-detail-thumb" href="/artworks/{{ workflow_nav['artwork']['code'] }}/files/view?role=source" target="_blank" aria-label="View source artwork">
+      <img src="/artworks/{{ workflow_nav['artwork']['code'] }}/files/view?role=source" alt="{{ workflow_nav['artwork']['title'] }} thumbnail">
+    </a>
+    {% else %}
+    <div class="artwork-detail-thumb artwork-detail-thumb-placeholder" aria-hidden="true"><span>No image</span></div>
+    {% endif %}
+    <div>
+      <div class="eyebrow">{{ workflow_nav['artwork']['code'] }}</div>
+      <h1 class="display-6 fw-bold mb-1">{{ workflow_nav['artwork']['title'] }}</h1>
+      <div class="small text-muted">{{ workflow_nav['collection']['name'] }}</div>
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a class="context-nav-link context-nav-link-secondary" href="/artworks/{{ workflow_nav['artwork']['code'] }}">Open artwork</a>
+    {% if listing %}<span class="status-pill listing-status-{{ listing['status'] }}">{{ 'Live on Etsy' if listing['status'] == 'published' else listing['status']|title }}</span>{% endif %}
+  </div>
+</div>

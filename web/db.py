@@ -412,6 +412,7 @@ def get_dashboard():
         },
         "listing_work_queue": work_queue[:6],
         "ready_to_publish": ready_to_publish[:4],
+        "dashboard_listings": listing_rows[:8],
     }
 
 
@@ -1529,6 +1530,11 @@ def get_listing(listing_id):
                    l.etsy_last_synced_at,
                    l.created_at, l.updated_at,
                    a.artwork_code, a.public_title, c.code AS collection_code,
+                   EXISTS (
+                       SELECT 1 FROM artwork_files AS source_file
+                       WHERE source_file.artwork_id = a.id
+                         AND source_file.role = 'source'
+                   ) AS has_source_image,
                    c.name AS collection_name, c.etsy_section_name
             FROM listings AS l
             JOIN artworks AS a ON a.id = l.artwork_id

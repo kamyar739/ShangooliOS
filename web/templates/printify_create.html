@@ -3,9 +3,12 @@
 {% block content %}
 <div class="workflow-shell">
 {% include "components/workflow_sidebar.html" %}
-<main class="workflow-stage-content">
-<div class="mb-4"><a href="/listings/{{ listing['id'] }}" class="text-decoration-none">← Back to listing</a></div>
-<div class="page-header mb-4"><div><div class="eyebrow">Printify automation</div><h1 class="display-6 fw-bold">Create Printify product</h1><p class="text-muted mb-0">Choose the catalog product, provider, variants, and matching print files.</p></div></div>
+<main class="workflow-stage-content workflow-compact">
+{% set workflow_back_href = '/listings/' + listing['id']|string %}
+{% set workflow_back_label = 'Back to listing' %}
+{% include "components/workflow_context_header.html" %}
+{% include "components/workflow_step_buttons.html" %}
+<div class="workflow-task-heading"><div class="eyebrow">Step 6</div><h2 class="h3 mb-1">Printify product</h2><p class="text-muted mb-0">Choose the catalog product, provider, variants, and matching print files.</p></div>
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 {% if not configured %}
 <div class="card border-0 shadow-sm"><div class="card-body p-4">

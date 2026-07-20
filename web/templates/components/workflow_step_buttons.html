@@ -1,0 +1,8 @@
+<nav class="workflow-step-buttons" aria-label="Artwork workflow steps">
+  {% for stage in workflow_nav['stages'] %}
+  <a href="{{ stage['href'] }}" data-workflow-link="{{ stage['key'] }}" class="workflow-step-button {% if stage['key'] == workflow_nav['active_stage'] %}is-current{% endif %}"{% if stage['key'] == workflow_nav['active_stage'] %} aria-current="step"{% endif %}>
+    <span class="workflow-stage-icon">{% if stage['complete'] %}✓{% else %}{{ loop.index }}{% endif %}</span>
+    <span>{{ stage['label'] }}</span>
+  </a>
+  {% endfor %}
+</nav>

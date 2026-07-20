@@ -293,20 +293,38 @@ def _workflow_navigation(
 
 
 @app.get("/")
-def home(request: Request):
+def home(request: Request, dashboard_view: str = Query("", alias="view")):
+    normalized_view = dashboard_view.strip().lower()
+    if normalized_view not in ("", "artworks", "listings", "ready", "attention"):
+        raise HTTPException(status_code=400, detail="Invalid dashboard view")
+    context = get_dashboard()
+    context["dashboard_view"] = normalized_view
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context=get_dashboard(),
+        context=context,
     )
 
 
 @app.get("/collections")
-def collections_page(request: Request):
+def collections_page(
+    request: Request,
+    collection_code: str = Query("", alias="collection"),
+):
+    context = get_dashboard()
+    normalized_code = collection_code.strip().upper()
+    context["selected_collection"] = None
+    context["collection_artworks"] = []
+    if normalized_code:
+        collection, artworks, _ = get_collection(normalized_code)
+        if collection is None or collection["status"] == "archived":
+            raise HTTPException(status_code=404, detail="Collection not found")
+        context["selected_collection"] = collection
+        context["collection_artworks"] = artworks
     return templates.TemplateResponse(
         request=request,
         name="collections_index.html",
-        context=get_dashboard(),
+        context=context,
     )
 
 
@@ -446,8 +464,14 @@ def search_page(
 def listings_page(
     request: Request,
     listing_status: str = Query("", alias="status"),
+    listing_view: str = Query("", alias="view"),
 ):
     normalized_status = listing_status.strip().lower()
+    normalized_view = listing_view.strip().lower()
+    if normalized_view not in ("", "ready", "attention"):
+        raise HTTPException(status_code=400, detail="Invalid listing view")
+    if normalized_status and normalized_view:
+        raise HTTPException(status_code=400, detail="Choose a status or readiness view, not both")
     try:
         listing_rows = list_listings(normalized_status or None)
     except ValueError as error:
@@ -457,12 +481,24 @@ def listings_page(
         item = dict(row)
         item["readiness"] = get_listing_readiness(item["id"])
         listings.append(item)
+    if normalized_view == "ready":
+        listings = [
+            item for item in listings
+            if item["readiness"]["ready"]
+            and item["status"] not in ("published", "archived")
+        ]
+    elif normalized_view == "attention":
+        listings = [
+            item for item in listings
+            if not item["readiness"]["ready"] and item["status"] != "archived"
+        ]
     return templates.TemplateResponse(
         request=request,
         name="listings.html",
         context={
             "listings": listings,
             "active_status": normalized_status,
+            "active_view": normalized_view,
             "statuses": ("draft", "ready", "published", "archived"),
             "status_counts": get_listing_status_counts(),
         },

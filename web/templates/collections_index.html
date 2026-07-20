@@ -9,28 +9,39 @@
       <div><div class="eyebrow">Catalog</div><h1 class="display-6 fw-bold">Collections</h1><p class="text-muted mb-0">Organize artwork into focused storefront collections.</p></div>
       <a class="btn btn-primary" href="/collections/new">+ New collection</a>
     </div>
-    <div class="row g-4 mb-5">
+    <div class="row g-4 mb-2 collection-order-grid" data-collection-order>
       {% for collection in collections %}
-      <div class="col-md-6 col-xl-4">
-        <a href="/collections/{{ collection['code'] }}" class="card-link">
+      <div class="col-md-6 col-xl-4 collection-order-card" draggable="true" data-collection-code="{{ collection['code'] }}">
+        <button class="collection-card-drag-handle" type="button" aria-label="Move {{ collection['name'] }}" title="Drag to reorder">⋮⋮</button>
+        <a href="/collections?collection={{ collection['code'] }}" class="card-link collection-filter-link{% if selected_collection and selected_collection['code'] == collection['code'] %} is-selected{% endif %}"{% if selected_collection and selected_collection['code'] == collection['code'] %} aria-current="true"{% endif %}>
           <div class="card app-card collection-card h-100"><div class="card-body">
             <div class="d-flex justify-content-between mb-4"><span class="code-pill">{{ collection['code'] }}</span><span class="status-pill collection-status-{{ collection['display_status_class'] }}">{{ collection['display_status'] }}</span></div>
             <h2 class="h5 text-dark mb-2">{{ collection['name'] }}</h2>
             <p class="text-muted mb-4">Target: {{ collection['target_artwork_count'] or 0 }}</p>
             <div class="collection-count">{{ collection['artwork_count'] or 0 }} artwork{% if collection['artwork_count'] != 1 %}s{% endif %}{% if collection['live_etsy_count'] %}<span> · {{ collection['live_etsy_count'] }} live on Etsy</span>{% endif %}</div>
+            {% if selected_collection and selected_collection['code'] == collection['code'] %}<div class="collection-viewing-label">Viewing artwork below</div>{% endif %}
           </div></div>
         </a>
       </div>
       {% endfor %}
     </div>
-    <div class="mb-3"><h2 class="h4 mb-1">Recently updated</h2><p class="text-muted mb-0">Your latest active artwork.</p></div>
+    <div class="collection-order-status mb-5" data-collection-order-status aria-live="polite">Drag collections to reorder</div>
+    <div class="dashboard-workspace-heading mb-3">
+      {% if selected_collection %}
+      <div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="h4 mb-1">{{ selected_collection['name'] }} artwork</h2><p class="text-muted mb-0">Artwork belonging to the selected collection.</p></div>
+      <div class="d-flex gap-2"><a class="btn btn-sm btn-outline-secondary" href="/collections">Show recent</a><a class="btn btn-sm btn-primary" href="/collections/{{ selected_collection['code'] }}">Open collection</a></div>
+      {% else %}
+      <div><h2 class="h4 mb-1">Recently updated</h2><p class="text-muted mb-0">Your latest active artwork across all collections.</p></div>
+      {% endif %}
+    </div>
     <div class="row g-3 dashboard-recent-grid">
-      {% for artwork in recent_artworks %}
+      {% set displayed_artworks = collection_artworks if selected_collection else recent_artworks %}
+      {% for artwork in displayed_artworks %}
       <div class="col-auto">
-        {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = true %}
+        {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = not selected_collection %}
         {% include "components/artwork_card.html" %}
       </div>
-      {% else %}<div class="col-12"><div class="empty-state">No active artwork yet.</div></div>{% endfor %}
+      {% else %}<div class="col-12"><div class="empty-state">{% if selected_collection %}No active artwork in this collection yet.{% else %}No active artwork yet.{% endif %}</div></div>{% endfor %}
     </div>
   </main>
 </div>

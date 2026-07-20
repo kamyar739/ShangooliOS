@@ -134,10 +134,16 @@ class ListingTests(unittest.TestCase):
         )
         response = self.client.get(f"/listings/{listing_id}")
         self.assertEqual(response.status_code, 200)
-        self.assertIn('data-workflow-link="listing"', response.text)
-        self.assertIn('data-workflow-link="printify"', response.text)
-        self.assertIn('data-workflow-link="etsy"', response.text)
+        sidebar = response.text[:response.text.index("</aside>")]
+        self.assertIn("Etsy connection", sidebar)
+        self.assertNotIn('data-workflow-link=', sidebar)
         self.assertIn('id="printify"', response.text)
+        self.assertIn('aria-label="Artwork workflow steps"', response.text)
+        self.assertIn('data-workflow-link="listing"', response.text)
+        self.assertIn('aria-current="step"', response.text)
+        self.assertIn('href="/listings"', response.text)
+        self.assertIn("Back to listings", response.text)
+        self.assertIn('href="/artworks/CEL-001"', response.text)
 
     def test_global_printify_connection_page_shows_status(self):
         from web.printify_api import configure_printify_runtime

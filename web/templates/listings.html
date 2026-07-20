@@ -13,8 +13,18 @@
     </div>
 </div>
 
+{% if active_view %}
+<div class="listing-view-banner {% if active_view == 'attention' %}is-attention{% else %}is-ready{% endif %} mb-4">
+  <div><div class="eyebrow">Focused view</div><h2 class="h5 mb-1">{% if active_view == 'attention' %}Listings that need attention{% else %}Ready to publish{% endif %}</h2><p class="mb-0 text-muted">{% if active_view == 'attention' %}Showing active listings with incomplete readiness checks.{% else %}Showing complete listings that are not yet live on Etsy.{% endif %}</p></div>
+  <div class="d-flex gap-2 flex-wrap listing-view-actions">
+    <a class="btn btn-sm btn-outline-primary" href="/?view={{ active_view }}">← Back to dashboard</a>
+    <a class="btn btn-sm btn-outline-secondary" href="/listings">Show all listings</a>
+  </div>
+</div>
+{% endif %}
+
 <div class="listing-filter-bar mb-4">
-    <a class="listing-filter filter-all {% if not active_status %}active{% endif %}" href="/listings">
+    <a class="listing-filter filter-all {% if not active_status and not active_view %}active{% endif %}" href="/listings">
         <span class="filter-dot">●</span><strong>All</strong><span class="filter-count">{{ status_counts['all'] }}</span>
     </a>
     {% for value in statuses %}
@@ -57,7 +67,7 @@
 {% endfor %}
 {% else %}
 <div class="card border-0 shadow-sm p-4 text-muted">
-    {% if active_status %}No {{ active_status }} listings.{% else %}No listings have been created yet.{% endif %}
+    {% if active_view == 'attention' %}Nothing currently needs attention.{% elif active_view == 'ready' %}No complete listings are waiting to publish.{% elif active_status %}No {{ active_status }} listings.{% else %}No listings have been created yet.{% endif %}
 </div>
 {% endif %}
 </div>
