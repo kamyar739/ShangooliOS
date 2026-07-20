@@ -569,6 +569,7 @@
 
 <section id="listing-workspace" class="card border-0 shadow-sm mt-4" data-workflow-stage="listing">
     <div class="card-body p-4">
+        {% if request.query_params.get('updated_everywhere') %}<div class="alert alert-success"><strong>Artwork updated everywhere.</strong> New print files and mockups were created, then Printify and Etsy were synchronized.</div>{% endif %}
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
                 <div class="eyebrow">Publishing</div>
@@ -589,6 +590,17 @@
                     <small>${{ '%.2f'|format(item['price_cents'] / 100) }}</small>
                 </span>
             </a>
+            {% if item['status'] == 'published' and item['printify_product_id'] and item['external_listing_id'] %}
+            <details class="update-everywhere-panel mb-3">
+                <summary><strong>Replace artwork everywhere</strong><span>Upload once · update Printify and Etsy</span></summary>
+                <form class="pt-3" method="post" enctype="multipart/form-data" action="/artworks/{{ artwork['artwork_code'] }}/listings/{{ item['id'] }}/update-everywhere" data-long-operation>
+                    <label class="form-label fw-semibold" for="replacement-art-{{ item['id'] }}">Replacement artwork</label>
+                    <input class="form-control" id="replacement-art-{{ item['id'] }}" type="file" name="upload" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf" required>
+                    <div class="form-check mt-3"><input class="form-check-input" id="approve-replacement-{{ item['id'] }}" type="checkbox" name="confirmed" value="true" required><label class="form-check-label" for="approve-replacement-{{ item['id'] }}">I approve this replacement artwork and understand it will update the live product.</label></div>
+                    <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary" type="submit" onclick="return confirm('Update the print files, Printify product, and Etsy listing images now?')">Update everywhere</button></div>
+                </form>
+            </details>
+            {% endif %}
             {% endfor %}
         </div>
         {% else %}

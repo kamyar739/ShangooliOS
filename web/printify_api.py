@@ -256,6 +256,11 @@ class PrintifyAPI:
             raise PrintifyAPIError("Printify did not return the saved product")
         return result
 
+    def update_product(self, product_id: str, payload: dict):
+        return self._request(
+            "PUT", f"/shops/{self.shop_id}/products/{product_id}.json", payload
+        )
+
     def publish_product(self, product_id: str):
         return self._request(
             "POST",
@@ -375,3 +380,41 @@ def create_printify_product(
         "base_cost_cents": min(known_costs) if known_costs else None,
         "product_url": f"https://printify.com/app/store/products/{product['id']}",
     }
+
+
+def update_printify_product_artwork(api: PrintifyAPI, *, product_id: str, listing, files_by_role: dict):
+    """Replace print-area artwork while preserving the existing product and variants."""
+    product = api.get_product(product_id)
+    enabled = [variant for variant in product.get("variants", []) if variant.get("is_enabled")]
+    if not enabled:
+        raise ValueError("The Printify product has no enabled variants")
+    selections = []
+    for variant in enabled:
+        role = ratio_role_for_variant(variant.get("title", ""))
+        path = files_by_role.get(role)
+        if not path:
+            raise ValueError(f"No matching print file for {variant.get('title', 'a Printify variant')}")
+        selections.append((variant, path))
+    uploaded = {}
+    for _, path in selections:
+        if path not in uploaded:
+            uploaded[path] = api.upload_image(path)["id"]
+    areas = {}
+    for variant, path in selections:
+        areas.setdefault(uploaded[path], []).append(variant["id"])
+    payload = {
+        "title": listing["title"],
+        "description": listing["description"] or "",
+        "variants": [
+            {"id": item["id"], "price": item["price"], "is_enabled": item.get("is_enabled", False)}
+            for item in product.get("variants", [])
+        ],
+        "print_areas": [
+            {"variant_ids": ids, "placeholders": [{"position": "front", "images": [
+                {"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}
+            ]}]}
+            for image_id, ids in areas.items()
+        ],
+    }
+    api.update_product(product_id, payload)
+    return len(uploaded)

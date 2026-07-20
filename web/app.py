@@ -104,6 +104,7 @@ from web.printify_api import (
     ratio_role_for_variant,
     save_printify_local_config,
     variant_orientation,
+    update_printify_product_artwork,
 )
 from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
 from web.print_master import build_print_master, load_print_master_manifest
@@ -1894,6 +1895,80 @@ def upload_source_file(
 
     return RedirectResponse(
         url=f"/artworks/{artwork_code.upper()}?file_saved=source",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/listings/{listing_id}/update-everywhere")
+def update_artwork_everywhere(
+    artwork_code: str,
+    listing_id: int,
+    upload: UploadFile = File(...),
+    confirmed: bool = Form(False),
+):
+    artwork = get_artwork(artwork_code)
+    listing = get_listing(listing_id)
+    if artwork is None or listing is None or listing["artwork_code"] != artwork_code.upper():
+        raise HTTPException(status_code=404, detail="Artwork listing not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Approve the replacement artwork first")
+    if not listing["printify_product_id"] or not listing["external_listing_id"]:
+        raise HTTPException(status_code=400, detail="Connect both Printify and Etsy before updating everywhere")
+    api = PrintifyAPI.from_env()
+    if api is None:
+        raise HTTPException(status_code=400, detail="Connect Printify before updating everywhere")
+    try:
+        saved = save_uploaded_file(artwork=artwork, upload=upload, role="source")
+        upsert_artwork_file(artwork_code=artwork_code, **saved)
+        workspace = get_artwork_folder(artwork)
+        source_path = workspace / saved["relative_path"]
+        certification = certify_artwork(source_path).to_dict()
+        if not certification["valid"]:
+            raise ValueError("The replacement artwork did not pass certification")
+        upsert_artwork_certification(artwork_code, certification)
+        master = build_print_master(artwork, source_path)
+        upsert_artwork_file(
+            artwork_code=artwork_code, role="print_master",
+            relative_path=master.relative_path, stored_filename=master.master_filename,
+            original_filename=saved["original_filename"],
+        )
+        master_path = workspace / master.relative_path
+        upsert_print_master_certification(artwork_code, certify_artwork(master_path).to_dict())
+        _generate_required_ratios(artwork, overwrite=True)
+        mockups = generate_mockups(
+            artwork=dict(artwork), source_path=master_path,
+            output_folder=workspace / "03 Mockups", template_key=DEFAULT_TEMPLATE_PACK,
+        )
+        for result in mockups:
+            upsert_artwork_file(
+                artwork_code=artwork_code, role=result["role"],
+                relative_path=str(result["path"].relative_to(workspace)),
+                stored_filename=result["stored_filename"], original_filename=result["original_filename"],
+            )
+        save_artwork_mockup_templates(
+            artwork_code, {slot: DEFAULT_TEMPLATE_PACK for slot in GENERATED_SLOTS}
+        )
+        assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+        files_by_role = {
+            role: resolve_assigned_file(artwork, assignment)
+            for role, assignment in assignments.items() if role.startswith("ratio:")
+        }
+        update_printify_product_artwork(
+            api, product_id=listing["printify_product_id"], listing=listing,
+            files_by_role=files_by_role,
+        )
+        set_artwork_production_flags(
+            artwork_code, print_master_ready=True, ratio_exports_ready=True,
+            mockups_ready=True, original_approved=True,
+        )
+        result = sync_etsy_listing(get_listing(listing_id))
+        mark_etsy_synced(listing_id, result.get("state", ""))
+    except (ValueError, PrintifyAPIError, EtsyAPIError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    finally:
+        upload.file.close()
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?updated_everywhere=1#listing-workspace",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

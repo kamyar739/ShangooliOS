@@ -71,6 +71,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Needs attention", response.text)
         self.assertIn("Unbound Poster", response.text)
         self.assertIn("Missing: Source artwork", response.text)
+        self.assertIn('class="dashboard-listing-thumb"', response.text)
+        self.assertIn("No image", response.text)
         self.assertIn('aria-label="Dashboard navigation"', response.text)
         self.assertIn('href="/collections"', response.text)
         self.assertNotIn("Start here", response.text)
@@ -82,6 +84,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Listings with missing items", dashboard_focus.text)
         self.assertIn("Unbound Poster", dashboard_focus.text)
         self.assertIn('href="/?view=artworks"', dashboard_focus.text)
+
+        self._complete_artwork_files()
+        listings_dashboard = self.client.get("/?view=listings")
+        self.assertIn(
+            'src="/artworks/CEL-001/files/view?role=source"',
+            listings_dashboard.text,
+        )
+        self.assertIn('alt="Unbound thumbnail"', listings_dashboard.text)
 
         default_dashboard = self.client.get("/")
         self.assertIn("Recently updated artwork", default_dashboard.text)

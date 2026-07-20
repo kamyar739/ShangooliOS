@@ -17,6 +17,7 @@ from web.printify_api import (
     printify_configuration_source,
     ratio_role_for_variant,
     save_printify_local_config,
+    update_printify_product_artwork,
     variant_orientation,
 )
 
@@ -33,6 +34,16 @@ class FakePrintifyAPI:
     def create_product(self, payload):
         self.payload = payload
         return {"id": "product-123", "title": payload["title"]}
+
+    def get_product(self, product_id):
+        return {"id": product_id, "variants": [
+            {"id": 1, "title": "18 x 12 / Matte", "price": 2800, "is_enabled": True},
+            {"id": 2, "title": "20 x 16 / Matte", "price": 3200, "is_enabled": True},
+        ]}
+
+    def update_product(self, product_id, payload):
+        self.updated_product_id = product_id
+        self.payload = payload
 
 
 class PrintifyAPITests(unittest.TestCase):
@@ -235,6 +246,23 @@ class PrintifyAPITests(unittest.TestCase):
                 ],
             )
         self.assertIsNone(result["base_cost_cents"])
+
+    def test_product_artwork_update_preserves_variants_and_replaces_print_areas(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            three_two, five_four = folder / "3x2.png", folder / "5x4.png"
+            three_two.write_bytes(b"a")
+            five_four.write_bytes(b"b")
+            api = FakePrintifyAPI()
+            count = update_printify_product_artwork(
+                api, product_id="existing-123",
+                listing={"title": "Revelry", "description": "Updated"},
+                files_by_role={"ratio:3:2": three_two, "ratio:5:4": five_four},
+            )
+        self.assertEqual(count, 2)
+        self.assertEqual(api.updated_product_id, "existing-123")
+        self.assertEqual([item["price"] for item in api.payload["variants"]], [2800, 3200])
+        self.assertEqual(len(api.payload["print_areas"]), 2)
 
     def test_publish_product_uses_separate_confirmed_api_operation(self):
         api = PrintifyAPI("secret", "shop-123")
