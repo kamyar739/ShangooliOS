@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Sync {{ listing['title'] }} to Etsy — ShangooliOS{% endblock %}
+{% block content %}
+<div class="mb-4"><a href="/listings/{{ listing['id'] }}" class="text-decoration-none">← Back to listing</a></div>
+<div class="page-header mb-4"><div><div class="eyebrow">Etsy synchronization</div><h1 class="display-6 fw-bold">Sync changes to Etsy</h1><p class="text-muted mb-0">Update the existing Etsy listing without changing Printify fulfillment.</p></div></div>
+{% if request.query_params.get('linked') %}<div class="alert alert-success">The Etsy listing is linked. Review the changes below.</div>{% endif %}
+{% if request.query_params.get('synced') %}<div class="alert alert-success">Etsy listing updated successfully.</div>{% endif %}
+{% if request.query_params.get('inventory_updated') %}<div class="alert alert-success">Etsy inventory verified at {{ request.query_params.get('inventory_updated') }} per enabled size.</div>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% if preview and not preview['linked'] %}
+<div class="card border-0 shadow-sm"><div class="card-body p-4">
+  <div class="eyebrow">First-time setup</div><h2 class="h4">Choose the Printify-created Etsy listing</h2>
+  <p class="text-muted">This permanently links the ShangooliOS record to the existing Etsy listing. It will not create another listing.</p>
+  {% if preview['candidates'] %}
+  <form method="post" action="/listings/{{ listing['id'] }}/etsy/link">
+    <label class="form-label">Etsy listing</label>
+    <div class="vstack gap-2 mb-3">
+      {% for candidate in preview['candidates'] %}
+      <label class="border rounded p-3 d-flex align-items-center gap-3">
+        <input class="form-check-input flex-shrink-0" type="radio" name="external_listing_id" value="{{ candidate['listing_id'] }}" required>
+        {% if candidate.get('images') %}<img src="{{ candidate['images'][0]['url_170x135'] }}" alt="" width="90" height="72" style="object-fit:cover" class="rounded">{% endif %}
+        <span><strong class="d-block">{{ candidate['title'] }}</strong><span class="text-muted small">{{ candidate['state']|title }} · Etsy ID {{ candidate['listing_id'] }}</span></span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="d-flex justify-content-end"><button class="btn btn-primary">Link this listing</button></div>
+  </form>
+  {% else %}<div class="alert alert-warning mb-0">No active, draft, or inactive listings were found in the connected Etsy shop. Give Printify a moment to finish publishing, then reload this page.</div>{% endif %}
+</div></div>
+{% elif preview and preview['linked'] %}
+<div class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
+  <div class="d-flex flex-wrap justify-content-between gap-3 mb-3"><div><div class="eyebrow">Linked Etsy listing</div><h2 class="h4 mb-1">{{ preview['remote']['title'] }}</h2><p class="text-muted mb-0">ID {{ listing['external_listing_id'] }} · {{ preview['remote']['state']|title }}</p></div><a class="btn btn-outline-success" target="_blank" rel="noopener noreferrer" href="https://www.etsy.com/listing/{{ listing['external_listing_id'] }}">Open on Etsy ↗</a></div>
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Field</th><th>Currently on Etsy</th><th>After sync</th></tr></thead><tbody>
+    {% for change in preview['changes'] %}<tr class="{% if change['changed'] %}table-warning{% endif %}"><th>{{ change['field'] }}</th><td class="text-break"><div style="max-height:8rem;overflow:auto">{{ change['before'] or '—' }}</div></td><td class="text-break"><div style="max-height:8rem;overflow:auto">{{ change['after'] or '—' }}</div></td></tr>{% endfor %}
+  </tbody></table></div>
+</div></div>
+<div class="card border-warning shadow-sm"><div class="card-body p-4">
+  <div class="eyebrow">Final confirmation</div><h2 class="h4">Update this existing Etsy listing?</h2>
+  <p>This replaces its title, description, tags, and listing images with the ShangooliOS versions. Printify variants, SKUs, shipping, and fulfillment remain unchanged.</p>
+  <form method="post" action="/listings/{{ listing['id'] }}/etsy/sync">
+    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="confirmed" value="true" id="confirm-sync" required><label class="form-check-label" for="confirm-sync">I reviewed the changes and want to update this Etsy listing.</label></div>
+    <div class="d-flex justify-content-end"><button class="btn btn-warning" onclick="return confirm('Update the existing Etsy listing now? This will replace its copy and images.')">Confirm and sync to Etsy</button></div>
+  </form>
+</div></div>
+<div class="card border-0 shadow-sm mt-4"><div class="card-body p-4">
+  <div class="eyebrow">Inventory safety cap</div><h2 class="h4">Limit availability per size</h2>
+  <p class="text-muted">This changes only Etsy quantities. Printify SKUs, size variants, prices, shipping, and fulfillment are preserved.</p>
+  <div class="table-responsive mb-3"><table class="table table-sm align-middle"><thead><tr><th>Size</th><th>SKU</th><th>Price</th><th>Current quantity</th></tr></thead><tbody>
+    {% for row in preview['inventory_rows'] %}<tr><td>{{ row['label'] }}</td><td><code>{{ row['sku'] }}</code></td><td>${{ '%.2f'|format(row['price']) }}</td><td>{{ row['quantity'] }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  <form method="post" action="/listings/{{ listing['id'] }}/etsy/inventory">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-4"><label class="form-label">Quantity for each enabled size</label><input class="form-control" type="number" name="quantity" min="1" max="999" value="2" required></div>
+      <div class="col-md-8"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmed" value="true" id="confirm-inventory" required><label class="form-check-label" for="confirm-inventory">Set every enabled Etsy size to this quantity while preserving its current SKU and price.</label></div></div>
+      <div class="col-12 d-flex justify-content-end"><button class="btn btn-outline-warning" onclick="return confirm('Set the Etsy quantity for every enabled size?')">Update and verify Etsy inventory</button></div>
+    </div>
+  </form>
+  <p class="small text-muted mt-3 mb-0">Publishing the product again from Printify may reset Etsy inventory. ShangooliOS verifies the quantities immediately after each update.</p>
+</div></div>
+{% endif %}
+{% endblock %}

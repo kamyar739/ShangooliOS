@@ -85,6 +85,34 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Complete Unbound", response.text)
         self.assertIn("Nothing needs attention", response.text)
 
+    def test_certified_master_locks_production_orientation(self):
+        with db.get_connection() as connection:
+            artwork_id = connection.execute(
+                "SELECT id FROM artworks WHERE artwork_code='CEL-001'"
+            ).fetchone()["id"]
+            connection.execute(
+                """
+                INSERT INTO print_master_certification (
+                    artwork_id, valid, width, height, orientation,
+                    master_ratio, required_ratios
+                ) VALUES (?, 1, 4000, 6000, 'vertical', '2:3',
+                          '2:3, 3:4, 4:5, 11:14')
+                """,
+                (artwork_id,),
+            )
+            connection.commit()
+
+        page = self.client.get("/artworks/CEL-001")
+        self.assertIn('value="vertical" readonly', page.text)
+        self.assertIn("Locked by the certified print master", page.text)
+
+        response = self.client.post(
+            "/artworks/CEL-001/production",
+            data={"orientation": "horizontal"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("locked to vertical", response.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -135,6 +135,11 @@
             <div class="row g-4">
                 <div class="col-md-5">
                     <label class="form-label">Orientation</label>
+                    {% if certified_orientation %}
+                    <input type="hidden" name="orientation" value="{{ certified_orientation }}">
+                    <input class="form-control text-capitalize" value="{{ certified_orientation }}" readonly>
+                    <div class="form-text">Locked by the certified print master. Replace or rotate the master to change orientation.</div>
+                    {% else %}
                     <select name="orientation" class="form-select">
                         <option value="">Not set</option>
                         {% for option in ["horizontal", "vertical", "square"] %}
@@ -144,6 +149,7 @@
                         </option>
                         {% endfor %}
                     </select>
+                    {% endif %}
                 </div>
 
                 <div class="col-md-7">

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Connect Etsy — ShangooliOS{% endblock %}
+{% block content %}
+<div class="page-header mb-4"><div><div class="eyebrow">Marketplace connection</div><h1 class="display-6 fw-bold">Connect Etsy</h1><p class="text-muted mb-0">Authorize ShangooliOS to update your own shop listings and upload curated images.</p></div></div>
+{% if request.query_params.get('connected') %}<div class="alert alert-success">Etsy connected successfully.</div>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+<div class="card border-0 shadow-sm"><div class="card-body p-4">
+{% if connected %}
+<div class="eyebrow">Connected shop</div><h2 class="h4">{{ config['shop_name'] or 'Etsy shop' }}</h2><p class="text-muted">Shop ID {{ config['shop_id'] }} · Listings can now be read and updated by ShangooliOS.</p>
+{% if config['permission_version'] != '2' %}<div class="alert alert-info">Reconnect once to allow ShangooliOS to create and manage buyer-facing Etsy shop sections for future collections.</div>{% endif %}
+<div class="d-flex gap-2">{% if config['permission_version'] != '2' %}<form method="post" action="/etsy/reconnect"><button class="btn btn-primary">Reconnect Etsy permissions</button></form>{% endif %}<form method="post" action="/etsy/disconnect"><button class="btn btn-outline-danger" onclick="return confirm('Disconnect Etsy and remove its saved credentials from this computer?')">Disconnect Etsy</button></form></div>
+{% else %}
+<h2 class="h4 mb-2">Etsy Seller App credentials</h2><p class="text-muted">Enter these only here on your Mac. They are stored in the Git-ignored local .env file.</p>
+<form method="post" action="/etsy/connect" class="row g-3">
+<div class="col-md-6"><label class="form-label">API keystring</label><input class="form-control" type="password" name="api_key" autocomplete="off" required></div>
+<div class="col-md-6"><label class="form-label">Shared secret</label><input class="form-control" type="password" name="shared_secret" autocomplete="off" required></div>
+<div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="remember" value="true" id="remember-etsy" checked><label class="form-check-label" for="remember-etsy">Remember on this computer in the local .env file</label></div></div>
+<div class="col-12 d-flex justify-content-end"><button class="btn btn-success">Continue to Etsy authorization</button></div>
+</form>
+{% endif %}
+</div></div>
+{% endblock %}

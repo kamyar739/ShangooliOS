@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Create Printify Product — ShangooliOS{% endblock %}
+{% block content %}
+<div class="mb-4"><a href="/listings/{{ listing['id'] }}" class="text-decoration-none">← Back to listing</a></div>
+<div class="page-header mb-4"><div><div class="eyebrow">Printify automation</div><h1 class="display-6 fw-bold">Create Printify product</h1><p class="text-muted mb-0">Choose the catalog product, provider, variants, and matching print files.</p></div></div>
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% if not configured %}
+<div class="card border-0 shadow-sm"><div class="card-body p-4">
+{% if token_available and shops %}
+<div class="eyebrow">Choose your store</div><h2 class="h4 mb-2">Printify shop</h2><p class="text-muted">Select the shop that is connected to Etsy.</p>
+<form method="post" action="/listings/{{ listing['id'] }}/printify/select-shop" class="row g-3">
+<div class="col-md-9"><label class="form-label">Connected shop</label><select class="form-select" name="shop_id" required><option value="">Choose a shop</option>{% for shop in shops %}<option value="{{ shop['id'] }}">{{ shop['title'] }} · {{ shop.get('sales_channel', 'unknown channel') }}</option>{% endfor %}</select></div>
+<div class="col-md-3 d-flex align-items-end"><button class="btn btn-success w-100" type="submit">Use this shop</button></div></form>
+{% else %}
+<div class="eyebrow">Connect for this run</div><h2 class="h4 mb-2">Printify API token</h2>
+<p class="text-muted">Paste the complete token. ShangooliOS will retrieve your shops so you can select the Etsy-connected store by name.</p>
+<form method="post" action="/listings/{{ listing['id'] }}/printify/connect-token" class="row g-3">
+<div class="col-12"><label class="form-label">Printify API token</label><input class="form-control" type="password" name="api_token" autocomplete="off" required></div>
+<div class="col-12"><div class="form-check"><input class="form-check-input" id="remember-printify" type="checkbox" name="remember" value="true" checked><label class="form-check-label" for="remember-printify">Remember on this computer in the local .env file</label><div class="form-text">The file is excluded from Git but stores the token as plain text on this Mac.</div></div></div>
+<div class="col-12 d-flex justify-content-end"><button class="btn btn-success" type="submit">Find my Printify shops</button></div>
+</form>
+{% endif %}
+</div></div>
+{% else %}
+{% if request.query_params.get('configured') %}<div class="alert alert-success">Printify connected for this server run.</div>{% endif %}
+<div class="d-flex justify-content-between align-items-center mb-3"><p class="small text-muted mb-0">Connected using {{ 'the in-app credentials' if configuration_source == 'runtime' else configuration_source + ' configuration' }}.</p><form method="post" action="/listings/{{ listing['id'] }}/printify/replace-token"><button class="btn btn-sm btn-outline-secondary" type="submit" onclick="return confirm('Replace the saved Printify API token on this computer?')">Replace API token</button></form></div>
+<div class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
+<form method="get" action="/listings/{{ listing['id'] }}/printify/create" class="row g-3 align-items-end">
+<div class="col-md-8"><label class="form-label">Poster product</label><select class="form-select" name="blueprint_id" required><option value="">Choose a poster</option>{% for item in blueprints %}<option value="{{ item['id'] }}" {% if blueprint_id == item['id'] %}selected{% endif %}>{{ item['title'] }}{% if item.get('brand') %} · {{ item['brand'] }}{% endif %}</option>{% endfor %}</select></div>
+<div class="col-md-4"><button class="btn btn-primary w-100" type="submit">Choose product</button></div>
+</form>
+</div></div>
+{% if blueprint_id %}
+<div class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
+<form method="get" action="/listings/{{ listing['id'] }}/printify/create" class="row g-3 align-items-end"><input type="hidden" name="blueprint_id" value="{{ blueprint_id }}">
+<div class="col-md-8"><label class="form-label">Print provider</label><select class="form-select" name="provider_id" required><option value="">Choose a provider</option>{% for item in providers %}<option value="{{ item['id'] }}" {% if provider_id == item['id'] %}selected{% endif %}>{{ item['title'] }}</option>{% endfor %}</select></div>
+<div class="col-md-4"><button class="btn btn-primary w-100" type="submit">Choose provider</button></div>
+</form>
+</div></div>
+{% endif %}
+{% if provider_id and variants %}
+<form method="post" action="/listings/{{ listing['id'] }}/printify/create">
+<input type="hidden" name="blueprint_id" value="{{ blueprint_id }}"><input type="hidden" name="provider_id" value="{{ provider_id }}"><input type="hidden" name="provider_name" value="{{ provider_name }}">
+<div class="card border-0 shadow-sm"><div class="card-body p-4"><h2 class="h4 mb-3">Variants and artwork</h2><div class="alert alert-info">Printify does not provide production costs through this catalog API. Enter the customer-facing retail prices here, then verify costs and profit in the Printify draft before publishing it to Etsy.</div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Use</th><th>Variant</th><th>Retail price</th><th>Print file</th></tr></thead><tbody>
+{% for variant in variants %}<tr><td><input class="form-check-input" type="checkbox" name="variant_ids" value="{{ variant['id'] }}" {% if not variant.get('recommended_file_role') %}disabled{% endif %}></td><td>{{ variant['title'] }}{% if not variant.get('recommended_file_role') %}<div class="small text-danger">No matching ratio export</div>{% endif %}</td><td><div class="input-group"><span class="input-group-text">$</span><input class="form-control" name="price_{{ variant['id'] }}" value="{{ '%.2f'|format(listing['price_cents'] / 100) }}"></div></td><td><select class="form-select" name="file_{{ variant['id'] }}">{% for file in print_files %}<option value="{{ file['role'] }}" {% if file['role'] == variant.get('recommended_file_role') %}selected{% endif %}>{{ file['label'] }}</option>{% endfor %}</select></td></tr>{% endfor %}
+</tbody></table></div><div class="alert alert-warning"><strong>Final check:</strong> Continuing will upload the selected artwork files and create an unpublished draft product in your Printify account. It will not publish the product to Etsy.</div><div class="d-flex justify-content-end"><button class="btn btn-success" type="submit" onclick="return confirm('Are you sure you want to upload these files and create an unpublished draft product in Printify?')">Create draft in Printify</button></div></div></div>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

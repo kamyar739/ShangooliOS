@@ -60,6 +60,14 @@ Edit {{ collection["name"] }} — ShangooliOS
                         >
                     </div>
 
+                    <div class="mb-3">
+                        <label for="etsy_section_name" class="form-label">Etsy Section Name</label>
+                        <input id="etsy_section_name" name="etsy_section_name" type="text"
+                               class="form-control" maxlength="24"
+                               value="{{ collection['etsy_section_name'] or '' }}" required>
+                        <div class="form-text">ShangooliOS assigns every Etsy listing in this collection to this buyer-facing section.</div>
+                    </div>
+
                     <div class="mb-4">
                         <label
                             for="collection_status"

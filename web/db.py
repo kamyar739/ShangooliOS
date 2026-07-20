@@ -216,12 +216,34 @@ def ensure_production_schema():
             "printify_sizes",
             "printify_base_cost_cents",
             "printify_etsy_connected_at",
+            "printify_publish_requested_at",
+            "etsy_last_synced_at",
         ):
             if column_name not in listing_columns:
                 column_type = "INTEGER" if column_name.endswith("_cents") else "TEXT"
                 conn.execute(
                     f"ALTER TABLE listings ADD COLUMN {column_name} {column_type}"
                 )
+
+        collections_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'collections'"
+        ).fetchone()
+        if collections_table:
+            collection_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(collections)").fetchall()
+            }
+            if "etsy_section_name" not in collection_columns:
+                conn.execute("ALTER TABLE collections ADD COLUMN etsy_section_name TEXT")
+            conn.execute(
+                """
+                UPDATE collections
+                SET etsy_section_name = CASE
+                    WHEN name LIKE 'The %' THEN substr(name, 5, 24)
+                    ELSE substr(name, 1, 24)
+                END
+                WHERE etsy_section_name IS NULL OR trim(etsy_section_name) = ''
+                """
+            )
 
         conn.execute(
             """
@@ -388,7 +410,7 @@ def get_collection(collection_code):
     with get_connection() as conn:
         collection = conn.execute(
             """
-            SELECT code, name, status, target_artwork_count
+            SELECT code, name, status, target_artwork_count, etsy_section_name
             FROM collections
             WHERE code = ?
             """,
@@ -734,10 +756,11 @@ def update_artwork(
         conn.commit()
 
 
-def create_collection(code, name, target_artwork_count, status):
+def create_collection(code, name, target_artwork_count, status, etsy_section_name=None):
     code = code.strip().upper()
     name = name.strip()
     normalized_status = status.strip().lower()
+    normalized_section = (etsy_section_name or name.removeprefix("The ")).strip()
 
     if not code:
         raise ValueError("Collection code is required")
@@ -747,6 +770,8 @@ def create_collection(code, name, target_artwork_count, status):
         raise ValueError("Collection code must be 10 characters or fewer")
     if target_artwork_count < 0:
         raise ValueError("Target artwork count cannot be negative")
+    if not normalized_section or len(normalized_section) > 24:
+        raise ValueError("Etsy section name must be between 1 and 24 characters")
 
     allowed_statuses = {"planned", "active", "complete", "paused", "archived"}
 
@@ -784,9 +809,10 @@ def create_collection(code, name, target_artwork_count, status):
                 collection_type,
                 vertical,
                 target_artwork_count,
+                etsy_section_name,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 brand["id"],
@@ -795,6 +821,7 @@ def create_collection(code, name, target_artwork_count, status):
                 "standard",
                 "general",
                 target_artwork_count,
+                normalized_section,
                 normalized_status,
             ),
         )
@@ -808,15 +835,19 @@ def update_collection(
     name,
     target_artwork_count,
     status,
+    etsy_section_name=None,
 ):
     code = collection_code.strip().upper()
     name = name.strip()
     normalized_status = status.strip().lower()
+    normalized_section = (etsy_section_name or name.removeprefix("The ")).strip()
 
     if not name:
         raise ValueError("Collection name is required")
     if target_artwork_count < 0:
         raise ValueError("Target artwork count cannot be negative")
+    if not normalized_section or len(normalized_section) > 24:
+        raise ValueError("Etsy section name must be between 1 and 24 characters")
 
     allowed_statuses = {"planned", "active", "complete", "paused"}
 
@@ -844,6 +875,7 @@ def update_collection(
             SET
                 name = ?,
                 target_artwork_count = ?,
+                etsy_section_name = ?,
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE code = ?
@@ -851,6 +883,7 @@ def update_collection(
             (
                 name,
                 target_artwork_count,
+                normalized_section,
                 normalized_status,
                 code,
             ),
@@ -1290,6 +1323,21 @@ def upsert_print_master_certification(artwork_code, certification):
                 json.dumps(certification["warnings"]),
             ),
         )
+        conn.execute(
+            """
+            UPDATE artwork_production
+            SET orientation = ?, master_ratio = ?, required_ratios = ?,
+                ratio_exports_ready = 0, mockups_ready = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_id = ?
+            """,
+            (
+                certification["orientation"],
+                certification["master_ratio"],
+                ", ".join(certification["required_ratios"]),
+                artwork["id"],
+            ),
+        )
         conn.commit()
 
 
@@ -1345,6 +1393,7 @@ def list_listings(status=None):
                l.status, l.marketplace_url, l.external_listing_id,
                l.published_at, l.printify_product_url,
                l.printify_etsy_connected_at, l.updated_at,
+               l.printify_publish_requested_at, l.etsy_last_synced_at,
                a.artwork_code, a.public_title,
                c.name AS collection_name
         FROM listings AS l
@@ -1385,6 +1434,8 @@ def get_artwork_listings(artwork_code):
                    l.printify_provider, l.printify_sizes,
                    l.printify_base_cost_cents,
                    l.printify_etsy_connected_at,
+                   l.printify_publish_requested_at,
+                   l.etsy_last_synced_at,
                    l.created_at, l.updated_at
             FROM listings AS l
             JOIN artworks AS a ON a.id = l.artwork_id
@@ -1406,9 +1457,11 @@ def get_listing(listing_id):
                    l.printify_provider, l.printify_sizes,
                    l.printify_base_cost_cents,
                    l.printify_etsy_connected_at,
+                   l.printify_publish_requested_at,
+                   l.etsy_last_synced_at,
                    l.created_at, l.updated_at,
                    a.artwork_code, a.public_title, c.code AS collection_code,
-                   c.name AS collection_name
+                   c.name AS collection_name, c.etsy_section_name
             FROM listings AS l
             JOIN artworks AS a ON a.id = l.artwork_id
             JOIN collections AS c ON c.id = a.collection_id
@@ -1566,6 +1619,41 @@ def publish_listing(listing_id, *, marketplace_url, external_listing_id):
         conn.commit()
 
 
+def link_etsy_listing(listing_id, external_listing_id):
+    normalized_id = str(external_listing_id or "").strip()
+    if not normalized_id.isdigit():
+        raise ValueError("Choose a valid Etsy listing")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET external_listing_id = ?, marketplace_url = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (normalized_id, f"https://www.etsy.com/listing/{normalized_id}", listing_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
+        conn.commit()
+
+
+def mark_etsy_synced(listing_id):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET etsy_last_synced_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (listing_id,),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
+        conn.commit()
+
+
 def save_printify_product(
     listing_id, *, product_url, product_id, provider, sizes, base_cost_cents
 ):
@@ -1621,6 +1709,22 @@ def mark_printify_etsy_connected(listing_id):
             """,
             (listing_id,),
         )
+        conn.commit()
+
+
+def mark_printify_publish_requested(listing_id):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET printify_publish_requested_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (listing_id,),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
         conn.commit()
 
 

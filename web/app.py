@@ -42,9 +42,12 @@ from web.db import (
     get_artwork_listings,
     restore_artwork,
     list_listings,
+    link_etsy_listing,
+    mark_etsy_synced,
     publish_listing,
     save_printify_product,
     mark_printify_etsy_connected,
+    mark_printify_publish_requested,
     save_artwork_mockup_order,
     save_artwork_mockup_template,
     save_artwork_mockup_templates,
@@ -60,6 +63,19 @@ from web.db import (
     upsert_artwork_certification,
     upsert_print_master_certification,
 )
+from web.etsy_api import (
+    EtsyAPIError,
+    begin_etsy_oauth,
+    clear_etsy_config,
+    complete_etsy_oauth,
+    etsy_config,
+    get_etsy_listing,
+)
+from web.etsy_sync import (
+    build_etsy_sync_preview,
+    set_etsy_inventory_quantity,
+    sync_etsy_listing,
+)
 from web.file_intake import save_uploaded_file
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
@@ -68,6 +84,21 @@ from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, genera
 from web.marketplace_export import build_listing_export, inspect_listing_export
 from web.printify import validate_printify_product
 from web.printify_handoff import build_printify_handoff, inspect_printify_handoff
+from web.printify_api import (
+    PrintifyAPI,
+    PrintifyAPIError,
+    clear_printify_local_config,
+    clear_printify_runtime,
+    complete_printify_runtime,
+    configure_printify_runtime,
+    configure_printify_token_runtime,
+    create_printify_product,
+    poster_blueprints,
+    printify_configuration_source,
+    ratio_role_for_variant,
+    save_printify_local_config,
+    variant_orientation,
+)
 from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
 from web.print_master import build_print_master, load_print_master_manifest
 from web.production import (
@@ -102,6 +133,16 @@ def _price_to_cents(price: str) -> int:
     if value < 0:
         raise HTTPException(status_code=400, detail="Price cannot be negative")
     return int(value * 100)
+
+
+def _certified_orientation(artwork_code: str) -> str | None:
+    master = get_print_master_certification(artwork_code)
+    if master and master["valid"] and master["orientation"]:
+        return master["orientation"]
+    source = get_artwork_certification(artwork_code)
+    if source and source["valid"] and source["orientation"]:
+        return source["orientation"]
+    return None
 
 
 def _generate_required_ratios(artwork, *, overwrite: bool) -> list[dict]:
@@ -196,6 +237,7 @@ def _artwork_context(artwork_code: str, **extra):
         "listings": get_artwork_listings(artwork_code),
         "certification": get_artwork_certification(artwork_code),
         "print_master_certification": get_print_master_certification(artwork_code),
+        "certified_orientation": _certified_orientation(artwork_code),
         "template_packs": template_pack_options(),
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
@@ -212,6 +254,77 @@ def home(request: Request):
         name="index.html",
         context=get_dashboard(),
     )
+
+
+@app.get("/etsy/connect")
+def etsy_connect_page(request: Request):
+    config = etsy_config()
+    return templates.TemplateResponse(
+        request=request,
+        name="etsy_connect.html",
+        context={
+            "config": config,
+            "connected": bool(config["access_token"] and config["shop_id"]),
+            "error": None,
+        },
+    )
+
+
+@app.post("/etsy/connect")
+def etsy_connect_post(
+    api_key: str = Form(...),
+    shared_secret: str = Form(...),
+    remember: bool = Form(False),
+):
+    try:
+        authorization_url = begin_etsy_oauth(api_key, shared_secret, remember)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(authorization_url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/etsy/oauth/callback")
+def etsy_oauth_callback(
+    request: Request,
+    code: str = Query(""),
+    state: str = Query(""),
+    error: str = Query(""),
+    error_description: str = Query(""),
+):
+    if error:
+        message = error_description or error
+    else:
+        try:
+            complete_etsy_oauth(code, state)
+            return RedirectResponse(
+                "/etsy/connect?connected=1", status_code=status.HTTP_303_SEE_OTHER
+            )
+        except (EtsyAPIError, KeyError, ValueError) as failure:
+            message = str(failure)
+    config = etsy_config()
+    return templates.TemplateResponse(
+        request=request,
+        name="etsy_connect.html",
+        context={"config": config, "connected": False, "error": message},
+        status_code=400,
+    )
+
+
+@app.post("/etsy/disconnect")
+def etsy_disconnect_post():
+    clear_etsy_config()
+    return RedirectResponse("/etsy/connect", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/etsy/reconnect")
+def etsy_reconnect_post():
+    config = etsy_config()
+    if not config["api_key"] or not config["shared_secret"]:
+        return RedirectResponse("/etsy/connect", status_code=status.HTTP_303_SEE_OTHER)
+    authorization_url = begin_etsy_oauth(
+        config["api_key"], config["shared_secret"], remember=True
+    )
+    return RedirectResponse(authorization_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/search")
@@ -351,6 +464,83 @@ def export_listing_post(listing_id: int):
     )
 
 
+@app.get("/listings/{listing_id}/etsy")
+def etsy_sync_page(request: Request, listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    try:
+        preview = build_etsy_sync_preview(listing)
+        error = None
+    except EtsyAPIError as failure:
+        preview = None
+        error = str(failure)
+    return templates.TemplateResponse(
+        request=request,
+        name="etsy_sync.html",
+        context={"listing": listing, "preview": preview, "error": error},
+    )
+
+
+@app.post("/listings/{listing_id}/etsy/link")
+def link_etsy_listing_post(listing_id: int, external_listing_id: str = Form(...)):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    try:
+        remote = get_etsy_listing(external_listing_id.strip())
+        config = etsy_config()
+        if str(remote.get("shop_id", "")) != str(config["shop_id"]):
+            raise ValueError("That listing does not belong to the connected Etsy shop")
+        link_etsy_listing(listing_id, external_listing_id)
+    except (EtsyAPIError, ValueError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse(
+        f"/listings/{listing_id}/etsy?linked=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/listings/{listing_id}/etsy/sync")
+def sync_etsy_listing_post(listing_id: int, confirmed: bool = Form(False)):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the Etsy changes before syncing")
+    readiness = get_listing_readiness(listing_id)
+    if not readiness or not readiness["ready"]:
+        raise HTTPException(status_code=400, detail="Complete listing readiness before syncing")
+    try:
+        sync_etsy_listing(listing)
+        mark_etsy_synced(listing_id)
+    except (EtsyAPIError, ValueError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse(
+        f"/listings/{listing_id}/etsy?synced=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/listings/{listing_id}/etsy/inventory")
+def update_etsy_inventory_post(
+    listing_id: int,
+    quantity: int = Form(...),
+    confirmed: bool = Form(False),
+):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the inventory change")
+    try:
+        set_etsy_inventory_quantity(listing, quantity)
+    except (EtsyAPIError, ValueError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse(
+        f"/listings/{listing_id}/etsy?inventory_updated={quantity}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/listings/{listing_id}")
 def update_listing_post(
     listing_id: int,
@@ -434,6 +624,279 @@ def save_printify_product_post(
     )
 
 
+def _printify_file_options(listing):
+    workspace = get_artwork_folder(listing)
+    options = []
+    for assignment in get_artwork_file_assignments(listing["artwork_code"]):
+        role = assignment["role"]
+        if role == "print_master" or role.startswith("ratio:"):
+            path = workspace / assignment["relative_path"]
+            if path.is_file():
+                options.append(
+                    {
+                        "role": role,
+                        "label": role.replace("ratio:", "Ratio ").replace("print_master", "Print master"),
+                        "path": path,
+                    }
+                )
+    return options
+
+
+@app.get("/listings/{listing_id}/printify/create")
+def create_printify_page(
+    request: Request,
+    listing_id: int,
+    blueprint_id: int | None = None,
+    provider_id: int | None = None,
+):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    api = PrintifyAPI.from_env()
+    token_api = api or PrintifyAPI.with_available_token()
+    context = {
+        "listing": listing,
+        "configured": api is not None,
+        "configuration_source": printify_configuration_source(),
+        "token_available": token_api is not None,
+        "shops": [],
+        "blueprints": [], "providers": [], "variants": [],
+        "blueprint_id": blueprint_id, "provider_id": provider_id,
+        "provider_name": "", "print_files": _printify_file_options(listing),
+        "error": None,
+    }
+    if api is None and token_api is not None:
+        try:
+            context["shops"] = token_api.list_shops()
+        except PrintifyAPIError as error:
+            context["error"] = str(error)
+    if api is not None:
+        try:
+            production = get_artwork_production(listing["artwork_code"])
+            artwork_orientation = production["orientation"] if production else None
+            context["blueprints"] = poster_blueprints(
+                api.list_blueprints(), artwork_orientation
+            )
+            if blueprint_id:
+                context["providers"] = api.list_providers(blueprint_id)
+            if blueprint_id and provider_id:
+                provider = next(
+                    (item for item in context["providers"] if item["id"] == provider_id),
+                    None,
+                )
+                if provider is None:
+                    raise ValueError("Choose a valid Printify provider")
+                context["provider_name"] = provider["title"]
+                context["variants"] = []
+                available_file_roles = {
+                    item["role"] for item in context["print_files"]
+                }
+                for item in api.list_variants(blueprint_id, provider_id):
+                    if not item.get("is_available", True):
+                        continue
+                    variant = dict(item)
+                    expected_role = ratio_role_for_variant(variant.get("title", ""))
+                    variant["recommended_file_role"] = (
+                        expected_role if expected_role in available_file_roles else None
+                    )
+                    context["variants"].append(variant)
+        except (PrintifyAPIError, ValueError) as error:
+            context["error"] = str(error)
+    return templates.TemplateResponse(
+        request=request, name="printify_create.html", context=context
+    )
+
+
+@app.post("/listings/{listing_id}/printify/configure")
+def configure_printify_post(
+    listing_id: int,
+    api_token: str = Form(...),
+    shop_id: str = Form(...),
+    remember: bool = Form(False),
+):
+    if get_listing(listing_id) is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    try:
+        configure_printify_runtime(api_token, shop_id)
+        if remember:
+            save_printify_local_config(api_token, shop_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}/printify/create?configured=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/printify/connect-token")
+def connect_printify_token_post(
+    listing_id: int,
+    api_token: str = Form(...),
+    remember: bool = Form(False),
+):
+    if get_listing(listing_id) is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    try:
+        configure_printify_token_runtime(api_token, remember=remember)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}/printify/create?token_saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/printify/select-shop")
+def select_printify_shop_post(listing_id: int, shop_id: str = Form(...)):
+    if get_listing(listing_id) is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    api = PrintifyAPI.with_available_token()
+    if api is None:
+        raise HTTPException(status_code=400, detail="Enter the Printify API token first")
+    try:
+        shops = api.list_shops()
+        selected = next(
+            (shop for shop in shops if str(shop["id"]) == str(shop_id)), None
+        )
+        if selected is None:
+            raise ValueError("Choose a valid Printify shop")
+        complete_printify_runtime(str(selected["id"]))
+    except (PrintifyAPIError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}/printify/create?configured=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/printify/replace-token")
+def replace_printify_token_post(listing_id: int):
+    if get_listing(listing_id) is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    clear_printify_runtime()
+    clear_printify_local_config()
+    return RedirectResponse(
+        url=f"/listings/{listing_id}/printify/create?replace_token=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/printify/create")
+async def create_printify_product_post(request: Request, listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    api = PrintifyAPI.from_env()
+    if api is None:
+        raise HTTPException(status_code=400, detail="Printify API is not configured")
+    form = await request.form()
+    try:
+        blueprint_id = int(form["blueprint_id"])
+        provider_id = int(form["provider_id"])
+        selected_ids = {int(value) for value in form.getlist("variant_ids")}
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail="Choose a product, provider, and variants") from error
+
+    file_options = {item["role"]: item for item in _printify_file_options(listing)}
+    try:
+        production = get_artwork_production(listing["artwork_code"])
+        artwork_orientation = production["orientation"] if production else None
+        providers = api.list_providers(blueprint_id)
+        provider = next(item for item in providers if item["id"] == provider_id)
+        variants = {
+            item["id"]: item for item in api.list_variants(blueprint_id, provider_id)
+        }
+        selections = []
+        for variant_id in selected_ids:
+            variant = variants[variant_id]
+            selected_orientation = variant_orientation(variant["title"])
+            if artwork_orientation in {"horizontal", "vertical", "square"} and (
+                selected_orientation != artwork_orientation
+            ):
+                raise ValueError(
+                    f"Choose {artwork_orientation} Printify sizes for this artwork; "
+                    f"{variant['title']} is {selected_orientation or 'an unknown orientation'}."
+                )
+            role = form[f"file_{variant_id}"]
+            expected_role = ratio_role_for_variant(variant["title"])
+            if expected_role not in file_options:
+                raise ValueError(
+                    f"No prepared {expected_role or 'ratio'} print file is available for "
+                    f"{variant['title']}."
+                )
+            if role != expected_role:
+                raise ValueError(
+                    f"Use the {expected_role.replace('ratio:', 'Ratio ')} print file for "
+                    f"{variant['title']}."
+                )
+            file_option = file_options[role]
+            selections.append(
+                {
+                    "variant_id": variant_id,
+                    "title": variant["title"],
+                    "cost_cents": (
+                        int(variant["cost"]) if variant.get("cost") is not None else None
+                    ),
+                    "price_cents": _price_to_cents(form[f"price_{variant_id}"]),
+                    "path": file_option["path"],
+                }
+            )
+        result = create_printify_product(
+            api,
+            listing=listing,
+            blueprint_id=blueprint_id,
+            provider_id=provider_id,
+            provider_name=provider["title"],
+            selections=selections,
+        )
+        product = result["product"]
+        save_printify_product(
+            listing_id,
+            product_url=result["product_url"],
+            product_id=str(product["id"]),
+            provider=result["provider"],
+            sizes=result["sizes"],
+            base_cost_cents=result["base_cost_cents"],
+        )
+    except (KeyError, StopIteration, ValueError, PrintifyAPIError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}?printify_created=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/printify/publish")
+def publish_printify_product_post(listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    readiness = get_listing_readiness(listing_id)
+    if not readiness["ready"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Complete the listing readiness checklist before publishing",
+        )
+    printify = validate_printify_product(listing)
+    if not printify["ready"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Create or save the Printify product before publishing",
+        )
+    api = PrintifyAPI.from_env()
+    if api is None:
+        raise HTTPException(status_code=400, detail="Printify API is not configured")
+    try:
+        api.publish_product(listing["printify_product_id"])
+        mark_printify_publish_requested(listing_id)
+    except (PrintifyAPIError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}?printify_published=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/listings/{listing_id}/printify-export")
 def export_printify_handoff_post(listing_id: int):
     listing = get_listing(listing_id)
@@ -503,12 +966,14 @@ def create_collection_post(
     name: str = Form(...),
     target_artwork_count: int = Form(0),
     collection_status: str = Form("planned"),
+    etsy_section_name: str = Form(""),
 ):
     collection_code = create_collection(
         code=code,
         name=name,
         target_artwork_count=target_artwork_count,
         status=collection_status,
+        etsy_section_name=etsy_section_name,
     )
 
     return RedirectResponse(
@@ -555,12 +1020,14 @@ def edit_collection_post(
     name: str = Form(...),
     target_artwork_count: int = Form(0),
     collection_status: str = Form(...),
+    etsy_section_name: str = Form(""),
 ):
     update_collection(
         collection_code=collection_code,
         name=name,
         target_artwork_count=target_artwork_count,
         status=collection_status,
+        etsy_section_name=etsy_section_name,
     )
 
     return RedirectResponse(
@@ -780,11 +1247,21 @@ def save_artwork_production(
     listing_content_ready: bool = Form(False),
     production_notes: str = Form(""),
 ):
-    ratio_profile = get_ratio_profile(orientation)
+    certified_orientation = _certified_orientation(artwork_code)
+    if certified_orientation and orientation != certified_orientation:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Orientation is locked to {certified_orientation} by the certified "
+                "print master. Replace or rotate the master to change it."
+            ),
+        )
+    effective_orientation = certified_orientation or orientation
+    ratio_profile = get_ratio_profile(effective_orientation)
 
     update_artwork_production(
         artwork_code=artwork_code,
-        orientation=orientation,
+        orientation=effective_orientation,
         master_ratio=ratio_profile["master_ratio"],
         required_ratios=", ".join(ratio_profile["required_ratios"]),
         original_approved=original_approved,

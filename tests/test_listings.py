@@ -2,6 +2,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,10 @@ from web.app import app
 class ListingTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.printify_env_patch = patch(
+            "web.printify_api.LOCAL_ENV_PATH", Path(self.temp_dir.name) / ".env"
+        )
+        self.printify_env_patch.start()
         self.database_path = Path(self.temp_dir.name) / "test.db"
         self.original_db_path = db.DATABASE_PATH
         db.DATABASE_PATH = self.database_path
@@ -51,6 +56,9 @@ class ListingTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self):
+        from web.printify_api import clear_printify_runtime
+        clear_printify_runtime()
+        self.printify_env_patch.stop()
         db.DATABASE_PATH = self.original_db_path
         self.temp_dir.cleanup()
 
@@ -313,6 +321,109 @@ class ListingReadinessTests(ListingTests):
         listing = db.get_listing(listing_id)
         self.assertEqual(listing["printify_product_id"], "printify-123")
         self.assertEqual(listing["printify_base_cost_cents"], 1200)
+        page = self.client.get(f"/listings/{listing_id}")
+        self.assertIn("Open product in Printify", page.text)
+        self.assertIn('target="_blank"', page.text)
+        self.assertIn('rel="noopener noreferrer"', page.text)
+        self.assertIn("https://printify.com/app/products/example", page.text)
+
+    def test_listing_offers_automatic_printify_setup(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.get(f"/listings/{listing_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Set up with Printify API", response.text)
+        self.assertIn("record an existing Printify product manually", response.text)
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_printify_setup_explains_missing_configuration(self):
+        from web.printify_api import clear_printify_runtime
+        clear_printify_runtime()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.get(f"/listings/{listing_id}/printify/create")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Printify API token", response.text)
+        self.assertIn('type="password"', response.text)
+        self.assertIn("Remember on this computer", response.text)
+        self.assertIn("excluded from Git", response.text)
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_printify_token_then_shop_can_be_selected_in_app(self):
+        from web.printify_api import clear_printify_runtime, PrintifyAPI
+        clear_printify_runtime()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        response = self.client.post(
+            f"/listings/{listing_id}/printify/connect-token",
+            data={"api_token": "runtime-secret"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertIsNone(PrintifyAPI.from_env())
+
+        class ShopAPI:
+            def list_shops(self):
+                return [
+                    {"id": 98765, "title": "My Etsy Shop", "sales_channel": "etsy"}
+                ]
+
+        with patch("web.app.PrintifyAPI.with_available_token", return_value=ShopAPI()):
+            response = self.client.post(
+                f"/listings/{listing_id}/printify/select-shop",
+                data={"shop_id": "98765"},
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(PrintifyAPI.from_env().shop_id, "98765")
+        clear_printify_runtime()
+
+    def test_saved_printify_token_can_be_replaced_from_setup_page(self):
+        from web.printify_api import PrintifyAPI, save_printify_local_config
+
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        save_printify_local_config("old-secret", "98765")
+        with patch("web.app.PrintifyAPI.list_blueprints", return_value=[]):
+            response = self.client.get(f"/listings/{listing_id}/printify/create")
+        self.assertIn("Replace API token", response.text)
+
+        response = self.client.post(
+            f"/listings/{listing_id}/printify/replace-token",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Printify API token", response.text)
+        self.assertIsNone(PrintifyAPI.from_env())
+
+    def test_api_created_printify_product_can_have_unknown_production_cost(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        db.save_printify_product(
+            listing_id,
+            product_url="https://printify.com/app/store/products/api-product-1",
+            product_id="api-product-1",
+            provider="Printify Choice",
+            sizes='18\u2033 x 12\u2033 / Matte',
+            base_cost_cents=None,
+        )
+        listing = db.get_listing(listing_id)
+        self.assertIsNone(listing["printify_base_cost_cents"])
 
     def test_physical_listing_cannot_publish_without_printify_product(self):
         self._complete_listing_readiness()
@@ -330,6 +441,38 @@ class ListingReadinessTests(ListingTests):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Printify product details", response.text)
+
+    def test_printify_product_can_be_sent_to_connected_etsy_shop(self):
+        class FakeAPI:
+            def __init__(self):
+                self.published_product_id = None
+
+            def publish_product(self, product_id):
+                self.published_product_id = product_id
+                return {}
+
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        self._save_printify(listing_id)
+        fake_api = FakeAPI()
+        with patch("web.app.PrintifyAPI.from_env", return_value=fake_api):
+            response = self.client.post(
+                f"/listings/{listing_id}/printify/publish",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(fake_api.published_product_id, "printify-123")
+        self.assertIsNotNone(
+            db.get_listing(listing_id)["printify_publish_requested_at"]
+        )
+
+        page = self.client.get(f"/listings/{listing_id}")
+        self.assertIn("Sent to Etsy", page.text)
+        self.assertIn("Finish reviewing the listing on Etsy", page.text)
 
     def test_publish_listing_requires_readiness(self):
         listing_id = db.create_listing(

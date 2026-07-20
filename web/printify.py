@@ -24,6 +24,4 @@ def validate_printify_product(listing) -> dict:
         blockers.append("Print provider")
     if not (listing["printify_sizes"] or "").strip():
         blockers.append("Available sizes")
-    if not listing["printify_base_cost_cents"] or listing["printify_base_cost_cents"] <= 0:
-        blockers.append("Base production cost")
     return {"required": True, "ready": not blockers, "blockers": blockers}
