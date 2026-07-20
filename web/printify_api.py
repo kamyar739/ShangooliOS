@@ -248,6 +248,14 @@ class PrintifyAPI:
             raise PrintifyAPIError("Printify did not return a product ID")
         return result
 
+    def get_product(self, product_id: str):
+        result = self._request(
+            "GET", f"/shops/{self.shop_id}/products/{product_id}.json"
+        )
+        if not result.get("id"):
+            raise PrintifyAPIError("Printify did not return the saved product")
+        return result
+
     def publish_product(self, product_id: str):
         return self._request(
             "POST",

@@ -526,6 +526,114 @@ class ListingReadinessTests(ListingTests):
         self.assertIn("Sent to Etsy", page.text)
         self.assertIn("Finish reviewing the listing on Etsy", page.text)
 
+    def test_recovery_waits_without_repeating_publish(self):
+        class FakeAPI:
+            def get_product(self, product_id):
+                return {"id": product_id, "title": "Unbound Poster"}
+
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        self._save_printify(listing_id)
+        db.mark_printify_publish_requested(listing_id)
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=FakeAPI()),
+            patch("web.app.find_etsy_candidates", return_value=[]),
+        ):
+            response = self.client.post(
+                f"/listings/{listing_id}/publishing/recover",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["publishing_recovery_stage"], "waiting_for_etsy")
+        self.assertIn("has not returned", listing["publishing_recovery_message"])
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE listings SET status='published', etsy_state='active' WHERE id=?",
+                (listing_id,),
+            )
+            connection.commit()
+        page = self.client.get(f"/listings/{listing_id}?recovery_checked=1")
+        self.assertIn("Check status and recover", page.text)
+        self.assertIn("Wait briefly", page.text)
+
+    def test_recovery_links_unique_etsy_match_and_synchronizes(self):
+        class FakeAPI:
+            def get_product(self, product_id):
+                return {"id": product_id, "title": "Unbound Poster"}
+
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        self._save_printify(listing_id)
+        db.mark_printify_publish_requested(listing_id)
+        remote = {
+            "listing_id": 987654, "title": "Unbound Poster",
+            "shop_id": 42, "state": "draft",
+        }
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=FakeAPI()),
+            patch("web.app.find_etsy_candidates", return_value=[remote]),
+            patch("web.app.get_etsy_listing", return_value=remote),
+            patch("web.app.etsy_config", return_value={"shop_id": "42"}),
+            patch("web.app.build_etsy_sync_preview", return_value={"changed_count": 1}),
+            patch("web.app.sync_etsy_listing", return_value={"state": "draft"}) as sync,
+        ):
+            response = self.client.post(
+                f"/listings/{listing_id}/publishing/recover",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["external_listing_id"], "987654")
+        self.assertEqual(listing["publishing_recovery_stage"], "etsy_ready_for_review")
+        sync.assert_called_once()
+
+    def test_recovery_treats_etsy_edit_lock_as_waiting(self):
+        from web.etsy_api import EtsyAPIError
+
+        class FakeAPI:
+            def get_product(self, product_id):
+                return {"id": product_id, "title": "Unbound Poster"}
+
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        self._save_printify(listing_id)
+        db.mark_printify_publish_requested(listing_id)
+        remote = {
+            "listing_id": 987654, "title": "Unbound Poster",
+            "shop_id": 42, "state": "draft",
+        }
+        lock = EtsyAPIError(
+            'Etsy returned HTTP 409: {"error":"The Listing with listing_id 987654 is being edited by another process."}'
+        )
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=FakeAPI()),
+            patch("web.app.find_etsy_candidates", return_value=[remote]),
+            patch("web.app.get_etsy_listing", return_value=remote),
+            patch("web.app.etsy_config", return_value={"shop_id": "42"}),
+            patch("web.app.build_etsy_sync_preview", side_effect=lock),
+        ):
+            response = self.client.post(
+                f"/listings/{listing_id}/publishing/recover",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["publishing_recovery_stage"], "waiting_for_etsy")
+        self.assertIn("found and linked", listing["publishing_recovery_message"])
+
     def test_publish_listing_requires_readiness(self):
         listing_id = db.create_listing(
             "CEL-001", marketplace="Etsy", product="Poster",

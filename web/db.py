@@ -219,6 +219,9 @@ def ensure_production_schema():
             "printify_publish_requested_at",
             "etsy_last_synced_at",
             "etsy_state",
+            "publishing_recovery_stage",
+            "publishing_recovery_message",
+            "publishing_recovery_checked_at",
         ):
             if column_name not in listing_columns:
                 column_type = "INTEGER" if column_name.endswith("_cents") else "TEXT"
@@ -1567,7 +1570,10 @@ def get_artwork_listings(artwork_code):
                    l.printify_base_cost_cents,
                    l.printify_etsy_connected_at,
                    l.printify_publish_requested_at,
-                   l.etsy_last_synced_at,
+                   l.etsy_last_synced_at, l.etsy_state,
+                   l.publishing_recovery_stage,
+                   l.publishing_recovery_message,
+                   l.publishing_recovery_checked_at,
                    l.created_at, l.updated_at
             FROM listings AS l
             JOIN artworks AS a ON a.id = l.artwork_id
@@ -1590,7 +1596,10 @@ def get_listing(listing_id):
                    l.printify_base_cost_cents,
                    l.printify_etsy_connected_at,
                    l.printify_publish_requested_at,
-                   l.etsy_last_synced_at,
+                   l.etsy_last_synced_at, l.etsy_state,
+                   l.publishing_recovery_stage,
+                   l.publishing_recovery_message,
+                   l.publishing_recovery_checked_at,
                    l.created_at, l.updated_at,
                    a.artwork_code, a.public_title, c.code AS collection_code,
                    EXISTS (
@@ -1776,6 +1785,28 @@ def link_etsy_listing(listing_id, external_listing_id):
         conn.commit()
 
 
+def clear_inactive_etsy_link(listing_id):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT etsy_state FROM listings WHERE id = ?", (listing_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("Listing not found")
+        if row["etsy_state"] == "active":
+            raise ValueError("Cannot replace the link while this listing is live on Etsy")
+        conn.execute(
+            """
+            UPDATE listings
+            SET external_listing_id = NULL, marketplace_url = NULL,
+                etsy_state = NULL, etsy_last_synced_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (listing_id,),
+        )
+        conn.commit()
+
+
 def record_etsy_state(listing_id, etsy_state):
     normalized_state = str(etsy_state or "").strip().lower()
     with get_connection() as conn:
@@ -1916,6 +1947,23 @@ def mark_printify_publish_requested(listing_id):
             WHERE id = ?
             """,
             (listing_id,),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
+        conn.commit()
+
+
+def record_publishing_recovery(listing_id, stage, message):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET publishing_recovery_stage = ?, publishing_recovery_message = ?,
+                publishing_recovery_checked_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            ((stage or "").strip(), (message or "").strip(), listing_id),
         )
         if cursor.rowcount == 0:
             raise ValueError("Listing not found")

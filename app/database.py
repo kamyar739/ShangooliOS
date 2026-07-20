@@ -126,11 +126,20 @@ def next_artwork_number(connection, collection_id):
 
 
 def get_artwork_folder(row) -> Path:
-    return (
-        COLLECTIONS_DIR
-        / row["collection_code"]
-        / f"{row['artwork_code']} {slugify(row['public_title'])}"
+    collection_folder = COLLECTIONS_DIR / row["collection_code"]
+    expected = collection_folder / f"{row['artwork_code']} {slugify(row['public_title'])}"
+    if expected.exists():
+        return expected
+
+    # The artwork code is the permanent identity. Public titles may change after
+    # files have been prepared, so preserve access to the existing workspace.
+    existing = sorted(
+        path for path in collection_folder.glob(f"{row['artwork_code']} *")
+        if path.is_dir()
     )
+    if len(existing) == 1:
+        return existing[0]
+    return expected
 
 
 def initialize_artwork_workspace(row) -> Path:

@@ -262,6 +262,26 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn('data-workflow-link=', artwork_page.text[:sidebar_end])
         for stage in ("details", "source", "print", "mockups", "listing"):
             self.assertIn(f'data-workflow-stage="{stage}"', artwork_page.text)
+        self.assertIn('data-bs-target="#prepare-artwork-modal"', artwork_page.text)
+        self.assertIn('id="prepare-artwork-modal"', artwork_page.text)
+        self.assertIn("Prepare automatically", artwork_page.text)
+        self.assertIn("artwork-automation-button", artwork_page.text)
+        self.assertIn('data-long-operation', artwork_page.text)
+        self.assertIn("Do not publish to Printify or Etsy", artwork_page.text)
+
+        missing_source = self.client.post(
+            "/artworks/CEL-001/prepare",
+            data={"price": "25.00", "confirmed": "true"},
+        )
+        self.assertEqual(missing_source.status_code, 400)
+        self.assertIn("Upload source artwork first", missing_source.json()["detail"])
+
+        unconfirmed = self.client.post(
+            "/artworks/CEL-001/prepare",
+            data={"price": "25.00"},
+        )
+        self.assertEqual(unconfirmed.status_code, 400)
+        self.assertIn("Confirm automatic preparation", unconfirmed.json()["detail"])
 
     def test_collection_order_is_saved_and_used_by_dashboard(self):
         with db.get_connection() as connection:

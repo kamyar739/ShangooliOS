@@ -21,6 +21,7 @@ from app.database import (
 from web.db import (
     archive_artwork,
     archive_collection,
+    clear_inactive_etsy_link,
     create_collection,
     create_listing,
     duplicate_listing,
@@ -45,6 +46,7 @@ from web.db import (
     link_etsy_listing,
     mark_etsy_synced,
     record_etsy_state,
+    record_publishing_recovery,
     publish_listing,
     save_printify_product,
     mark_printify_etsy_connected,
@@ -76,6 +78,7 @@ from web.etsy_api import (
 )
 from web.etsy_sync import (
     build_etsy_sync_preview,
+    find_etsy_candidates,
     set_etsy_inventory_quantity,
     sync_etsy_listing,
 )
@@ -580,6 +583,14 @@ def listing_page(request: Request, listing_id: int):
         raise HTTPException(status_code=404, detail="Listing not found")
     readiness = get_listing_readiness(listing_id)
     printify_state = validate_printify_product(listing)
+    production = get_artwork_production(listing["artwork_code"])
+    available_printify_roles = {
+        item["role"] for item in _printify_file_options(listing)
+    }
+    automatic_profile_roles = {
+        ratio_role_for_variant(title)
+        for _, title, _ in HORIZONTAL_PRINTIFY_PROFILE["variants"]
+    }
     return templates.TemplateResponse(
         request=request,
         name="listing_form.html",
@@ -593,6 +604,12 @@ def listing_page(request: Request, listing_id: int):
             "readiness": readiness,
             "export_state": inspect_listing_export(listing, readiness),
             "printify_state": printify_state,
+            "printify_automation_available": bool(
+                readiness["ready"]
+                and production
+                and production["orientation"] == "horizontal"
+                and automatic_profile_roles.issubset(available_printify_roles)
+            ),
             "printify_handoff": (
                 inspect_printify_handoff(listing, readiness)
                 if printify_state["required"] else None
@@ -878,6 +895,102 @@ def create_printify_page(
     )
 
 
+HORIZONTAL_PRINTIFY_PROFILE = {
+    "blueprint_id": 284,
+    "provider_id": 99,
+    "provider_name": "Printify Choice",
+    "variants": (
+        (43163, '14″ x 11″ / Matte', 2500),
+        (43166, '18″ x 12″ / Matte', 2800),
+        (43169, '20″ x 16″ / Matte', 3200),
+        (43172, '24″ x 18″ / Matte', 3800),
+        (43175, '30″ x 20″ / Matte', 4800),
+        (43178, '36″ x 24″ / Matte', 5800),
+    ),
+}
+
+
+@app.post("/listings/{listing_id}/printify/prepare")
+def prepare_printify_product_post(
+    listing_id: int,
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the Printify draft setup")
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing["printify_product_id"]:
+        raise HTTPException(status_code=400, detail="This listing already has a Printify product")
+    readiness = get_listing_readiness(listing_id)
+    if not readiness or not readiness["ready"]:
+        raise HTTPException(status_code=400, detail="Complete listing readiness first")
+    production = get_artwork_production(listing["artwork_code"])
+    if not production or production["orientation"] != "horizontal":
+        raise HTTPException(
+            status_code=400,
+            detail="The automatic Printify profile currently supports horizontal artwork only",
+        )
+    api = PrintifyAPI.from_env()
+    if api is None:
+        raise HTTPException(status_code=400, detail="Printify API is not configured")
+
+    profile = HORIZONTAL_PRINTIFY_PROFILE
+    file_options = {item["role"]: item for item in _printify_file_options(listing)}
+    try:
+        providers = api.list_providers(profile["blueprint_id"])
+        provider = next(
+            item for item in providers
+            if item["id"] == profile["provider_id"]
+            and item["title"] == profile["provider_name"]
+        )
+        variants = {
+            item["id"]: item
+            for item in api.list_variants(profile["blueprint_id"], provider["id"])
+        }
+        selections = []
+        for variant_id, expected_title, price_cents in profile["variants"]:
+            variant = variants.get(variant_id)
+            if not variant or variant.get("is_available") is False:
+                raise ValueError(f"Printify size is unavailable: {expected_title}")
+            if variant.get("title") != expected_title:
+                raise ValueError(f"Printify changed the catalog size: {expected_title}")
+            role = ratio_role_for_variant(expected_title)
+            if role not in file_options:
+                raise ValueError(f"Missing prepared file for {expected_title}: {role}")
+            selections.append({
+                "variant_id": variant_id,
+                "title": expected_title,
+                "cost_cents": None,
+                "price_cents": price_cents,
+                "path": file_options[role]["path"],
+            })
+        result = create_printify_product(
+            api,
+            listing=listing,
+            blueprint_id=profile["blueprint_id"],
+            provider_id=provider["id"],
+            provider_name=provider["title"],
+            selections=selections,
+        )
+        product = result["product"]
+        clear_inactive_etsy_link(listing_id)
+        save_printify_product(
+            listing_id,
+            product_url=result["product_url"],
+            product_id=str(product["id"]),
+            provider=result["provider"],
+            sizes=result["sizes"],
+            base_cost_cents=result["base_cost_cents"],
+        )
+    except (StopIteration, ValueError, PrintifyAPIError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/listings/{listing_id}?printify_created=1&automatic=1#one-click-printify",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/listings/{listing_id}/printify/configure")
 def configure_printify_post(
     listing_id: int,
@@ -1064,6 +1177,89 @@ def publish_printify_product_post(listing_id: int):
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse(
         url=f"/listings/{listing_id}?printify_published=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/publishing/recover")
+def recover_listing_publication_post(listing_id: int):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    printify = validate_printify_product(listing)
+    if not printify["ready"]:
+        raise HTTPException(status_code=400, detail="Create the Printify draft first")
+    api = PrintifyAPI.from_env()
+    if api is None:
+        raise HTTPException(status_code=400, detail="Printify API is not configured")
+
+    try:
+        product = api.get_product(listing["printify_product_id"])
+        product_title = (product.get("title") or listing["title"] or "").strip().casefold()
+        external_id = str(listing["external_listing_id"] or "").strip()
+
+        if not external_id:
+            candidates = find_etsy_candidates(listing)
+            exact = [
+                item for item in candidates
+                if (item.get("title") or "").strip().casefold() in {
+                    product_title, (listing["title"] or "").strip().casefold()
+                }
+            ]
+            if len(exact) == 1:
+                external_id = str(exact[0]["listing_id"])
+                link_etsy_listing(listing_id, external_id)
+                record_etsy_state(listing_id, exact[0].get("state", ""))
+                listing = get_listing(listing_id)
+            elif len(exact) > 1:
+                message = "More than one Etsy listing matches. Choose the correct listing on the Etsy publishing page."
+                record_publishing_recovery(listing_id, "needs_review", message)
+                return RedirectResponse(
+                    f"/listings/{listing_id}?recovery_checked=1",
+                    status_code=status.HTTP_303_SEE_OTHER,
+                )
+            else:
+                if listing["printify_publish_requested_at"]:
+                    message = "Printify is confirmed; Etsy has not returned a matching listing yet. Wait briefly, then check again."
+                    stage = "waiting_for_etsy"
+                else:
+                    message = "The Printify draft is confirmed. It has not been sent to Etsy, so no publish action was repeated."
+                    stage = "printify_draft_confirmed"
+                record_publishing_recovery(listing_id, stage, message)
+                return RedirectResponse(
+                    f"/listings/{listing_id}?recovery_checked=1",
+                    status_code=status.HTTP_303_SEE_OTHER,
+                )
+
+        listing = get_listing(listing_id)
+        remote = get_etsy_listing(external_id)
+        if str(remote.get("shop_id", "")) != str(etsy_config()["shop_id"]):
+            raise ValueError("The linked Etsy listing belongs to a different shop")
+        record_etsy_state(listing_id, remote.get("state", ""))
+        preview = build_etsy_sync_preview(get_listing(listing_id))
+        if preview.get("changed_count"):
+            result = sync_etsy_listing(get_listing(listing_id))
+            mark_etsy_synced(listing_id, result.get("state", ""))
+            message = "Recovered the Etsy link and synchronized the ShangooliOS title, description, tags, images, and section. Final Etsy review remains."
+        else:
+            mark_etsy_synced(listing_id, remote.get("state", ""))
+            message = "Printify and Etsy are linked and already synchronized. Final Etsy review remains."
+        record_publishing_recovery(listing_id, "etsy_ready_for_review", message)
+    except (EtsyAPIError, PrintifyAPIError, KeyError, ValueError) as failure:
+        failure_text = str(failure)
+        normalized_failure = failure_text.casefold()
+        if "http 409" in normalized_failure and "being edited by another process" in normalized_failure:
+            record_publishing_recovery(
+                listing_id, "waiting_for_etsy",
+                "The Etsy listing was found and linked, but Printify is still finishing its setup. Nothing needs to be repeated. Wait briefly, then check status again.",
+            )
+        else:
+            record_publishing_recovery(
+                listing_id, "recovery_failed",
+                f"Recovery stopped safely: {failure_text}",
+            )
+    return RedirectResponse(
+        f"/listings/{listing_id}?recovery_checked=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -1298,6 +1494,182 @@ def generate_listing_content_post(artwork_code: str):
     set_artwork_production_flags(artwork_code, listing_content_ready=True)
     return RedirectResponse(
         url=f"/artworks/{artwork_code}#story-seo-writer",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/prepare")
+def prepare_artwork_post(
+    artwork_code: str,
+    price: str = Form(...),
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm automatic preparation")
+    price_cents = _price_to_cents(price)
+    if price_cents <= 0:
+        raise HTTPException(status_code=400, detail="Enter a price greater than $0.00")
+
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    production = get_artwork_production(artwork_code)
+    assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+    source_assignment = assignments.get("source")
+    if source_assignment is None:
+        raise HTTPException(status_code=400, detail="Upload source artwork first")
+    if not production["original_approved"]:
+        raise HTTPException(status_code=400, detail="Approve the source artwork first")
+
+    try:
+        source_path = resolve_assigned_file(artwork, source_assignment)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    certified_orientation = _certified_orientation(artwork_code)
+    if not certified_orientation:
+        certification = certify_artwork(source_path).to_dict()
+        if not certification["valid"]:
+            raise HTTPException(
+                status_code=400,
+                detail="The source artwork did not pass automatic certification",
+            )
+        upsert_artwork_certification(artwork_code, certification)
+        certified_orientation = certification["orientation"]
+        ratio_profile = get_ratio_profile(certified_orientation)
+        update_artwork_production(
+            artwork_code=artwork_code,
+            orientation=certified_orientation,
+            master_ratio=ratio_profile["master_ratio"],
+            required_ratios=", ".join(ratio_profile["required_ratios"]),
+            original_approved=bool(production["original_approved"]),
+            print_master_ready=bool(production["print_master_ready"]),
+            ratio_exports_ready=bool(production["ratio_exports_ready"]),
+            mockups_ready=bool(production["mockups_ready"]),
+            listing_content_ready=bool(production["listing_content_ready"]),
+            notes=production["notes"] or "",
+        )
+        production = get_artwork_production(artwork_code)
+    if production["orientation"] != certified_orientation:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Orientation must match the certified {certified_orientation} artwork",
+        )
+
+    try:
+        workspace = get_artwork_folder(artwork)
+        if assignments.get("print_master") is None:
+            master = build_print_master(artwork, source_path)
+            upsert_artwork_file(
+                artwork_code=artwork_code,
+                role="print_master",
+                relative_path=master.relative_path,
+                stored_filename=master.master_filename,
+                original_filename=source_assignment["original_filename"],
+            )
+            master_path = workspace / master.relative_path
+            upsert_print_master_certification(
+                artwork_code, certify_artwork(master_path).to_dict()
+            )
+            set_artwork_production_flags(artwork_code, print_master_ready=True)
+
+        artwork = get_artwork(artwork_code)
+        _generate_required_ratios(artwork, overwrite=False)
+        assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+        required_ratios = {
+            value.strip()
+            for value in (production["required_ratios"] or "").split(",")
+            if value.strip()
+        }
+        if not required_ratios or not all(f"ratio:{ratio}" in assignments for ratio in required_ratios):
+            raise ValueError("Not all required ratio files could be generated")
+
+        missing_mockups = [
+            slot_key for slot_key in GENERATED_SLOTS
+            if f"mockup:{slot_key}" not in assignments
+        ]
+        if missing_mockups:
+            master_assignment = assignments.get("print_master") or source_assignment
+            master_path = resolve_assigned_file(artwork, master_assignment)
+            results = generate_mockups(
+                artwork=dict(artwork),
+                source_path=master_path,
+                output_folder=workspace / "03 Mockups",
+                template_key=DEFAULT_TEMPLATE_PACK,
+            )
+            for result in results:
+                upsert_artwork_file(
+                    artwork_code=artwork_code,
+                    role=result["role"],
+                    relative_path=str(result["path"].relative_to(workspace)),
+                    stored_filename=result["stored_filename"],
+                    original_filename=result["original_filename"],
+                )
+            save_artwork_mockup_templates(
+                artwork_code,
+                {slot_key: DEFAULT_TEMPLATE_PACK for slot_key in GENERATED_SLOTS},
+            )
+
+        source_path = resolve_assigned_file(artwork, source_assignment)
+        intelligence = analyze_artwork(artwork, source_path)
+        update_artwork_intelligence(artwork_code, **intelligence)
+        listing_content = generate_listing_content(
+            artwork, get_artwork_intelligence(artwork_code)
+        )
+        update_artwork_listing_content(artwork_code, **listing_content)
+        if not (artwork["story"] or "").strip():
+            update_artwork(
+                artwork_code,
+                artwork["public_title"],
+                artwork["working_title"] or "",
+                artwork["theme"] or "",
+                listing_content["long_story"],
+                artwork["status"],
+            )
+
+        set_artwork_production_flags(
+            artwork_code,
+            print_master_ready=True,
+            ratio_exports_ready=True,
+            mockups_ready=True,
+            listing_content_ready=True,
+        )
+
+        listings = list(get_artwork_listings(artwork_code))
+        editable_listing = next(
+            (item for item in listings if item["status"] in ("draft", "ready")),
+            None,
+        )
+        if editable_listing:
+            prepared_listing_id = editable_listing["id"]
+            update_listing(
+                editable_listing["id"],
+                marketplace=editable_listing["marketplace"],
+                product=editable_listing["product"],
+                title=editable_listing["title"] or listing_content["etsy_title"],
+                description=editable_listing["description"] or listing_content["etsy_description"],
+                tags=editable_listing["tags"] or listing_content["etsy_tags"],
+                price_cents=price_cents,
+                status="ready",
+            )
+        elif not listings:
+            prepared_listing_id = create_listing(
+                artwork_code,
+                marketplace="Etsy",
+                product="Poster",
+                title=listing_content["etsy_title"],
+                description=listing_content["etsy_description"],
+                tags=listing_content["etsy_tags"],
+                price_cents=price_cents,
+                status="ready",
+            )
+        else:
+            prepared_listing_id = listings[0]["id"]
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return RedirectResponse(
+        url=f"/listings/{prepared_listing_id}?prepared=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

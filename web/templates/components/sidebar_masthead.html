@@ -1,5 +1,13 @@
 <div class="sidebar-masthead">
-  <a class="sidebar-brand" href="/">ShangooliOS</a>
+  <div class="sidebar-brand-row">
+    <a class="sidebar-shop-logo" href="https://www.etsy.com/shop/ShangooliShop" target="_blank" rel="noopener noreferrer" aria-label="Open ShangooliShop on Etsy" title="Visit ShangooliShop on Etsy">
+      <img src="{{ url_for('static', path='shangoolishop-logo.jpg') }}" alt="ShangooliShop logo">
+    </a>
+    <div class="sidebar-brand-copy">
+      <a class="sidebar-brand" href="/">ShangooliOS</a>
+      <a class="sidebar-shop-link" href="https://www.etsy.com/shop/ShangooliShop" target="_blank" rel="noopener noreferrer">Visit Etsy shop ↗</a>
+    </div>
+  </div>
   <form class="sidebar-search" method="get" action="/search">
     <label class="visually-hidden" for="sidebar-search-{{ sidebar_search_id|default('workflow') }}">Search artworks</label>
     <span class="sidebar-search-icon" aria-hidden="true">

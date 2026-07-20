@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>{% block title %}ShangooliOS{% endblock %}</title>
+    <link rel="icon" type="image/jpeg" href="{{ url_for('static', path='shangoolishop-logo.jpg') }}">
 
     <link
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
         rel="stylesheet"
     >
     <link
-        href="{{ url_for('static', path='style.css') }}?v=20260719-workflow-19"
+        href="{{ url_for('static', path='style.css') }}?v=20260720-automation-transition-1"
         rel="stylesheet"
     >
 </head>
@@ -22,7 +23,7 @@
     </main>
 
     <footer class="container pb-4 text-center text-muted small">
-        ShangooliShop · ShangooliOS
+        <a class="footer-shop-link" href="https://www.etsy.com/shop/ShangooliShop" target="_blank" rel="noopener noreferrer">ShangooliShop on Etsy ↗</a> · ShangooliOS
     </footer>
 
     <div class="app-wait-overlay" data-app-wait hidden role="status" aria-live="polite" aria-label="Please wait">
@@ -52,12 +53,24 @@
       const overlay = document.querySelector('[data-app-wait]');
       const message = overlay && overlay.querySelector('[data-app-wait-message]');
       let timer;
-      function showWait(label) {
+      function revealWait(label) {
+        if (message) message.textContent = label || 'Working…';
+        overlay.hidden = false;
+        document.body.classList.add('is-waiting');
+      }
+      function hideWait() {
         clearTimeout(timer);
+        overlay.hidden = true;
+        document.body.classList.remove('is-waiting');
+      }
+      function showWait(label, immediate) {
+        clearTimeout(timer);
+        if (immediate) {
+          revealWait(label);
+          return;
+        }
         timer = setTimeout(() => {
-          if (message) message.textContent = label || 'Working…';
-          overlay.hidden = false;
-          document.body.classList.add('is-waiting');
+          revealWait(label);
         }, 180);
       }
       window.showAppWait = showWait;
@@ -66,7 +79,30 @@
         const action = event.target.action || '';
         if (action.includes('/export') || action.includes('printify-export')) return;
         const submitter = event.submitter;
-        showWait(submitter && submitter.textContent.trim() ? submitter.textContent.trim() + '…' : 'Saving…');
+        const label = submitter && submitter.textContent.trim() ? submitter.textContent.trim() + '…' : 'Saving…';
+        if (event.target.matches('[data-long-operation]')) {
+          event.preventDefault();
+          showWait(label, true);
+          if (submitter) submitter.disabled = true;
+          fetch(event.target.action, {
+            method: (event.target.method || 'POST').toUpperCase(),
+            body: new FormData(event.target),
+            redirect: 'follow'
+          }).then(async (response) => {
+            if (!response.ok) {
+              let detail = 'The operation could not be completed.';
+              try { detail = (await response.json()).detail || detail; } catch (_) {}
+              throw new Error(detail);
+            }
+            window.location.assign(response.url);
+          }).catch((error) => {
+            hideWait();
+            if (submitter) submitter.disabled = false;
+            window.alert(error.message);
+          });
+          return;
+        }
+        showWait(label);
       });
       document.addEventListener('click', (event) => {
         const link = event.target.closest('a[href]');
@@ -84,9 +120,7 @@
         if (control.matches('[onchange*="form.submit"]')) showWait('Uploading…');
       });
       window.addEventListener('pageshow', () => {
-        clearTimeout(timer);
-        overlay.hidden = true;
-        document.body.classList.remove('is-waiting');
+        hideWait();
       });
 
       const artworkMenu = document.querySelector('[data-artwork-menu]');

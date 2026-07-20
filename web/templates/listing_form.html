@@ -8,14 +8,62 @@
 {% set workflow_back_label = 'Back to listings' if listing else 'Back to artwork' %}
 {% include "components/workflow_context_header.html" %}
 {% include "components/workflow_step_buttons.html" %}
+{% if listing and readiness and printify_automation_available and not printify_state['ready'] %}
+<section id="one-click-printify" class="printify-automation-hero" aria-labelledby="printify-automation-heading">
+  <div class="printify-automation-hero-copy">
+    <div class="eyebrow">Safe automation · Step 2</div>
+    <h2 class="h4 mb-1" id="printify-automation-heading">Ready for Printify</h2>
+    <p class="mb-0">Create the proven six-size poster setup as an unpublished draft. Nothing is sent to Etsy.</p>
+  </div>
+  <button class="btn printify-automation-cta" type="button" data-bs-toggle="modal" data-bs-target="#prepare-printify-modal">
+    <span aria-hidden="true">✦</span>
+    <span><strong>Prepare Printify automatically</strong><small>Creates a draft for your review</small></span>
+    <span aria-hidden="true">→</span>
+  </button>
+</section>
+{% elif listing and readiness and readiness['ready'] and printify_state['ready'] and listing['status'] != 'published' and not listing['printify_publish_requested_at'] %}
+<section id="next-publishing-action" class="printify-automation-hero is-publish-step" aria-labelledby="next-publishing-heading">
+  <div class="printify-automation-hero-copy">
+    <div class="eyebrow">Safe automation · Step 3</div>
+    <h2 class="h4 mb-1" id="next-publishing-heading">Printify draft created</h2>
+    <p class="mb-0">Review the product in Printify, then send it to your connected Etsy shop for final review.</p>
+  </div>
+  <div class="printify-automation-actions">
+    <a class="btn btn-outline-primary" href="{{ listing['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Review Printify draft ↗</a>
+    <form method="post" action="/listings/{{ listing['id'] }}/printify/publish" data-long-operation>
+      <button class="btn printify-automation-cta" type="submit" onclick="return confirm('Are you sure you want Printify to send this product to your connected Etsy shop? You will still complete the final Etsy review before making it live.')">
+        <span aria-hidden="true">→</span>
+        <span><strong>Publish to connected Etsy shop</strong><small>Stops for final Etsy review</small></span>
+      </button>
+    </form>
+  </div>
+</section>
+{% elif listing and readiness and printify_state['ready'] and listing['printify_publish_requested_at'] and (not listing['etsy_last_synced_at'] or listing['publishing_recovery_stage'] != 'etsy_ready_for_review') %}
+<section id="publishing-recovery" class="printify-automation-hero is-recovery-step" aria-labelledby="publishing-recovery-heading">
+  <div class="printify-automation-hero-copy">
+    <div class="eyebrow">Safe automation · Recovery checkpoint</div>
+    <h2 class="h4 mb-1" id="publishing-recovery-heading">Sent to Etsy through Printify</h2>
+    <p class="mb-0">Check both services, repair the link, and synchronize only the unfinished work.</p>
+  </div>
+  <form method="post" action="/listings/{{ listing['id'] }}/publishing/recover" data-long-operation>
+    <button class="btn printify-automation-cta recovery-automation-cta" type="submit">
+      <span aria-hidden="true">↻</span>
+      <span><strong>Check status and recover</strong><small>Never repeats publishing blindly</small></span>
+      <span aria-hidden="true">→</span>
+    </button>
+  </form>
+</section>
+{% endif %}
 <div class="workflow-task-heading"><div class="eyebrow">Step 5</div><h2 class="h3 mb-1">Listing &amp; SEO</h2><p class="text-muted mb-0">Prepare the marketplace title, description, tags, and listing record.</p></div>
 {% if request.query_params.get('saved') %}<div class="alert alert-success">Listing saved.</div>{% endif %}
+{% if request.query_params.get('prepared') %}<div class="alert alert-success"><strong>Artwork preparation complete.</strong> Review the listing, then continue with Safe automation Step 2.</div>{% endif %}
 {% if request.query_params.get('duplicated') %}<div class="alert alert-success">Listing duplicated as a new draft.</div>{% endif %}
 {% if request.query_params.get('published') %}<div class="alert alert-success">Listing marked as published.</div>{% endif %}
 {% if request.query_params.get('printify_saved') %}<div class="alert alert-success">Printify product saved.</div>{% endif %}
 {% if request.query_params.get('printify_connected') %}<div class="alert alert-success">Printify product marked as connected to Etsy.</div>{% endif %}
 {% if request.query_params.get('printify_created') %}<div class="alert alert-success">Draft product created in Printify.</div>{% endif %}
 {% if request.query_params.get('printify_published') %}<div class="alert alert-success">Printify sent the product to the connected Etsy shop. Complete the final review on Etsy.</div>{% endif %}
+{% if request.query_params.get('recovery_checked') and listing['publishing_recovery_message'] %}<div class="alert {% if listing['publishing_recovery_stage'] == 'recovery_failed' %}alert-danger{% elif listing['publishing_recovery_stage'] in ['waiting_for_etsy', 'needs_review'] %}alert-warning{% else %}alert-success{% endif %}"><strong>Recovery check:</strong> {{ listing['publishing_recovery_message'] }}</div>{% endif %}
 {% if listing %}<div class="d-flex justify-content-end mb-3"><a class="btn btn-success" href="/listings/{{ listing['id'] }}/etsy">{% if listing['external_listing_id'] %}Preview Etsy changes{% else %}Find and link Etsy listing{% endif %}</a></div>{% endif %}
 {% if listing and readiness %}
 <div class="card border-0 shadow-sm mb-4">
@@ -110,13 +158,19 @@
     {% if printify_state['ready'] and listing['status'] != 'published' %}
       {% if listing['printify_publish_requested_at'] %}
       <div class="alert alert-info mt-3 mb-0"><strong>Sent to Etsy:</strong> {{ listing['printify_publish_requested_at'] }}. Finish reviewing the listing on Etsy, then record its URL below.</div>
-      {% else %}
-      <div class="alert alert-warning mt-3"><strong>Final publishing step:</strong> This sends the Printify product to your connected Etsy shop. Review the Printify draft before continuing.</div>
-      <form class="d-flex justify-content-end" method="post" action="/listings/{{ listing['id'] }}/printify/publish"><button class="btn btn-warning" type="submit" onclick="return confirm('Are you sure you want Printify to publish this product to your connected Etsy shop? You will still need to perform the final Etsy review.')">Publish to connected Etsy shop</button></form>
       {% endif %}
     {% endif %}
   </div>
 </div>
+{% endif %}
+{% if listing and readiness and printify_automation_available and not printify_state['ready'] %}
+<div class="modal fade" id="prepare-printify-modal" tabindex="-1" aria-labelledby="prepare-printify-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content collection-create-modal">
+  <div class="modal-header"><div><div class="eyebrow">Safe automation · Final checkpoint</div><h2 class="modal-title h4" id="prepare-printify-title">Prepare Printify draft</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form method="post" action="/listings/{{ listing['id'] }}/printify/prepare" data-long-operation>
+    <div class="modal-body"><p>This creates an unpublished <strong>Matte Horizontal Posters</strong> product using <strong>Printify Choice</strong>.</p><div class="printify-price-ladder"><span>14×11 · $25</span><span>18×12 · $28</span><span>20×16 · $32</span><span>24×18 · $38</span><span>30×20 · $48</span><span>36×24 · $58</span></div><div class="alert alert-warning mt-3 mb-3"><strong>Nothing goes live.</strong> Review the resulting product and profit inside Printify. Publishing to Etsy remains a separate final confirmation.</div><div class="form-check"><input class="form-check-input" id="confirm-printify-profile" name="confirmed" type="checkbox" value="true" required><label class="form-check-label" for="confirm-printify-profile">I reviewed the product, sizes, and retail prices.</label></div></div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Create unpublished Printify draft</button></div>
+  </form>
+</div></div></div>
 {% endif %}
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body p-4 d-flex flex-wrap justify-content-between align-items-center gap-3">

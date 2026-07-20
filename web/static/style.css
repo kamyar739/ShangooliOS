@@ -192,6 +192,19 @@ body {
     text-transform: capitalize;
 }
 
+.status-pill-link {
+    cursor: pointer;
+    text-decoration: none;
+    transition: box-shadow 150ms ease, transform 150ms ease;
+}
+
+.status-pill-link:hover,
+.status-pill-link:focus-visible {
+    color: inherit;
+    box-shadow: 0 0 0 3px rgba(38, 139, 83, 0.16);
+    transform: translateY(-1px);
+}
+
 .code-pill {
     background: #eef0f6;
     color: #50586b;
@@ -359,6 +372,33 @@ body {
     border-bottom: 0;
 }
 
+.validation-list-compact {
+    border: 0;
+    display: grid;
+    gap: 0.35rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.validation-list-compact .validation-row {
+    align-items: flex-start;
+    background: #f7f8fb;
+    border: 1px solid #e3e6ee;
+    border-radius: 0.5rem;
+    font-size: 0.72rem;
+    gap: 0.38rem;
+    line-height: 1.25;
+    min-height: 2.15rem;
+    padding: 0.38rem 0.42rem;
+}
+
+.validation-list-compact .validation-pass,
+.validation-list-compact .validation-fail {
+    flex-basis: 1rem;
+    font-size: 0.65rem;
+    height: 1rem;
+    width: 1rem;
+}
+
 .validation-pass,
 .validation-fail {
     align-items: center;
@@ -443,9 +483,60 @@ body {
     display: inline-block;
     font-size: 1.05rem;
     font-weight: 800;
-    margin-bottom: 0.75rem;
     text-decoration: none;
 }
+
+.sidebar-brand-row {
+    align-items: center;
+    display: flex;
+    gap: 0.7rem;
+    margin-bottom: 0.8rem;
+}
+
+.sidebar-shop-logo {
+    border: 1px solid #e5d8c5;
+    border-radius: 50%;
+    box-shadow: 0 3px 10px rgba(35, 31, 25, 0.12);
+    display: block;
+    flex: 0 0 48px;
+    height: 48px;
+    overflow: hidden;
+    transition: box-shadow 150ms ease, transform 150ms ease;
+    width: 48px;
+}
+
+.sidebar-shop-logo:hover,
+.sidebar-shop-logo:focus-visible {
+    box-shadow: 0 5px 14px rgba(35, 31, 25, 0.2);
+    transform: translateY(-1px);
+}
+
+.sidebar-shop-logo img {
+    display: block;
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.sidebar-brand-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.sidebar-shop-link {
+    color: #7d6550;
+    font-size: 0.72rem;
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.sidebar-shop-link:hover,
+.sidebar-shop-link:focus-visible,
+.footer-shop-link:hover,
+.footer-shop-link:focus-visible { text-decoration: underline; }
+
+.footer-shop-link { color: inherit; text-decoration: none; }
 
 .sidebar-search {
     align-items: center;
@@ -1235,6 +1326,219 @@ body.is-waiting {
 .artwork-context-menu .status-review,
 .artwork-context-menu .status-production { background: #d99a24; }
 .artwork-context-menu .status-retired { background: #7c8290; }
+
+.artwork-automation-button {
+    align-items: center;
+    background: linear-gradient(135deg, #6652df, #4d36bb);
+    border: 1px solid #4d36bb;
+    border-radius: 0.65rem;
+    box-shadow: 0 0.45rem 1rem rgba(82, 60, 190, 0.2);
+    color: #fff;
+    display: inline-flex;
+    font-weight: 750;
+    gap: 0.45rem;
+    padding: 0.55rem 0.85rem;
+}
+
+.artwork-next-automation-link {
+  align-items: center;
+  background: linear-gradient(135deg, #6952dd, #4d37bd);
+  border: 1px solid #4e3ac7;
+  border-radius: 0.7rem;
+  box-shadow: 0 6px 14px rgba(78, 58, 199, 0.22);
+  color: #fff;
+  display: inline-flex;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+}
+
+.artwork-next-automation-link:hover,
+.artwork-next-automation-link:focus-visible {
+  background: linear-gradient(135deg, #5e47d3, #402aa9);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.artwork-next-automation-link span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+}
+
+.artwork-next-automation-link small {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.66rem;
+  line-height: 1.1;
+}
+
+.artwork-automation-button:hover,
+.artwork-automation-button:focus-visible {
+    background: linear-gradient(135deg, #5743d0, #402ca8);
+    border-color: #402ca8;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.artwork-automation-button.is-complete {
+    background: #e5f6eb;
+    border-color: #a9ddbb;
+    box-shadow: none;
+    color: #236d40;
+}
+
+.artwork-automation-button.is-complete:hover,
+.artwork-automation-button.is-complete:focus-visible {
+    background: #d8f0e1;
+    border-color: #88cca0;
+    color: #185b32;
+}
+
+.automation-complete-note {
+    background: #edf8f1;
+    border: 1px solid #c4e6cf;
+    border-radius: 0.75rem;
+    color: #285f3c;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-bottom: 1rem;
+    padding: 0.8rem 0.9rem;
+}
+
+.automation-complete-note span { color: #557061; font-size: 0.84rem; }
+
+.one-click-printify-panel {
+    align-items: center;
+    background: linear-gradient(135deg, #f3f0ff, #faf9ff);
+    border: 1px solid #d8d0ff;
+    border-radius: 0.85rem;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    padding: 1rem;
+}
+
+.printify-automation-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #c8bcff;
+  border-left: 5px solid var(--bs-primary);
+  border-radius: 14px;
+  background: linear-gradient(110deg, #f5f1ff 0%, #fff 68%);
+  box-shadow: 0 8px 22px rgba(86, 67, 190, 0.1);
+}
+
+.printify-automation-hero-copy p {
+  color: #5d6474;
+  font-size: 0.9rem;
+}
+
+.printify-automation-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 310px;
+  padding: 0.78rem 1rem;
+  border: 1px solid #4e3ac7;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #6952dd, #4d37bd);
+  box-shadow: 0 7px 16px rgba(78, 58, 199, 0.25);
+  text-align: left;
+}
+
+.printify-automation-cta:hover,
+.printify-automation-cta:focus-visible {
+  color: #fff;
+  background: linear-gradient(135deg, #5e47d3, #402aa9);
+  transform: translateY(-1px);
+  box-shadow: 0 9px 20px rgba(78, 58, 199, 0.3);
+}
+
+.printify-automation-cta span:nth-child(2) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.printify-automation-cta small {
+  margin-top: 0.08rem;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.72rem;
+}
+
+.printify-automation-hero.is-publish-step {
+  border-color: #b8d6c4;
+  border-left-color: #258a55;
+  background: linear-gradient(110deg, #eef9f2 0%, #fff 68%);
+}
+
+.printify-automation-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.printify-automation-actions form { margin: 0; }
+
+.printify-automation-actions .printify-automation-cta {
+  min-width: 285px;
+  border-color: #197647;
+  background: linear-gradient(135deg, #2f9b62, #1e7749);
+  box-shadow: 0 7px 16px rgba(30, 119, 73, 0.23);
+}
+
+.printify-automation-actions .printify-automation-cta:hover,
+.printify-automation-actions .printify-automation-cta:focus-visible {
+  background: linear-gradient(135deg, #288b57, #17643d);
+  box-shadow: 0 9px 20px rgba(30, 119, 73, 0.28);
+}
+
+.printify-automation-hero.is-recovery-step {
+  border-color: #b8cee4;
+  border-left-color: #3f78ad;
+  background: linear-gradient(110deg, #eef6fc 0%, #fff 68%);
+}
+
+.is-recovery-step form { margin: 0; }
+
+.recovery-automation-cta {
+  border-color: #326d9f;
+  background: linear-gradient(135deg, #4f8fc4, #326d9f);
+  box-shadow: 0 7px 16px rgba(50, 109, 159, 0.22);
+}
+
+.recovery-automation-cta:hover,
+.recovery-automation-cta:focus-visible {
+  background: linear-gradient(135deg, #4482b6, #285d8a);
+  box-shadow: 0 9px 20px rgba(50, 109, 159, 0.28);
+}
+
+@media (max-width: 900px) {
+  .printify-automation-hero { align-items: stretch; flex-direction: column; }
+  .printify-automation-actions { align-items: stretch; flex-direction: column; }
+  .printify-automation-actions .btn,
+  .printify-automation-actions form { width: 100%; }
+  .printify-automation-cta { min-width: 0; width: 100%; }
+}
+
+.printify-price-ladder {
+    display: grid;
+    gap: 0.4rem;
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.printify-price-ladder span {
+    background: #f4f5f8;
+    border-radius: 0.45rem;
+    font-size: 0.78rem;
+    padding: 0.45rem 0.55rem;
+    text-align: center;
+}
 
 .dashboard-recent-body {
     padding: 0.7rem;
