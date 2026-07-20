@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Create Printify Product — ShangooliOS{% endblock %}
 {% block content %}
+<div class="workflow-shell">
+{% include "components/workflow_sidebar.html" %}
+<main class="workflow-stage-content">
 <div class="mb-4"><a href="/listings/{{ listing['id'] }}" class="text-decoration-none">← Back to listing</a></div>
 <div class="page-header mb-4"><div><div class="eyebrow">Printify automation</div><h1 class="display-6 fw-bold">Create Printify product</h1><p class="text-muted mb-0">Choose the catalog product, provider, variants, and matching print files.</p></div></div>
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
@@ -47,4 +50,6 @@
 </form>
 {% endif %}
 {% endif %}
+</main>
+</div>
 {% endblock %}

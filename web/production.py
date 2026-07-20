@@ -123,7 +123,7 @@ def build_workflow_status(
         {
             "key": "master",
             "stage": "Print Production",
-            "label": "Print master ready",
+            "label": "Print-ready file ready",
             "complete": master_ready,
         },
         {
@@ -175,11 +175,11 @@ def build_workflow_status(
             "href": "#production-setup",
         },
         "master": {
-            "title": "Prepare the print master",
+            "title": "Prepare the print-ready file",
             "description": (
                 "Create or Assign the high-resolution master used for production "
             ),
-            "label": "Prepare Print Master",
+            "label": "Prepare print-ready file",
             "href": "#production-setup",
         },
         "mockups": {
@@ -372,11 +372,11 @@ def build_production_summary(
             "passed": bool(production["original_approved"]),
         },
         {
-            "label": "Print master file assigned",
+            "label": "Print-ready file assigned",
             "passed": master_ready,
         },
         {
-            "label": "Print master marked ready",
+            "label": "Print-ready file approved",
             "passed": bool(production["print_master_ready"]),
         },
         {

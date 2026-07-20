@@ -126,6 +126,45 @@ class ListingTests(unittest.TestCase):
         self.assertEqual(index_response.status_code, 200)
         self.assertIn("Unbound Poster", index_response.text)
 
+    def test_listing_page_keeps_workflow_navigation(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="draft",
+        )
+        response = self.client.get(f"/listings/{listing_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data-workflow-link="listing"', response.text)
+        self.assertIn('data-workflow-link="printify"', response.text)
+        self.assertIn('data-workflow-link="etsy"', response.text)
+        self.assertIn('id="printify"', response.text)
+
+    def test_global_printify_connection_page_shows_status(self):
+        from web.printify_api import configure_printify_runtime
+
+        configure_printify_runtime("test-token", "24680")
+        response = self.client.get("/printify/connect")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Printify connection", response.text)
+        self.assertIn("24680", response.text)
+        self.assertIn('href="/printify/connect" class="is-active"', response.text)
+
+    def test_confirmed_etsy_state_controls_published_count(self):
+        from web.db import record_etsy_state
+
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Published on Etsy", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        record_etsy_state(listing_id, "active")
+        self.assertEqual(db.get_listing(listing_id)["status"], "published")
+        self.assertEqual(db.get_listing_status_counts()["published"], 1)
+
+        record_etsy_state(listing_id, "inactive")
+        self.assertEqual(db.get_listing(listing_id)["status"], "ready")
+        self.assertEqual(db.get_listing_status_counts()["published"], 0)
+
     def test_negative_price_is_rejected(self):
         response = self.client.post(
             "/artworks/CEL-001/listings/new",
@@ -161,8 +200,9 @@ class ListingManagementTests(ListingTests):
         self.assertEqual(filtered.status_code, 200)
         self.assertIn("Published Listing", filtered.text)
         self.assertNotIn("Draft Listing</a>", filtered.text)
-        self.assertIn("Published <span>1</span>", filtered.text)
-        self.assertIn("All <span>2</span>", filtered.text)
+        self.assertIn("<strong>Live on Etsy</strong>", filtered.text)
+        self.assertIn('<span class="filter-count">1</span>', filtered.text)
+        self.assertIn("<strong>All</strong>", filtered.text)
 
         response = self.client.post(
             f"/listings/{draft_id}/duplicate", follow_redirects=False

@@ -3,7 +3,10 @@
 {% block title %}Search — ShangooliOS{% endblock %}
 
 {% block content %}
-
+<div class="workflow-shell">
+{% set primary_nav_active = "" %}
+{% include "components/global_sidebar.html" %}
+<main class="workflow-stage-content">
 <div class="mb-4">
     <div class="eyebrow">Search</div>
     <h1 class="h2 mb-3">Find artwork</h1>
@@ -52,5 +55,6 @@
     {% endfor %}
 </div>
 {% endif %}
-
+</main>
+</div>
 {% endblock %}

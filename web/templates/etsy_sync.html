@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Sync {{ listing['title'] }} to Etsy — ShangooliOS{% endblock %}
 {% block content %}
+<div class="workflow-shell">
+{% include "components/workflow_sidebar.html" %}
+<main class="workflow-stage-content">
 <div class="mb-4"><a href="/listings/{{ listing['id'] }}" class="text-decoration-none">← Back to listing</a></div>
 <div class="page-header mb-4"><div><div class="eyebrow">Etsy synchronization</div><h1 class="display-6 fw-bold">Sync changes to Etsy</h1><p class="text-muted mb-0">Update the existing Etsy listing without changing Printify fulfillment.</p></div></div>
 {% if request.query_params.get('linked') %}<div class="alert alert-success">The Etsy listing is linked. Review the changes below.</div>{% endif %}
@@ -58,4 +61,6 @@
   <p class="small text-muted mt-3 mb-0">Publishing the product again from Printify may reset Etsy inventory. ShangooliOS verifies the quantities immediately after each update.</p>
 </div></div>
 {% endif %}
+</main>
+</div>
 {% endblock %}

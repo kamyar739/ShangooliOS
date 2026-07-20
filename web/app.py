@@ -44,6 +44,7 @@ from web.db import (
     list_listings,
     link_etsy_listing,
     mark_etsy_synced,
+    record_etsy_state,
     publish_listing,
     save_printify_product,
     mark_printify_etsy_connected,
@@ -51,6 +52,7 @@ from web.db import (
     save_artwork_mockup_order,
     save_artwork_mockup_template,
     save_artwork_mockup_templates,
+    save_collection_order,
     search_artworks,
     set_artwork_production_flags,
     update_artwork,
@@ -224,6 +226,7 @@ def _artwork_context(artwork_code: str, **extra):
         key=lambda item: item["position"]
     )
 
+    artwork_listings = get_artwork_listings(artwork_code)
     context = {
         "artwork": artwork,
         "workspace": inspect_workspace(artwork),
@@ -234,7 +237,7 @@ def _artwork_context(artwork_code: str, **extra):
         "workflow": production_summary["workflow"],
         "artwork_intelligence": get_artwork_intelligence(artwork_code),
         "listing_content": get_artwork_listing_content(artwork_code),
-        "listings": get_artwork_listings(artwork_code),
+        "listings": artwork_listings,
         "certification": get_artwork_certification(artwork_code),
         "print_master_certification": get_print_master_certification(artwork_code),
         "certified_orientation": _certified_orientation(artwork_code),
@@ -242,9 +245,51 @@ def _artwork_context(artwork_code: str, **extra):
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
         "print_master_manifest": load_print_master_manifest(artwork),
+        "workflow_nav": _workflow_navigation(
+            artwork,
+            production=production,
+            assignments=assignments,
+            listings=artwork_listings,
+            active_stage="details",
+        ),
     }
     context.update(extra)
     return context
+
+
+def _workflow_navigation(
+    artwork,
+    *,
+    production=None,
+    assignments=None,
+    listings=None,
+    listing=None,
+    active_stage="details",
+):
+    production = production or get_artwork_production(artwork["artwork_code"])
+    assignments = assignments or get_artwork_file_assignments(artwork["artwork_code"])
+    listings = list(listings or get_artwork_listings(artwork["artwork_code"]))
+    listing = listing or (listings[0] if listings else None)
+    roles = {row["role"] for row in assignments}
+    _, collection_artworks, _ = get_collection(artwork["collection_code"])
+    artwork_url = f"/artworks/{artwork['artwork_code']}"
+    listing_url = f"/listings/{listing['id']}" if listing else f"{artwork_url}#listing"
+    stages = [
+        {"key": "details", "label": "Artwork details", "href": f"{artwork_url}#details", "complete": bool(artwork["public_title"])},
+        {"key": "source", "label": "Source artwork", "href": f"{artwork_url}#source", "complete": "source" in roles and bool(production["original_approved"])},
+        {"key": "print", "label": "Print production", "href": f"{artwork_url}#print", "complete": bool(production["print_master_ready"] and production["ratio_exports_ready"])},
+        {"key": "mockups", "label": "Listing images", "href": f"{artwork_url}#mockups", "complete": bool(production["mockups_ready"])},
+        {"key": "listing", "label": "Listing & SEO", "href": listing_url, "complete": bool(production["listing_content_ready"] and listing)},
+        {"key": "printify", "label": "Printify product", "href": f"{listing_url}#printify" if listing else listing_url, "complete": bool(listing and listing["printify_product_id"])},
+        {"key": "etsy", "label": "Etsy publishing", "href": f"/listings/{listing['id']}/etsy" if listing else listing_url, "complete": bool(listing and listing["external_listing_id"] and listing["etsy_last_synced_at"])},
+    ]
+    return {
+        "collection": {"code": artwork["collection_code"], "name": artwork["collection_name"]},
+        "artwork": {"code": artwork["artwork_code"], "title": artwork["public_title"]},
+        "collection_artworks": collection_artworks,
+        "stages": stages,
+        "active_stage": active_stage,
+    }
 
 
 @app.get("/")
@@ -254,6 +299,28 @@ def home(request: Request):
         name="index.html",
         context=get_dashboard(),
     )
+
+
+@app.get("/collections")
+def collections_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="collections_index.html",
+        context=get_dashboard(),
+    )
+
+
+@app.post("/collections/order")
+async def reorder_collections(request: Request):
+    try:
+        payload = await request.json()
+        codes = payload.get("codes", [])
+        if not isinstance(codes, list):
+            raise ValueError("Collection order must be a list")
+        save_collection_order(codes)
+    except (ValueError, AttributeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"saved": True}
 
 
 @app.get("/etsy/connect")
@@ -268,6 +335,37 @@ def etsy_connect_page(request: Request):
             "error": None,
         },
     )
+
+
+@app.get("/printify/connect")
+def printify_connect_page(request: Request):
+    api = PrintifyAPI.from_env()
+    return templates.TemplateResponse(
+        request=request,
+        name="printify_connect.html",
+        context={
+            "configured": api is not None,
+            "source": printify_configuration_source(),
+            "shop_id": api.shop_id if api else "",
+        },
+    )
+
+
+@app.post("/printify/connect")
+def printify_connect_save(api_token: str = Form(...), shop_id: str = Form(...)):
+    try:
+        save_printify_local_config(api_token, shop_id)
+        configure_printify_runtime(api_token, shop_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse("/printify/connect?saved=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/printify/disconnect")
+def printify_disconnect():
+    clear_printify_runtime()
+    clear_printify_local_config()
+    return RedirectResponse("/printify/connect?disconnected=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/etsy/connect")
@@ -385,6 +483,7 @@ def new_listing_form(request: Request, artwork_code: str):
             "listing": None,
             "prefill": content,
             "statuses": ("draft", "ready", "archived"),
+            "workflow_nav": _workflow_navigation(artwork, active_stage="listing"),
         },
     )
 
@@ -443,6 +542,9 @@ def listing_page(request: Request, listing_id: int):
                 inspect_printify_handoff(listing, readiness)
                 if printify_state["required"] else None
             ),
+            "workflow_nav": _workflow_navigation(
+                listing, listing=listing, active_stage="listing"
+            ),
         },
     )
 
@@ -471,6 +573,9 @@ def etsy_sync_page(request: Request, listing_id: int):
         raise HTTPException(status_code=404, detail="Listing not found")
     try:
         preview = build_etsy_sync_preview(listing)
+        if preview.get("linked") and preview.get("remote"):
+            record_etsy_state(listing_id, preview["remote"].get("state", ""))
+            listing = get_listing(listing_id)
         error = None
     except EtsyAPIError as failure:
         preview = None
@@ -478,7 +583,14 @@ def etsy_sync_page(request: Request, listing_id: int):
     return templates.TemplateResponse(
         request=request,
         name="etsy_sync.html",
-        context={"listing": listing, "preview": preview, "error": error},
+        context={
+            "listing": listing,
+            "preview": preview,
+            "error": error,
+            "workflow_nav": _workflow_navigation(
+                listing, listing=listing, active_stage="etsy"
+            ),
+        },
     )
 
 
@@ -493,6 +605,7 @@ def link_etsy_listing_post(listing_id: int, external_listing_id: str = Form(...)
         if str(remote.get("shop_id", "")) != str(config["shop_id"]):
             raise ValueError("That listing does not belong to the connected Etsy shop")
         link_etsy_listing(listing_id, external_listing_id)
+        record_etsy_state(listing_id, remote.get("state", ""))
     except (EtsyAPIError, ValueError) as failure:
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     return RedirectResponse(
@@ -511,8 +624,8 @@ def sync_etsy_listing_post(listing_id: int, confirmed: bool = Form(False)):
     if not readiness or not readiness["ready"]:
         raise HTTPException(status_code=400, detail="Complete listing readiness before syncing")
     try:
-        sync_etsy_listing(listing)
-        mark_etsy_synced(listing_id)
+        result = sync_etsy_listing(listing)
+        mark_etsy_synced(listing_id, result.get("state", ""))
     except (EtsyAPIError, ValueError) as failure:
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     return RedirectResponse(
@@ -635,7 +748,7 @@ def _printify_file_options(listing):
                 options.append(
                     {
                         "role": role,
-                        "label": role.replace("ratio:", "Ratio ").replace("print_master", "Print master"),
+                        "label": role.replace("ratio:", "Ratio ").replace("print_master", "Print-ready file"),
                         "path": path,
                     }
                 )
@@ -656,6 +769,9 @@ def create_printify_page(
     token_api = api or PrintifyAPI.with_available_token()
     context = {
         "listing": listing,
+        "workflow_nav": _workflow_navigation(
+            listing, listing=listing, active_stage="printify"
+        ),
         "configured": api is not None,
         "configuration_source": printify_configuration_source(),
         "token_available": token_api is not None,
@@ -1253,7 +1369,7 @@ def save_artwork_production(
             status_code=400,
             detail=(
                 f"Orientation is locked to {certified_orientation} by the certified "
-                "print master. Replace or rotate the master to change it."
+                "print-ready file. Replace or rotate that file to change it."
             ),
         )
     effective_orientation = certified_orientation or orientation

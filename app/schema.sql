@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS collections (
     vertical TEXT NOT NULL,
     target_artwork_count INTEGER,
     etsy_section_name TEXT,
+    display_order INTEGER,
     status TEXT NOT NULL DEFAULT 'planned',
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -71,6 +72,7 @@ CREATE TABLE IF NOT EXISTS listings (
     printify_etsy_connected_at TEXT,
     printify_publish_requested_at TEXT,
     etsy_last_synced_at TEXT,
+    etsy_state TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

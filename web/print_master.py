@@ -121,7 +121,7 @@ def build_print_master(
 
             normalized.save(destination, format="PNG", optimize=True)
     except Exception as error:
-        raise ValueError(f"Unable to create print master: {error}") from error
+        raise ValueError(f"Unable to create the print-ready file: {error}") from error
 
     method = "Lanczos upscale" if resized else "Normalized without enlargement"
     result = PrintMasterResult(

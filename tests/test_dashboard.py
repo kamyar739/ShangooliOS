@@ -71,6 +71,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Needs attention", response.text)
         self.assertIn("Unbound Poster", response.text)
         self.assertIn("Missing: Source artwork", response.text)
+        self.assertIn('aria-label="Dashboard navigation"', response.text)
+        self.assertIn('href="/collections/CEL"', response.text)
 
     def test_dashboard_shows_ready_to_publish(self):
         self._complete_artwork_files()
@@ -104,7 +106,7 @@ class DashboardTests(unittest.TestCase):
 
         page = self.client.get("/artworks/CEL-001")
         self.assertIn('value="vertical" readonly', page.text)
-        self.assertIn("Locked by the certified print master", page.text)
+        self.assertIn("Locked by the certified print-ready file", page.text)
 
         response = self.client.post(
             "/artworks/CEL-001/production",
@@ -112,6 +114,59 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("locked to vertical", response.json()["detail"])
+
+    def test_collection_and_artwork_pages_show_guided_workflow(self):
+        collection_page = self.client.get("/collections/CEL")
+        self.assertEqual(collection_page.status_code, 200)
+        self.assertIn('aria-label="Collection workflow"', collection_page.text)
+        self.assertIn("CEL-001", collection_page.text)
+
+        artwork_page = self.client.get("/artworks/CEL-001")
+        self.assertEqual(artwork_page.status_code, 200)
+        self.assertIn(
+            'aria-label="Collection and artwork workflow"', artwork_page.text
+        )
+        labels = [
+            "1. Artwork details",
+            "2. Source artwork",
+            "3. Print production",
+            "4. Listing images",
+            "5. Listing &amp; SEO",
+            "6. Printify product",
+            "7. Etsy publishing",
+        ]
+        positions = [artwork_page.text.index(label) for label in labels]
+        self.assertEqual(positions, sorted(positions))
+        for stage in ("details", "source", "print", "mockups", "listing"):
+            self.assertIn(f'data-workflow-stage="{stage}"', artwork_page.text)
+
+    def test_collection_order_is_saved_and_used_by_dashboard(self):
+        with db.get_connection() as connection:
+            brand_id = connection.execute(
+                "SELECT id FROM brands WHERE code='SHG'"
+            ).fetchone()["id"]
+            connection.execute(
+                """
+                INSERT INTO collections (
+                    brand_id, code, name, collection_type, vertical, status
+                ) VALUES (?, 'DEN', 'Dental Collection', 'curated',
+                          'home_art', 'active')
+                """,
+                (brand_id,),
+            )
+            connection.commit()
+
+        response = self.client.post(
+            "/collections/order", json={"codes": ["CEL", "DEN"]}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["saved"])
+
+        page = self.client.get("/collections")
+        cel_position = page.text.index('data-collection-code="CEL"')
+        den_position = page.text.index('data-collection-code="DEN"')
+        self.assertLess(cel_position, den_position)
+        self.assertIn("Drag collections to reorder", page.text)
 
 
 if __name__ == "__main__":

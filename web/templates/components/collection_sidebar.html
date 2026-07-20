@@ -1,0 +1,26 @@
+<aside class="workflow-sidebar" aria-label="Collection workflow">
+  {% set sidebar_search_id = "collection" %}
+  {% include "components/sidebar_masthead.html" %}
+  {% set primary_nav_active = "collections" %}
+  {% include "components/primary_navigation.html" %}
+  <a class="workflow-back-link" href="/collections">← All collections</a>
+  <div class="workflow-sidebar-label">Collection</div>
+  <div class="workflow-sidebar-title">{{ collection['name'] }}</div>
+  <div class="workflow-sidebar-code">{{ collection['code'] }}</div>
+
+  <div class="workflow-sidebar-label mt-4">Artworks</div>
+  <nav class="workflow-artwork-list" aria-label="Artworks in {{ collection['name'] }}">
+    {% for nav_artwork in artworks %}
+    <a href="/artworks/{{ nav_artwork['artwork_code'] }}">
+      <span>{{ nav_artwork['artwork_code'] }}</span>
+      <strong>{{ nav_artwork['public_title'] }}</strong>
+    </a>
+    {% else %}
+    <span class="workflow-empty-note">No artwork yet</span>
+    {% endfor %}
+  </nav>
+
+  {% if collection['status'] != 'archived' %}
+  <a class="btn btn-primary w-100 mt-4" href="/collections/{{ collection['code'] }}/new">+ New artwork</a>
+  {% endif %}
+</aside>

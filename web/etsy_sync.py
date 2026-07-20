@@ -125,8 +125,9 @@ def sync_etsy_listing(listing) -> dict:
         description=listing["description"] or "",
         tags=listing_tags(listing),
     )
+    remote_state = preview.get("remote", {}).get("state", "")
     if not preview["images_changed"]:
-        return {"listing_id": listing_id, "image_count": 0}
+        return {"listing_id": listing_id, "image_count": 0, "state": remote_state}
     uploaded_ids = set()
     for rank, image_path in enumerate(preview["images"], start=1):
         result = upload_etsy_listing_image(
@@ -145,7 +146,7 @@ def sync_etsy_listing(listing) -> dict:
         image_id = int(image["listing_image_id"])
         if image_id not in uploaded_ids:
             delete_etsy_listing_image(listing_id, image_id)
-    return {"listing_id": listing_id, "image_count": len(uploaded_ids)}
+    return {"listing_id": listing_id, "image_count": len(uploaded_ids), "state": remote_state}
 
 
 def inventory_rows(inventory: dict) -> list[dict]:

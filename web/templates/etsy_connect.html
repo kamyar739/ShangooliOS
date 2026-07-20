@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Connect Etsy — ShangooliOS{% endblock %}
 {% block content %}
+<div class="workflow-shell">
+{% set primary_nav_active = "etsy" %}
+{% include "components/global_sidebar.html" %}
+<main class="workflow-stage-content">
 <div class="page-header mb-4"><div><div class="eyebrow">Marketplace connection</div><h1 class="display-6 fw-bold">Connect Etsy</h1><p class="text-muted mb-0">Authorize ShangooliOS to update your own shop listings and upload curated images.</p></div></div>
 {% if request.query_params.get('connected') %}<div class="alert alert-success">Etsy connected successfully.</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
@@ -19,4 +23,6 @@
 </form>
 {% endif %}
 </div></div>
+</main>
+</div>
 {% endblock %}

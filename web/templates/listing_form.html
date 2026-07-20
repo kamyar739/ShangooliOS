@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{% if listing %}{{ listing['title'] }}{% else %}New Listing{% endif %} — ShangooliOS{% endblock %}
 {% block content %}
+<div class="workflow-shell">
+{% include "components/workflow_sidebar.html" %}
+<main class="workflow-stage-content">
 <div class="mb-4"><a href="/artworks/{{ artwork['artwork_code'] }}" class="text-decoration-none">← {{ artwork['artwork_code'] }} — {{ artwork['public_title'] }}</a></div>
 <div class="page-header mb-4"><div><div class="eyebrow">{{ artwork['collection_name'] if listing else 'Publishing' }}</div><h1 class="display-6 fw-bold">{% if listing %}Edit listing{% else %}Create listing{% endif %}</h1></div></div>
 {% if request.query_params.get('saved') %}<div class="alert alert-success">Listing saved.</div>{% endif %}
@@ -38,7 +41,7 @@
   </div>
 </div>
 {% endif %}
-<div class="card border-0 shadow-sm {% if listing %}mb-4{% endif %}"><div class="card-body p-4">
+<div id="listing" class="card border-0 shadow-sm {% if listing %}mb-4{% endif %}"><div class="card-body p-4">
 <form method="post" action="{% if listing %}/listings/{{ listing['id'] }}{% else %}/artworks/{{ artwork['artwork_code'] }}/listings/new{% endif %}">
 <div class="row g-3">
 <div class="col-md-6"><label class="form-label">Marketplace</label><input class="form-control" name="marketplace" required value="{{ listing['marketplace'] if listing else 'Etsy' }}"></div>
@@ -69,7 +72,7 @@
 </div></div>
 {% if listing and readiness %}
 {% if printify_state['required'] %}
-<div class="card border-0 shadow-sm mb-4">
+<div id="printify" class="card border-0 shadow-sm mb-4">
   <div class="card-body p-4">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
       <div><div class="eyebrow">Print provider</div><h2 class="h4 mb-1">Printify product</h2><p class="text-muted mb-0">Record the product used to fulfill this physical listing.</p></div>
@@ -154,4 +157,6 @@
   </div>
 </div>
 {% endif %}
+</main>
+</div>
 {% endblock %}

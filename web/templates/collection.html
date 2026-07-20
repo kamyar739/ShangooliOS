@@ -5,7 +5,9 @@
 {% endblock %}
 
 {% block content %}
-
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
 <div class="mb-4">
     <a href="/" class="text-decoration-none">← Dashboard</a>
 </div>
@@ -15,8 +17,8 @@
         <div class="eyebrow">{{ collection["code"] }}</div>
         <h1 class="display-6 fw-bold mb-2">{{ collection["name"] }}</h1>
         <p class="text-muted mb-0">
-            {{ collection["status"] }} ·
-            Target {{ collection["target_artwork_count"] }} artworks
+            {{ collection["display_status"] }} · Target {{ collection["target_artwork_count"] }} artworks
+            {% if collection['live_etsy_count'] %}· {{ collection['live_etsy_count'] }} live on Etsy{% endif %}
         </p>
     </div>
 
@@ -100,5 +102,6 @@
     </div>
 </div>
 {% endif %}
-
+</main>
+</div>
 {% endblock %}

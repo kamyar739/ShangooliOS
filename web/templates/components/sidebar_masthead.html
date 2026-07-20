@@ -1,0 +1,8 @@
+<div class="sidebar-masthead">
+  <a class="sidebar-brand" href="/">ShangooliOS</a>
+  <form class="sidebar-search" method="get" action="/search">
+    <label class="visually-hidden" for="sidebar-search-{{ sidebar_search_id|default('workflow') }}">Search artworks</label>
+    <input id="sidebar-search-{{ sidebar_search_id|default('workflow') }}" class="form-control form-control-sm" type="search" name="q" placeholder="Search artwork">
+    <button class="btn btn-sm btn-outline-primary" type="submit">Search</button>
+  </form>
+</div>

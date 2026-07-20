@@ -3,6 +3,9 @@
 {% block title %}Dashboard — ShangooliOS{% endblock %}
 
 {% block content %}
+<div class="workflow-shell dashboard-workflow-shell">
+{% include "components/dashboard_sidebar.html" %}
+<main class="workflow-stage-content">
 
 <div class="hero-panel mb-5">
     <div>
@@ -109,12 +112,13 @@
             {% endfor %}
         </div>
         <div class="dashboard-published-count mt-3">
-            <span>Published listings</span>
+            <span>Live on Etsy</span>
             <strong>{{ listing_stats["published"] }}</strong>
         </div>
     </div>
 </div>
 
+{% if false %}
 <div id="collections" class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h2 class="h4 mb-1">Collections</h2>
@@ -130,12 +134,13 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between mb-4">
                         <span class="code-pill">{{ collection["code"] }}</span>
-                        <span class="status-pill status-{{ collection['status'] }}">{{ collection["status"] }}</span>
+                        <span class="status-pill collection-status-{{ collection['display_status_class'] }}">{{ collection["display_status"] }}</span>
                     </div>
                     <h3 class="h5 text-dark mb-2">{{ collection["name"] }}</h3>
                     <p class="text-muted mb-4">Target: {{ collection["target_artwork_count"] or 0 }}</p>
                     <div class="collection-count">
                         {{ collection["artwork_count"] or 0 }} artwork{% if collection["artwork_count"] != 1 %}s{% endif %}
+                        {% if collection['live_etsy_count'] %}<span>· {{ collection['live_etsy_count'] }} live on Etsy</span>{% endif %}
                     </div>
                 </div>
             </div>
@@ -163,5 +168,49 @@
     <div class="col-12"><div class="empty-state">No active artwork yet.</div></div>
     {% endfor %}
 </div>
+{% endif %}
+</main>
+</div>
+<script>
+(function () {
+  const list = document.querySelector('[data-collection-order]');
+  const status = document.querySelector('[data-collection-order-status]');
+  if (!list) return;
+  let dragged = null;
 
+  list.addEventListener('dragstart', (event) => {
+    dragged = event.target.closest('[data-collection-code]');
+    if (!dragged) return;
+    dragged.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+  });
+
+  list.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    const target = event.target.closest('[data-collection-code]');
+    if (!dragged || !target || target === dragged) return;
+    const box = target.getBoundingClientRect();
+    list.insertBefore(dragged, event.clientY < box.top + box.height / 2 ? target : target.nextSibling);
+  });
+
+  list.addEventListener('dragend', async () => {
+    if (!dragged) return;
+    dragged.classList.remove('is-dragging');
+    dragged = null;
+    status.textContent = 'Saving order…';
+    const codes = Array.from(list.querySelectorAll('[data-collection-code]')).map((item) => item.dataset.collectionCode);
+    try {
+      const response = await fetch('/collections/order', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({codes})
+      });
+      if (!response.ok) throw new Error('Save failed');
+      status.textContent = 'Order saved';
+    } catch (error) {
+      status.textContent = 'Could not save order. Reload and try again.';
+    }
+  });
+})();
+</script>
 {% endblock %}

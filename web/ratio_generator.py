@@ -124,7 +124,7 @@ def generate_ratio_output(
 
 def resolve_assigned_file(artwork, assignment) -> Path:
     if assignment is None:
-        raise ValueError("Print master is not assigned")
+        raise ValueError("Print-ready file is not assigned")
 
     workspace = get_artwork_folder(artwork)
     candidate = (workspace / assignment["relative_path"]).resolve()
@@ -135,6 +135,6 @@ def resolve_assigned_file(artwork, assignment) -> Path:
         raise ValueError("Assigned file path is outside the workspace") from error
 
     if not candidate.is_file():
-        raise ValueError("Assigned print master file is missing")
+        raise ValueError("Assigned print-ready file is missing")
 
     return candidate

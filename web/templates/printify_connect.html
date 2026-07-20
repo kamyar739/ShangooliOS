@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Printify Connection — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% set primary_nav_active = "printify" %}
+{% include "components/global_sidebar.html" %}
+<main class="workflow-stage-content">
+  <div class="page-header mb-4">
+    <div><div class="eyebrow">Production partner</div><h1 class="display-6 fw-bold">Printify connection</h1><p class="text-muted mb-0">Manage the shop used to create and fulfill physical products.</p></div>
+  </div>
+  {% if request.query_params.get('saved') %}<div class="alert alert-success">Printify connection saved.</div>{% endif %}
+  {% if request.query_params.get('disconnected') %}<div class="alert alert-success">Printify connection removed from this computer.</div>{% endif %}
+  <div class="connection-card card border-0 shadow-sm"><div class="card-body p-4 p-lg-5">
+  {% if configured %}
+    <div class="connection-status is-connected"><span>✓</span><div><strong>Connected</strong><small>{{ source }} configuration</small></div></div>
+    <div class="connection-detail-grid mt-4">
+      <div><span>Printify shop ID</span><strong>{{ shop_id }}</strong></div>
+      <div><span>API access</span><strong>Token saved</strong></div>
+    </div>
+    <p class="text-muted mt-4">Product selection and creation remain inside each artwork’s Printify product step.</p>
+    <form method="post" action="/printify/disconnect"><button class="btn btn-outline-danger" onclick="return confirm('Remove the saved Printify connection from this computer?')">Disconnect Printify</button></form>
+  {% else %}
+    <div class="connection-status"><span>○</span><div><strong>Not connected</strong><small>Enter the API token and shop ID from Printify.</small></div></div>
+    <form method="post" action="/printify/connect" class="row g-3 mt-2">
+      <div class="col-12"><label class="form-label">Printify API token</label><input class="form-control" type="password" name="api_token" autocomplete="off" required></div>
+      <div class="col-md-7"><label class="form-label">Printify shop ID</label><input class="form-control" name="shop_id" inputmode="numeric" required></div>
+      <div class="col-md-5 d-flex align-items-end"><button class="btn btn-success w-100">Save Printify connection</button></div>
+    </form>
+  {% endif %}
+  </div></div>
+</main>
+</div>
+{% endblock %}

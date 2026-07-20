@@ -10,7 +10,7 @@
 <div class="alert alert-success">File uploaded and assigned.</div>
 {% endif %}
 
-<div id="artwork-details" class="row g-4 mb-4">
+<div id="artwork-details" class="row g-4 mb-4" data-workflow-stage="details">
     <div class="col-xl-8">
         <div class="card app-card">
             <div class="card-body p-4 p-lg-5">
@@ -113,12 +113,12 @@
     </div>
 </div>
 
-<div id="production-setup" class="card app-card mb-4">
+<div id="production-setup" class="card app-card mb-4" data-workflow-stage="print">
     <div class="card-body p-4 p-lg-5">
         <div class="eyebrow">Production</div>
         <h2 class="h4 mb-2">Simple production setup</h2>
         <p class="text-secondary mb-4">
-            Set the orientation once. ShangooliOS automatically selects the correct master ratio and creates the standard ShangooliShop print outputs.
+            Set the orientation once. ShangooliOS automatically selects the correct primary aspect ratio and creates the standard ShangooliShop print outputs.
         </p>
             <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/production">
             <input
@@ -138,7 +138,7 @@
                     {% if certified_orientation %}
                     <input type="hidden" name="orientation" value="{{ certified_orientation }}">
                     <input class="form-control text-capitalize" value="{{ certified_orientation }}" readonly>
-                    <div class="form-text">Locked by the certified print master. Replace or rotate the master to change orientation.</div>
+                    <div class="form-text">Locked by the certified print-ready file. Replace or rotate that file to change orientation.</div>
                     {% else %}
                     <select name="orientation" class="form-select">
                         <option value="">Not set</option>
@@ -207,12 +207,12 @@
     </div>
 </div>
 
-<div id="file-intake" class="card app-card mb-4">
+<div id="file-intake" class="card app-card mb-4" data-workflow-stage="source">
     <div class="card-body p-4 p-lg-5">
         <div class="eyebrow">1. Upload artwork</div>
         <h2 class="h4 mb-2">Artwork file</h2>
         <p class="text-secondary mb-4">
-            Choose the approved image. Upload starts immediately, and by default the same file is also saved as the print master.
+            Choose the approved original image. It is automatically used as the print-ready file, so you normally upload only once.
         </p>
 
         {% if request.query_params.get('file_saved') %}
@@ -250,7 +250,7 @@
                             <input id="use-as-master" name="use_as_master" value="true"
                                    type="checkbox" class="form-check-input" checked>
                             <label for="use-as-master" class="form-check-label">
-                                Use this file as the print master
+                                Use this as the print-ready file
                             </label>
                         </div>
                         <div id="source-upload-status" class="form-text mt-2">
@@ -262,7 +262,7 @@
 
             <div class="col-lg-5">
                 <div class="file-role-card h-100">
-                    <h3 class="h6">Print master</h3>
+                    <h3 class="h6">Print-ready file</h3>
                     {% if production_summary["master_assignment"] %}
                     <div class="assigned-file mb-3">
                         {{ production_summary["master_assignment"]["stored_filename"] }}
@@ -276,23 +276,23 @@
                     </div>
                     {% endif %}
                     <a class="btn btn-sm btn-outline-secondary mb-3" target="_blank"
-                       href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=print_master">View master</a>
+                       href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=print_master">View print-ready file</a>
                     {% if production_summary['source_ready'] %}
                     <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/print-master/build" class="mb-3">
-                        <button class="btn btn-sm btn-primary">Rebuild from source</button>
+                        <button class="btn btn-sm btn-primary">Rebuild from original artwork</button>
                     </form>
                     {% endif %}
                     {% else %}
-                    <p class="text-secondary">No print master saved yet.</p>
+                    <p class="text-secondary">No print-ready file saved yet.</p>
                     {% if production_summary['source_ready'] %}
                     <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/print-master/build" class="mb-3">
-                        <button class="btn btn-sm btn-primary">Create print master</button>
+                        <button class="btn btn-sm btn-primary">Use original as print-ready file</button>
                     </form>
                     {% endif %}
                     {% endif %}
 
                     <details>
-                        <summary class="fw-semibold">Use a different print master</summary>
+                        <summary class="fw-semibold">Use a different print-ready file (optional)</summary>
                         <form id="master-upload-form" class="mt-3" method="post"
                               enctype="multipart/form-data"
                               action="/artworks/{{ artwork['artwork_code'] }}/files/print-master">
@@ -310,11 +310,11 @@
     </div>
 </div>
 
-<div id="artwork-certification" class="card app-card mb-4">
+<div id="artwork-certification" class="card app-card mb-4" data-workflow-stage="source">
   <div class="card-body p-4 p-lg-5">
     <div class="eyebrow">Automatic quality verification</div>
     <div class="d-flex flex-wrap justify-content-between gap-3 mb-4">
-      <div><h2 class="h4 mb-2">Artwork Certification</h2><p class="text-secondary mb-0">Runs automatically whenever the source or print master is uploaded.</p></div>
+      <div><h2 class="h4 mb-2">Artwork Certification</h2><p class="text-secondary mb-0">Runs automatically whenever the original artwork or print-ready file is uploaded.</p></div>
       {% if certification %}<span class="badge {% if certification['score'] >= 80 %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6">{{ certification['score'] }}% — {{ certification['status'] }}</span>{% endif %}
     </div>
     {% if certification %}
@@ -329,16 +329,16 @@
       {% for item in certification['print_capability'] %}<tr><td>{{ item['size'] }}</td><td>{{ item['ppi'] }}</td><td>{% if item['recommended'] %}<span class="badge text-bg-success">{{ item['quality'] }}</span>{% else %}<span class="badge text-bg-warning">{{ item['quality'] }}</span>{% endif %}</td></tr>{% endfor %}
     </tbody></table></div>
     {% for warning in certification['warnings'] %}<div class="alert alert-warning py-2 mb-2">{{ warning }}</div>{% endfor %}
-    {% else %}<div class="alert alert-secondary mb-0">Upload a source artwork or print master to run certification.</div>{% endif %}
+    {% else %}<div class="alert alert-secondary mb-0">Upload the original artwork or a print-ready file to run certification.</div>{% endif %}
   </div>
 </div>
 
-<div id="ratio-management" class="card app-card mb-4">
+<div id="ratio-management" class="card app-card mb-4" data-workflow-stage="print">
     <div class="card-body p-4 p-lg-5">
         <div class="eyebrow">2. Generate print files</div>
         <div class="mb-4">
             <h2 class="h4 mb-2">Print outputs</h2>
-            <p class="text-secondary mb-0">All four ratios are created automatically whenever the print master is uploaded or replaced.</p>
+            <p class="text-secondary mb-0">All four ratios are created automatically whenever the print-ready file is uploaded or replaced.</p>
         </div>
 
         {% if ratio_generation_results %}
@@ -350,7 +350,7 @@
         {% endif %}
 
         {% if not production_summary['master_ready'] %}
-        <div class="alert alert-warning">Upload an artwork and save it as the print master first.</div>
+        <div class="alert alert-warning">Upload the original artwork and use it as the print-ready file first.</div>
         {% endif %}
 
         <div class="row g-3 mb-4">
@@ -402,7 +402,7 @@
                 </label>
             </div>
             {% if production_summary['missing_ratios'] %}
-            <div class="form-text">Upload or replace the print master to create all four ratios automatically.</div>
+            <div class="form-text">Upload or replace the print-ready file to create all four ratios automatically.</div>
             {% else %}
             <div class="form-text">Checking this saves immediately.</div>
             {% endif %}
@@ -410,7 +410,7 @@
     </div>
 </div>
 
-<div id="mockup-workspace" class="card app-card mb-4">
+<div id="mockup-workspace" class="card app-card mb-4" data-workflow-stage="mockups">
     <div class="card-body p-4 p-lg-5">
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
             <div>
@@ -566,7 +566,7 @@
 
 
 
-<section class="card border-0 shadow-sm mt-4">
+<section id="listing-workspace" class="card border-0 shadow-sm mt-4" data-workflow-stage="listing">
     <div class="card-body p-4">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>

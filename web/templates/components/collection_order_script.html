@@ -1,0 +1,35 @@
+<script>
+(function () {
+  const list = document.querySelector('[data-collection-order]');
+  const status = document.querySelector('[data-collection-order-status]');
+  if (!list) return;
+  let dragged = null;
+  list.addEventListener('dragstart', (event) => {
+    dragged = event.target.closest('[data-collection-code]');
+    if (!dragged) return;
+    dragged.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+  });
+  list.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    const target = event.target.closest('[data-collection-code]');
+    if (!dragged || !target || target === dragged) return;
+    const box = target.getBoundingClientRect();
+    list.insertBefore(dragged, event.clientY < box.top + box.height / 2 ? target : target.nextSibling);
+  });
+  list.addEventListener('dragend', async () => {
+    if (!dragged) return;
+    dragged.classList.remove('is-dragging');
+    dragged = null;
+    status.textContent = 'Saving order…';
+    const codes = Array.from(list.querySelectorAll('[data-collection-code]')).map((item) => item.dataset.collectionCode);
+    try {
+      const response = await fetch('/collections/order', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({codes})});
+      if (!response.ok) throw new Error('Save failed');
+      status.textContent = 'Order saved';
+    } catch (error) {
+      status.textContent = 'Could not save order. Reload and try again.';
+    }
+  });
+})();
+</script>

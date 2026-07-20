@@ -1,0 +1,30 @@
+<aside class="workflow-sidebar dashboard-sidebar" aria-label="Dashboard navigation">
+  {% set sidebar_search_id = "dashboard" %}
+  {% include "components/sidebar_masthead.html" %}
+  {% set primary_nav_active = dashboard_sidebar_active|default("dashboard") %}
+  {% include "components/primary_navigation.html" %}
+  <div class="workflow-sidebar-label">Start here</div>
+  <div class="workflow-sidebar-title">Collections</div>
+  <p class="workflow-sidebar-help">Choose a collection, then continue through its artwork workflow.</p>
+
+  <nav class="dashboard-collection-list" aria-label="Collections" data-collection-order>
+    {% for nav_collection in collections %}
+    <div class="dashboard-collection-order-item" draggable="true" data-collection-code="{{ nav_collection['code'] }}">
+      <button class="collection-drag-handle" type="button" aria-label="Move {{ nav_collection['name'] }}" title="Drag to reorder">⋮⋮</button>
+      <a href="/collections/{{ nav_collection['code'] }}">
+        <span class="workflow-code">{{ nav_collection['code'] }}</span>
+        <span>
+          <strong>{{ nav_collection['name'] }}</strong>
+          <small>{{ nav_collection['artwork_count'] or 0 }} artwork{% if nav_collection['artwork_count'] != 1 %}s{% endif %}</small>
+        </span>
+      </a>
+    </div>
+    {% else %}
+    <span class="workflow-empty-note">No collections yet</span>
+    {% endfor %}
+  </nav>
+  <div class="collection-order-status" data-collection-order-status aria-live="polite">Drag collections to reorder</div>
+
+  <a class="btn btn-primary w-100 mt-3" href="/collections/new">+ New collection</a>
+
+</aside>

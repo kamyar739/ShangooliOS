@@ -218,6 +218,7 @@ def ensure_production_schema():
             "printify_etsy_connected_at",
             "printify_publish_requested_at",
             "etsy_last_synced_at",
+            "etsy_state",
         ):
             if column_name not in listing_columns:
                 column_type = "INTEGER" if column_name.endswith("_cents") else "TEXT"
@@ -234,6 +235,8 @@ def ensure_production_schema():
             }
             if "etsy_section_name" not in collection_columns:
                 conn.execute("ALTER TABLE collections ADD COLUMN etsy_section_name TEXT")
+            if "display_order" not in collection_columns:
+                conn.execute("ALTER TABLE collections ADD COLUMN display_order INTEGER")
             conn.execute(
                 """
                 UPDATE collections
@@ -276,23 +279,66 @@ ensure_production_schema()
 
 def get_collections():
     with get_connection() as conn:
-        return conn.execute(
+        rows = conn.execute(
             """
             SELECT
                 c.code,
                 c.name,
                 c.status,
                 c.target_artwork_count,
-                SUM(CASE WHEN a.status != 'retired' THEN 1 ELSE 0 END)
-                    AS artwork_count
+                COUNT(DISTINCT CASE WHEN a.status != 'retired' THEN a.id END)
+                    AS artwork_count,
+                COUNT(DISTINCT CASE WHEN l.etsy_state = 'active' THEN l.id END)
+                    AS live_etsy_count,
+                COUNT(DISTINCT CASE WHEN l.status = 'ready' THEN l.id END)
+                    AS ready_listing_count
             FROM collections AS c
             LEFT JOIN artworks AS a
                 ON a.collection_id = c.id
+            LEFT JOIN listings AS l
+                ON l.artwork_id = a.id
             WHERE c.status != 'archived'
             GROUP BY c.id
-            ORDER BY c.name
+            ORDER BY c.display_order IS NULL, c.display_order, c.name
             """
         ).fetchall()
+    collections = []
+    for row in rows:
+        item = dict(row)
+        if item["live_etsy_count"]:
+            item["display_status"] = "Live on Etsy"
+            item["display_status_class"] = "live"
+        elif item["ready_listing_count"]:
+            item["display_status"] = "Ready to publish"
+            item["display_status_class"] = "ready"
+        elif item["artwork_count"]:
+            item["display_status"] = "In production"
+            item["display_status_class"] = "production"
+        else:
+            item["display_status"] = "Planned"
+            item["display_status_class"] = "planned"
+        collections.append(item)
+    return collections
+
+
+def save_collection_order(collection_codes):
+    codes = [str(code).strip().upper() for code in collection_codes]
+    if not codes or len(codes) != len(set(codes)):
+        raise ValueError("Collection order must contain each collection once")
+    with get_connection() as conn:
+        active_codes = {
+            row["code"]
+            for row in conn.execute(
+                "SELECT code FROM collections WHERE status != 'archived'"
+            ).fetchall()
+        }
+        if set(codes) != active_codes:
+            raise ValueError("Collection order does not match the active collections")
+        conn.executemany(
+            "UPDATE collections SET display_order = ?, updated_at = CURRENT_TIMESTAMP WHERE code = ?",
+            [(position, code) for position, code in enumerate(codes, start=1)],
+        )
+        conn.commit()
 
 
 def get_dashboard():
@@ -466,7 +512,29 @@ def get_collection(collection_code):
             (collection_code.upper(),),
         ).fetchall()
 
-        return collection, artworks, archived_artworks
+        collection_item = dict(collection)
+        listing_counts = conn.execute(
+            """
+            SELECT
+                COUNT(DISTINCT CASE WHEN l.etsy_state = 'active' THEN l.id END) AS live_etsy_count,
+                COUNT(DISTINCT CASE WHEN l.status = 'ready' THEN l.id END) AS ready_listing_count
+            FROM artworks AS a
+            LEFT JOIN listings AS l ON l.artwork_id = a.id
+            WHERE a.collection_id = (SELECT id FROM collections WHERE code = ?)
+              AND a.status != 'retired'
+            """,
+            (collection_code.upper(),),
+        ).fetchone()
+        collection_item["live_etsy_count"] = listing_counts["live_etsy_count"]
+        if listing_counts["live_etsy_count"]:
+            collection_item["display_status"] = "Live on Etsy"
+        elif listing_counts["ready_listing_count"]:
+            collection_item["display_status"] = "Ready to publish"
+        elif artworks:
+            collection_item["display_status"] = "In production"
+        else:
+            collection_item["display_status"] = "Planned"
+        return collection_item, artworks, archived_artworks
 
 
 def get_artwork(artwork_code):
@@ -1502,7 +1570,7 @@ def get_listing_readiness(listing_id):
         {"key": "source", "label": "Source artwork", "passed": "source" in roles},
         {
             "key": "print_master",
-            "label": "Print master",
+            "label": "Print-ready file",
             "passed": "print_master" in roles or bool(listing["print_master_ready"]),
         },
         {
@@ -1638,16 +1706,56 @@ def link_etsy_listing(listing_id, external_listing_id):
         conn.commit()
 
 
-def mark_etsy_synced(listing_id):
+def record_etsy_state(listing_id, etsy_state):
+    normalized_state = str(etsy_state or "").strip().lower()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET etsy_state = ?,
+                status = CASE
+                    WHEN ? = 'active' THEN 'published'
+                    WHEN status = 'published' AND ? != 'active' THEN 'ready'
+                    ELSE status
+                END,
+                published_at = CASE
+                    WHEN ? = 'active' THEN COALESCE(published_at, CURRENT_TIMESTAMP)
+                    ELSE published_at
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (normalized_state, normalized_state, normalized_state, normalized_state, listing_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
+        conn.commit()
+
+
+def mark_etsy_synced(listing_id, etsy_state=""):
+    normalized_state = str(etsy_state or "").strip().lower()
     with get_connection() as conn:
         cursor = conn.execute(
             """
             UPDATE listings
             SET etsy_last_synced_at = CURRENT_TIMESTAMP,
+                etsy_state = CASE WHEN ? != '' THEN ? ELSE etsy_state END,
+                status = CASE
+                    WHEN ? = 'active' THEN 'published'
+                    WHEN status = 'published' AND ? != '' AND ? != 'active' THEN 'ready'
+                    ELSE status
+                END,
+                published_at = CASE
+                    WHEN ? = 'active' THEN COALESCE(published_at, CURRENT_TIMESTAMP)
+                    ELSE published_at
+                END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (listing_id,),
+            (
+                normalized_state, normalized_state, normalized_state,
+                normalized_state, normalized_state, normalized_state, listing_id,
+            ),
         )
         if cursor.rowcount == 0:
             raise ValueError("Listing not found")
