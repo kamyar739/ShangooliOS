@@ -39,9 +39,14 @@
 {% for item in listings %}
 <article class="listing-summary-card">
   <div class="listing-summary-main">
-    <div class="d-flex align-items-center gap-2 mb-2"><span class="status-pill listing-status-{{ item['status'] }}">{% if item['status'] == 'published' %}Live on Etsy{% else %}{{ item['status'] }}{% endif %}</span><span class="small text-muted">{{ item['marketplace'] }} · {{ item['product'] }}</span></div>
-    <h2 class="h5 mb-2"><a href="/listings/{{ item['id'] }}">{{ item['title'] }}</a></h2>
-    <a href="/artworks/{{ item['artwork_code'] }}" class="listing-artwork-link">{{ item['artwork_code'] }} — {{ item['public_title'] }}</a>
+    <a class="listing-summary-thumb" href="/artworks/{{ item['artwork_code'] }}" aria-label="Open {{ item['public_title'] }} artwork">
+      {% if item['has_source_image'] %}<img src="/artworks/{{ item['artwork_code'] }}/files/view?role=source" alt="{{ item['public_title'] }} thumbnail" loading="lazy">{% else %}<span>No image</span>{% endif %}
+    </a>
+    <div class="listing-summary-copy">
+      <div class="d-flex align-items-center gap-2 mb-2"><span class="status-pill listing-status-{{ item['status'] }}">{% if item['status'] == 'published' %}Live on Etsy{% else %}{{ item['status'] }}{% endif %}</span><span class="small text-muted">{{ item['marketplace'] }} · {{ item['product'] }}</span></div>
+      <h2 class="h5 mb-2"><a href="/listings/{{ item['id'] }}">{{ item['title'] }}</a></h2>
+      <a href="/artworks/{{ item['artwork_code'] }}" class="listing-artwork-link">{{ item['artwork_code'] }} — {{ item['public_title'] }}</a>
+    </div>
   </div>
   <div class="listing-summary-price"><span>Price</span><strong>${{ '%.2f'|format(item['price_cents'] / 100) }}</strong></div>
   <div class="listing-summary-readiness">

@@ -56,6 +56,7 @@ from web.db import (
     search_artworks,
     set_artwork_production_flags,
     update_artwork,
+    update_artwork_status,
     update_artwork_intelligence,
     update_artwork_listing_content,
     update_artwork_production,
@@ -293,7 +294,7 @@ def _workflow_navigation(
 
 
 @app.get("/")
-def home(request: Request, dashboard_view: str = Query("", alias="view")):
+def home(request: Request, dashboard_view: str = Query("artworks", alias="view")):
     normalized_view = dashboard_view.strip().lower()
     if normalized_view not in ("", "artworks", "listings", "ready", "attention"):
         raise HTTPException(status_code=400, detail="Invalid dashboard view")
@@ -310,21 +311,39 @@ def home(request: Request, dashboard_view: str = Query("", alias="view")):
 def collections_page(
     request: Request,
     collection_code: str = Query("", alias="collection"),
+    show_retired: bool = Query(False),
 ):
     context = get_dashboard()
     normalized_code = collection_code.strip().upper()
+    if not normalized_code and context["collections"]:
+        normalized_code = context["collections"][0]["code"]
     context["selected_collection"] = None
     context["collection_artworks"] = []
     if normalized_code:
-        collection, artworks, _ = get_collection(normalized_code)
+        collection, artworks, retired_artworks = get_collection(normalized_code)
         if collection is None or collection["status"] == "archived":
             raise HTTPException(status_code=404, detail="Collection not found")
         context["selected_collection"] = collection
         context["collection_artworks"] = artworks
+        context["retired_artworks"] = retired_artworks
+        context["show_retired"] = show_retired
+        context["collection_empty_slots"] = max(
+            (collection["target_artwork_count"] or 0) - len(artworks),
+            0,
+        )
     return templates.TemplateResponse(
         request=request,
         name="collections_index.html",
         context=context,
+    )
+
+
+@app.get("/recent")
+def recently_updated_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="recently_updated.html",
+        context=get_dashboard(),
     )
 
 
@@ -1183,7 +1202,7 @@ def edit_collection_post(
     )
 
     return RedirectResponse(
-        url=f"/collections/{collection_code.upper()}",
+        url=f"/collections?collection={collection_code.upper()}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -1386,6 +1405,25 @@ def save_artwork(
         url=f"/artworks/{artwork_code.upper()}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+@app.post("/artworks/{artwork_code}/status")
+def save_artwork_status(
+    artwork_code: str,
+    artwork_status: str = Form(..., alias="status"),
+    return_to: str = Form("/collections"),
+):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    try:
+        update_artwork_status(artwork_code, artwork_status)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    safe_return = return_to if return_to.startswith("/") and not return_to.startswith("//") else "/collections"
+    return RedirectResponse(url=safe_return, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/artworks/{artwork_code}/production")

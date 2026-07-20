@@ -502,13 +502,33 @@ def get_collection(collection_code):
 
         archived_artworks = conn.execute(
             """
-            SELECT artwork_code, public_title, working_title, theme, status
-            FROM artworks
-            WHERE collection_id = (
+            SELECT
+                a.artwork_code,
+                a.public_title,
+                a.working_title,
+                a.theme,
+                a.status,
+                p.orientation,
+                p.master_ratio,
+                p.original_approved,
+                p.print_master_ready,
+                p.ratio_exports_ready,
+                p.mockups_ready,
+                p.listing_content_ready,
+                EXISTS (
+                    SELECT 1
+                    FROM artwork_files AS source_file
+                    WHERE source_file.artwork_id = a.id
+                      AND source_file.role = 'source'
+                ) AS has_source_image
+            FROM artworks AS a
+            LEFT JOIN artwork_production AS p
+                ON p.artwork_id = a.id
+            WHERE a.collection_id = (
                 SELECT id FROM collections WHERE code = ?
             )
-              AND status = 'retired'
-            ORDER BY sequence_number
+              AND a.status = 'retired'
+            ORDER BY a.sequence_number
             """,
             (collection_code.upper(),),
         ).fetchall()
@@ -822,6 +842,44 @@ def update_artwork(
                 artwork_code.upper(),
             ),
         )
+        conn.commit()
+
+
+def update_artwork_status(artwork_code, status):
+    normalized_status = status.strip().lower()
+    allowed_statuses = {
+        "idea",
+        "creating",
+        "review",
+        "approved",
+        "production",
+        "paused",
+        "retired",
+    }
+    if normalized_status not in allowed_statuses:
+        raise ValueError("Invalid artwork status")
+
+    with get_connection() as conn:
+        active_etsy_listing = conn.execute(
+            """
+            SELECT 1
+            FROM listings AS l
+            JOIN artworks AS a ON a.id = l.artwork_id
+            WHERE a.artwork_code = ? AND l.etsy_state = 'active'
+            LIMIT 1
+            """,
+            (artwork_code.upper(),),
+        ).fetchone()
+        if active_etsy_listing:
+            raise ValueError(
+                "This artwork is live on Etsy. Deactivate the Etsy listing before changing its artwork status."
+            )
+        cursor = conn.execute(
+            "UPDATE artworks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE artwork_code = ?",
+            (normalized_status, artwork_code.upper()),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork not found")
         conn.commit()
 
 
@@ -1464,6 +1522,11 @@ def list_listings(status=None):
                l.printify_etsy_connected_at, l.updated_at,
                l.printify_publish_requested_at, l.etsy_last_synced_at,
                a.artwork_code, a.public_title,
+               EXISTS (
+                   SELECT 1 FROM artwork_files AS source_file
+                   WHERE source_file.artwork_id = a.id
+                     AND source_file.role = 'source'
+               ) AS has_source_image,
                c.name AS collection_name
         FROM listings AS l
         JOIN artworks AS a ON a.id = l.artwork_id
@@ -1690,6 +1753,7 @@ def publish_listing(listing_id, *, marketplace_url, external_listing_id):
             """,
             (normalized_url, normalized_id, listing_id),
         )
+        _mark_listing_artwork_listed(conn, listing_id)
         conn.commit()
 
 
@@ -1735,6 +1799,8 @@ def record_etsy_state(listing_id, etsy_state):
         )
         if cursor.rowcount == 0:
             raise ValueError("Listing not found")
+        if normalized_state == "active":
+            _mark_listing_artwork_listed(conn, listing_id)
         conn.commit()
 
 
@@ -1765,7 +1831,21 @@ def mark_etsy_synced(listing_id, etsy_state=""):
         )
         if cursor.rowcount == 0:
             raise ValueError("Listing not found")
+        if normalized_state == "active":
+            _mark_listing_artwork_listed(conn, listing_id)
         conn.commit()
+
+
+def _mark_listing_artwork_listed(conn, listing_id):
+    conn.execute(
+        """
+        UPDATE artworks
+        SET status = 'listed', updated_at = CURRENT_TIMESTAMP
+        WHERE id = (SELECT artwork_id FROM listings WHERE id = ?)
+          AND status != 'retired'
+        """,
+        (listing_id,),
+    )
 
 
 def save_printify_product(

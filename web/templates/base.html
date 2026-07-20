@@ -11,7 +11,7 @@
         rel="stylesheet"
     >
     <link
-        href="{{ url_for('static', path='style.css') }}?v=20260719-workflow-18"
+        href="{{ url_for('static', path='style.css') }}?v=20260719-workflow-19"
         rel="stylesheet"
     >
 </head>
@@ -31,6 +31,17 @@
             <strong data-app-wait-message>Working…</strong>
             <small>Please keep this page open.</small>
         </div>
+    </div>
+
+    <div class="artwork-context-menu" data-artwork-menu hidden role="menu" aria-label="Change artwork status">
+        <div class="artwork-context-heading"><strong data-artwork-menu-title>Artwork</strong><small>Change status</small></div>
+        <form method="post" data-artwork-status-form>
+            <input type="hidden" name="return_to" data-artwork-return-to>
+            {% for option in ["idea", "creating", "review", "approved", "production", "paused", "retired"] %}
+            <button type="submit" name="status" value="{{ option }}" role="menuitem" data-artwork-status-option="{{ option }}"><span class="status-dot status-{{ option }}"></span>{{ option|title }}</button>
+            {% endfor %}
+            <button type="button" disabled data-artwork-status-option="listed" title="Listed status is controlled by Etsy"><span class="status-dot status-approved"></span>Listed <small>via Etsy</small></button>
+        </form>
     </div>
 
     <script
@@ -77,6 +88,39 @@
         overlay.hidden = true;
         document.body.classList.remove('is-waiting');
       });
+
+      const artworkMenu = document.querySelector('[data-artwork-menu]');
+      if (artworkMenu) {
+        const statusForm = artworkMenu.querySelector('[data-artwork-status-form]');
+        const title = artworkMenu.querySelector('[data-artwork-menu-title]');
+        const returnTo = artworkMenu.querySelector('[data-artwork-return-to]');
+        const closeArtworkMenu = () => { artworkMenu.hidden = true; };
+
+        document.addEventListener('contextmenu', (event) => {
+          const card = event.target.closest('[data-artwork-context-menu]');
+          if (!card) return;
+          event.preventDefault();
+          const code = card.dataset.artworkCode;
+          statusForm.action = `/artworks/${encodeURIComponent(code)}/status`;
+          returnTo.value = window.location.pathname + window.location.search;
+          title.textContent = card.dataset.artworkTitle || code;
+          artworkMenu.querySelectorAll('[data-artwork-status-option]').forEach((button) => {
+            button.classList.toggle('is-current', button.dataset.artworkStatusOption === card.dataset.artworkStatus);
+          });
+          artworkMenu.hidden = false;
+          const maxLeft = window.innerWidth - artworkMenu.offsetWidth - 12;
+          const maxTop = window.innerHeight - artworkMenu.offsetHeight - 12;
+          artworkMenu.style.left = `${Math.max(12, Math.min(event.clientX, maxLeft))}px`;
+          artworkMenu.style.top = `${Math.max(12, Math.min(event.clientY, maxTop))}px`;
+        });
+        document.addEventListener('click', (event) => {
+          if (!artworkMenu.contains(event.target)) closeArtworkMenu();
+        });
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') closeArtworkMenu();
+        });
+        window.addEventListener('scroll', closeArtworkMenu, true);
+      }
     })();
     </script>
 </body>

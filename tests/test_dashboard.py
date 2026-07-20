@@ -64,10 +64,10 @@ class DashboardTests(unittest.TestCase):
             title="Unbound Poster", description="", tags="",
             price_cents=0, status="draft",
         )
-        response = self.client.get("/")
+        response = self.client.get("/?view=attention")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Production dashboard", response.text)
-        self.assertIn("Listing work queue", response.text)
+        self.assertIn("Listings with missing items", response.text)
         self.assertIn("Needs attention", response.text)
         self.assertIn("Unbound Poster", response.text)
         self.assertIn("Missing: Source artwork", response.text)
@@ -83,6 +83,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Unbound Poster", dashboard_focus.text)
         self.assertIn('href="/?view=artworks"', dashboard_focus.text)
 
+        default_dashboard = self.client.get("/")
+        self.assertIn("Recently updated artwork", default_dashboard.text)
+        self.assertIn('dashboard-metric-link is-selected', default_dashboard.text)
+
         focused = self.client.get("/listings?view=attention")
         self.assertEqual(focused.status_code, 200)
         self.assertIn("Listings that need attention", focused.text)
@@ -91,6 +95,27 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Back to dashboard", focused.text)
 
     def test_collections_filter_keeps_collection_cards_and_updates_artwork_panel(self):
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE collections SET target_artwork_count=3 WHERE code='CEL'"
+            )
+            collection_id = connection.execute(
+                "SELECT id FROM collections WHERE code='CEL'"
+            ).fetchone()["id"]
+            connection.execute(
+                "INSERT INTO artworks (artwork_code, collection_id, sequence_number, public_title, status) VALUES ('CEL-099', ?, 99, 'Retired Test', 'retired')",
+                (collection_id,),
+            )
+            connection.commit()
+
+        default_response = self.client.get("/collections")
+        self.assertIn('href="/collections?collection=CEL"', default_response.text)
+        self.assertIn('aria-current="true"', default_response.text)
+        self.assertIn("Celebration artwork", default_response.text)
+        self.assertNotIn("Your latest active artwork across all collections", default_response.text)
+        self.assertIn('data-bs-target="#new-collection-modal"', default_response.text)
+        self.assertIn('id="new-collection-modal"', default_response.text)
+
         response = self.client.get("/collections?collection=CEL")
         self.assertEqual(response.status_code, 200)
         self.assertIn('href="/collections?collection=CEL"', response.text)
@@ -98,7 +123,49 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Viewing artwork below", response.text)
         self.assertIn("Celebration artwork", response.text)
         self.assertIn("Unbound", response.text)
-        self.assertIn('href="/collections/CEL"', response.text)
+        self.assertIn('data-bs-target="#edit-collection-modal"', response.text)
+        self.assertIn('data-bs-target="#new-artwork-modal"', response.text)
+        self.assertIn('id="edit-collection-modal"', response.text)
+        self.assertIn('id="new-artwork-modal"', response.text)
+        self.assertNotIn("Open collection", response.text)
+        self.assertEqual(response.text.count("collection-empty-artwork-card"), 2)
+        self.assertIn("Empty artwork slot", response.text)
+        self.assertIn("Slot 3", response.text)
+        self.assertIn('data-artwork-context-menu', response.text)
+        self.assertIn("Show retired (1)", response.text)
+        self.assertNotIn("Retired Test", response.text)
+
+        with_retired = self.client.get(
+            "/collections?collection=CEL&show_retired=true"
+        )
+        self.assertEqual(with_retired.status_code, 200)
+        self.assertIn("Hide retired (1)", with_retired.text)
+        self.assertIn("Retired Test", with_retired.text)
+        self.assertEqual(
+            with_retired.text.count("collection-empty-artwork-card"), 2
+        )
+
+        status_change = self.client.post(
+            "/artworks/CEL-001/status",
+            data={"status": "paused", "return_to": "/collections?collection=CEL"},
+            follow_redirects=False,
+        )
+        self.assertEqual(status_change.status_code, 303)
+        self.assertEqual(
+            status_change.headers["location"], "/collections?collection=CEL"
+        )
+        with db.get_connection() as connection:
+            changed_status = connection.execute(
+                "SELECT status FROM artworks WHERE artwork_code='CEL-001'"
+            ).fetchone()["status"]
+        self.assertEqual(changed_status, "paused")
+
+        unsafe_return = self.client.post(
+            "/artworks/CEL-001/status",
+            data={"status": "approved", "return_to": "https://example.com"},
+            follow_redirects=False,
+        )
+        self.assertEqual(unsafe_return.headers["location"], "/collections")
 
         missing = self.client.get("/collections?collection=MISSING")
         self.assertEqual(missing.status_code, 404)
@@ -111,6 +178,12 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('href="/collections"', new_collection.text)
         self.assertIn("Back to collections", new_collection.text)
 
+        recent = self.client.get("/recent")
+        self.assertEqual(recent.status_code, 200)
+        self.assertIn("Recently updated", recent.text)
+        self.assertIn('href="/recent" class="is-active"', recent.text)
+        self.assertIn("Unbound", recent.text)
+
     def test_dashboard_shows_ready_to_publish(self):
         self._complete_artwork_files()
         db.create_listing(
@@ -118,11 +191,10 @@ class DashboardTests(unittest.TestCase):
             title="Complete Unbound", description="Description", tags="one, two",
             price_cents=3995, status="ready",
         )
-        response = self.client.get("/")
+        response = self.client.get("/?view=ready")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Ready to publish", response.text)
         self.assertIn("Complete Unbound", response.text)
-        self.assertIn("Nothing needs attention", response.text)
         self.assertIn('href="/?view=ready"', response.text)
 
         dashboard_focus = self.client.get("/?view=ready")

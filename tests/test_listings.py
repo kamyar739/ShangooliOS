@@ -125,6 +125,8 @@ class ListingTests(unittest.TestCase):
         index_response = self.client.get("/listings")
         self.assertEqual(index_response.status_code, 200)
         self.assertIn("Unbound Poster", index_response.text)
+        self.assertIn("listing-summary-thumb", index_response.text)
+        self.assertIn("No image", index_response.text)
 
     def test_listing_page_keeps_workflow_navigation(self):
         listing_id = db.create_listing(
@@ -166,6 +168,9 @@ class ListingTests(unittest.TestCase):
         record_etsy_state(listing_id, "active")
         self.assertEqual(db.get_listing(listing_id)["status"], "published")
         self.assertEqual(db.get_listing_status_counts()["published"], 1)
+        self.assertEqual(db.get_artwork("CEL-001")["status"], "listed")
+        with self.assertRaisesRegex(ValueError, "live on Etsy"):
+            db.update_artwork_status("CEL-001", "approved")
 
         record_etsy_state(listing_id, "inactive")
         self.assertEqual(db.get_listing(listing_id)["status"], "ready")
@@ -341,6 +346,7 @@ class ListingReadinessTests(ListingTests):
         self.assertEqual(listing["status"], "published")
         self.assertEqual(listing["external_listing_id"], "123456789")
         self.assertIsNotNone(listing["published_at"])
+        self.assertEqual(db.get_artwork("CEL-001")["status"], "listed")
 
         page = self.client.get(f"/listings/{listing_id}")
         self.assertIn("Open Etsy listing", page.text)

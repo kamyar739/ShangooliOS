@@ -7,7 +7,7 @@
   <main class="workflow-stage-content">
     <div class="page-header mb-4">
       <div><div class="eyebrow">Catalog</div><h1 class="display-6 fw-bold">Collections</h1><p class="text-muted mb-0">Organize artwork into focused storefront collections.</p></div>
-      <a class="btn btn-primary" href="/collections/new">+ New collection</a>
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-collection-modal">+ New collection</button>
     </div>
     <div class="row g-4 mb-2 collection-order-grid" data-collection-order>
       {% for collection in collections %}
@@ -29,21 +29,97 @@
     <div class="dashboard-workspace-heading mb-3">
       {% if selected_collection %}
       <div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="h4 mb-1">{{ selected_collection['name'] }} artwork</h2><p class="text-muted mb-0">Artwork belonging to the selected collection.</p></div>
-      <div class="d-flex gap-2"><a class="btn btn-sm btn-outline-secondary" href="/collections">Show recent</a><a class="btn btn-sm btn-primary" href="/collections/{{ selected_collection['code'] }}">Open collection</a></div>
-      {% else %}
-      <div><h2 class="h4 mb-1">Recently updated</h2><p class="text-muted mb-0">Your latest active artwork across all collections.</p></div>
+      <div class="d-flex gap-2 flex-wrap">
+        {% if retired_artworks %}
+        <a class="btn btn-sm {% if show_retired %}btn-secondary{% else %}btn-outline-secondary{% endif %}" href="/collections?collection={{ selected_collection['code'] }}{% if not show_retired %}&show_retired=true{% endif %}">{% if show_retired %}Hide{% else %}Show{% endif %} retired ({{ retired_artworks|length }})</a>
+        {% endif %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#edit-collection-modal">Edit collection</button>
+        {% if selected_collection['status'] != 'archived' %}<button class="btn btn-sm btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-artwork-modal">+ New artwork</button>{% endif %}
+      </div>
       {% endif %}
     </div>
     <div class="row g-3 dashboard-recent-grid">
-      {% set displayed_artworks = collection_artworks if selected_collection else recent_artworks %}
-      {% for artwork in displayed_artworks %}
+      {% for artwork in collection_artworks %}
       <div class="col-auto">
-        {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = not selected_collection %}
+        {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = false %}
         {% include "components/artwork_card.html" %}
       </div>
-      {% else %}<div class="col-12"><div class="empty-state">{% if selected_collection %}No active artwork in this collection yet.{% else %}No active artwork yet.{% endif %}</div></div>{% endfor %}
+      {% endfor %}
+      {% for slot_number in range(collection_empty_slots|default(0)) %}
+      <div class="col-auto">
+        <button class="card app-card artwork-card dashboard-recent-card collection-empty-artwork-card h-100" type="button" data-bs-toggle="modal" data-bs-target="#new-artwork-modal" aria-label="Create artwork for empty slot {{ collection_artworks|length + slot_number + 1 }}">
+          <div class="artwork-card-media dashboard-recent-media">
+            <div class="artwork-card-placeholder"><span>Empty artwork slot</span></div>
+          </div>
+          <div class="card-body dashboard-recent-body text-start">
+            <span class="code-pill">Slot {{ collection_artworks|length + slot_number + 1 }}</span>
+            <h3 class="h6 mt-2 mb-1 text-dark">Add artwork</h3>
+            <span class="small text-muted">Target placeholder</span>
+          </div>
+        </button>
+      </div>
+      {% endfor %}
+      {% if show_retired %}
+      {% for artwork in retired_artworks %}
+      <div class="col-auto retired-artwork-card">
+        {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = false %}
+        {% include "components/artwork_card.html" %}
+      </div>
+      {% endfor %}
+      {% endif %}
     </div>
   </main>
+</div>
+{% if selected_collection %}
+<div class="modal fade" id="new-artwork-modal" tabindex="-1" aria-labelledby="new-artwork-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content collection-create-modal">
+    <div class="modal-header"><div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="modal-title h4" id="new-artwork-title">New artwork</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <form method="post" action="/collections/{{ selected_collection['code'] }}/new">
+      <div class="modal-body"><div class="row g-3">
+        <div class="col-12"><label class="form-label" for="modal-public-title">Public title</label><input class="form-control" id="modal-public-title" name="public_title" required></div>
+        <div class="col-12"><label class="form-label" for="modal-working-title">Working title</label><input class="form-control" id="modal-working-title" name="working_title"></div>
+        <div class="col-12"><label class="form-label" for="modal-artwork-theme">Theme</label><input class="form-control" id="modal-artwork-theme" name="theme"></div>
+      </div></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Create artwork</button></div>
+    </form>
+  </div></div>
+</div>
+<div class="modal fade" id="edit-collection-modal" tabindex="-1" aria-labelledby="edit-collection-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content collection-create-modal">
+    <div class="modal-header"><div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="modal-title h4" id="edit-collection-title">Edit collection</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <form method="post" action="/collections/{{ selected_collection['code'] }}/edit">
+      <div class="modal-body"><div class="row g-3">
+        <div class="col-12"><label class="form-label" for="modal-edit-name">Collection name</label><input class="form-control" id="modal-edit-name" name="name" value="{{ selected_collection['name'] }}" required></div>
+        <div class="col-5"><label class="form-label" for="modal-edit-target">Target artworks</label><input class="form-control" id="modal-edit-target" name="target_artwork_count" type="number" min="0" value="{{ selected_collection['target_artwork_count'] or 0 }}"></div>
+        <div class="col-7"><label class="form-label" for="modal-edit-status">Status</label><select class="form-select" id="modal-edit-status" name="collection_status">{% for option in ['planned', 'active', 'complete', 'paused'] %}<option value="{{ option }}" {% if selected_collection['status'] == option %}selected{% endif %}>{{ option|title }}</option>{% endfor %}</select></div>
+        <div class="col-12"><label class="form-label" for="modal-edit-etsy">Etsy section name</label><input class="form-control" id="modal-edit-etsy" name="etsy_section_name" maxlength="24" value="{{ selected_collection['etsy_section_name'] or '' }}" required></div>
+      </div></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Save collection</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+<div class="modal fade" id="new-collection-modal" tabindex="-1" aria-labelledby="new-collection-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content collection-create-modal">
+      <div class="modal-header">
+        <div><div class="eyebrow">Catalog</div><h2 class="modal-title h4" id="new-collection-title">New collection</h2></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="/collections/new">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-4"><label class="form-label" for="modal-collection-code">Code</label><input class="form-control" id="modal-collection-code" name="code" maxlength="10" placeholder="LAN" required></div>
+            <div class="col-8"><label class="form-label" for="modal-collection-name">Collection name</label><input class="form-control" id="modal-collection-name" name="name" placeholder="Landscape Collection" required></div>
+            <div class="col-5"><label class="form-label" for="modal-target-count">Target artworks</label><input class="form-control" id="modal-target-count" name="target_artwork_count" type="number" min="0" value="0"></div>
+            <div class="col-7"><label class="form-label" for="modal-collection-status">Status</label><select class="form-select" id="modal-collection-status" name="collection_status"><option value="planned" selected>Planned</option><option value="active">Active</option><option value="complete">Complete</option><option value="paused">Paused</option></select></div>
+            <div class="col-12"><label class="form-label" for="modal-etsy-section">Etsy section name</label><input class="form-control" id="modal-etsy-section" name="etsy_section_name" maxlength="24" placeholder="Uses collection name when blank"><div class="form-text">Buyer-facing Etsy navigation, limited to 24 characters.</div></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Create collection</button></div>
+      </form>
+    </div>
+  </div>
 </div>
 {% include "components/collection_order_script.html" %}
 {% endblock %}

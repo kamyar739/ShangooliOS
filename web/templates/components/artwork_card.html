@@ -10,7 +10,7 @@ Optional variables:
 {% set compact = card_variant|default("default") == "compact" %}
 {% set title_tag = heading_tag|default("h2") %}
 
-<a href="/artworks/{{ artwork['artwork_code'] }}" class="card-link">
+<a href="/artworks/{{ artwork['artwork_code'] }}" class="card-link" data-artwork-context-menu data-artwork-code="{{ artwork['artwork_code'] }}" data-artwork-title="{{ artwork['public_title'] }}" data-artwork-status="{{ artwork['status'] }}">
     <div class="card app-card artwork-card{% if compact %} dashboard-recent-card{% endif %} h-100">
         <div class="artwork-card-media{% if compact %} dashboard-recent-media{% endif %}">
             {% if artwork["has_source_image"] %}

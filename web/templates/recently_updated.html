@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Recently Updated — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set primary_nav_active = "recent" %}
+  {% include "components/global_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <div class="page-header mb-4">
+      <div><div class="eyebrow">Activity</div><h1 class="display-6 fw-bold">Recently updated</h1><p class="text-muted mb-0">Your latest active artwork across all collections.</p></div>
+    </div>
+    <div class="row g-3 dashboard-recent-grid">
+      {% for artwork in recent_artworks %}
+      <div class="col-auto">
+        {% set card_variant = "compact" %}{% set heading_tag = "h2" %}{% set show_collection = true %}
+        {% include "components/artwork_card.html" %}
+      </div>
+      {% else %}<div class="col-12"><div class="empty-state">No active artwork yet.</div></div>{% endfor %}
+    </div>
+  </main>
+</div>
+{% endblock %}
