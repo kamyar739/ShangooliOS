@@ -11,14 +11,14 @@
 <div class="alert alert-success">File uploaded and assigned.</div>
 {% endif %}
 
-<div id="artwork-details" class="row g-4 mb-4" data-workflow-stage="details">
+<div id="artwork-details" class="row g-3 mb-3" data-workflow-stage="details">
     <div class="col-xl-8">
         <div class="card app-card">
-            <div class="card-body p-4 p-lg-5">
-                <h2 class="h4 mb-4">Artwork details</h2>
+            <div class="card-body p-3">
+                <h2 class="h5 mb-3">Artwork details</h2>
 
                 <form method="post" action="/artworks/{{ artwork['artwork_code'] }}">
-                    <div class="row g-4">
+                    <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Public Title</label>
                             <input name="public_title" type="text"
@@ -58,7 +58,7 @@
 
                         <div class="col-12">
                             <label class="form-label">Story</label>
-                            <textarea name="story" rows="8"
+                            <textarea name="story" rows="4"
                                       class="form-control">{{ artwork["story"] or "" }}</textarea>
                         </div>
                     </div>
@@ -124,7 +124,7 @@
     </div>
 </div>
 
-<div id="production-setup" class="card app-card mb-4" data-workflow-stage="print">
+<div id="production-setup" class="card app-card mb-3" data-workflow-stage="print">
     <div class="card-body p-4 p-lg-5">
         <div class="eyebrow">Production</div>
         <h2 class="h4 mb-2">Simple production setup</h2>
@@ -218,7 +218,7 @@
     </div>
 </div>
 
-<div id="file-intake" class="card app-card mb-4" data-workflow-stage="source">
+<div id="file-intake" class="card app-card mb-3" data-workflow-stage="source">
     <div class="card-body p-4 p-lg-5">
         <div class="eyebrow">1. Upload artwork</div>
         <h2 class="h4 mb-2">Artwork file</h2>
@@ -256,7 +256,7 @@
                         </label>
                         <input id="source-upload" type="file" name="upload"
                                accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf"
-                               class="form-control" required>
+                               class="form-control" required{% if production_summary["source_ready"] %} data-replacing="true"{% endif %}>
                         <div class="form-check mt-3">
                             <input id="use-as-master" name="use_as_master" value="true"
                                    type="checkbox" class="form-check-input" checked>
@@ -265,7 +265,7 @@
                             </label>
                         </div>
                         <div id="source-upload-status" class="form-text mt-2">
-                            Selecting a file uploads and saves it immediately.
+                            {% if production_summary["source_ready"] %}A new source keeps existing files but marks certification, print files, mockups, listing, and publishing as out of date.{% else %}Selecting a file uploads and saves it immediately.{% endif %}
                         </div>
                     </form>
                 </div>
@@ -321,7 +321,7 @@
     </div>
 </div>
 
-<div id="artwork-certification" class="card app-card mb-4" data-workflow-stage="source">
+<div id="artwork-certification" class="card app-card mb-3" data-workflow-stage="certification">
   <div class="card-body p-4 p-lg-5">
     <div class="eyebrow">Automatic quality verification</div>
     <div class="d-flex flex-wrap justify-content-between gap-3 mb-4">
@@ -329,6 +329,7 @@
       {% if certification %}<span class="badge {% if certification['score'] >= 80 %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6">{{ certification['score'] }}% — {{ certification['status'] }}</span>{% endif %}
     </div>
     {% if certification %}
+    {% if request.query_params.get('certification_approved') %}<div class="alert alert-success">Current source reviewed and approved.</div>{% endif %}
     <div class="row g-3 mb-4">
       <div class="col-md-3"><div class="file-role-card h-100"><div class="small text-secondary">Dimensions</div><div class="h5 mb-0">{{ certification['width'] }} × {{ certification['height'] }} px</div></div></div>
       <div class="col-md-3"><div class="file-role-card h-100"><div class="small text-secondary">Orientation</div><div class="h5 mb-0 text-capitalize">{{ certification['orientation'] }}</div></div></div>
@@ -340,13 +341,18 @@
       {% for item in certification['print_capability'] %}<tr><td>{{ item['size'] }}</td><td>{{ item['ppi'] }}</td><td>{% if item['recommended'] %}<span class="badge text-bg-success">{{ item['quality'] }}</span>{% else %}<span class="badge text-bg-warning">{{ item['quality'] }}</span>{% endif %}</td></tr>{% endfor %}
     </tbody></table></div>
     {% for warning in certification['warnings'] %}<div class="alert alert-warning py-2 mb-2">{{ warning }}</div>{% endfor %}
-    {% if certification['score'] < 80 %}
+    {% if production['ai_enhanced_at'] %}
+    <div class="ai-upscale-panel mt-4 is-complete">
+      <div><div class="eyebrow">Local AI enhancement</div><h3 class="h5 mb-1">AI enhanced 4×</h3><p class="text-secondary mb-0">Completed {{ production['ai_enhanced_at'] }} · {{ production['ai_enhanced_original_width'] }}×{{ production['ai_enhanced_original_height'] }} → {{ production['ai_enhanced_width'] }}×{{ production['ai_enhanced_height'] }} px. Upload a new original to reset this protection.</p></div>
+      <button class="btn btn-success" type="button" disabled>Already AI enhanced ✓</button>
+    </div>
+    {% elif certification['score'] < 80 %}
     <div class="ai-upscale-panel mt-4">
       <div><div class="eyebrow">Local AI enhancement</div><h3 class="h5 mb-1">Create a 4× print-quality candidate</h3><p class="text-secondary mb-0">Uses Real-ESRGAN locally. Your original remains unchanged until you approve the comparison.</p></div>
       <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale" data-long-operation><button class="btn btn-primary" type="submit">{% if ai_upscale_candidate %}Regenerate AI upscale{% else %}AI upscale 4×{% endif %}</button></form>
     </div>
     {% endif %}
-    {% if ai_upscale_candidate %}
+    {% if ai_upscale_candidate and not production['ai_enhanced_at'] %}
     {% if auto_update_listing %}<div class="alert alert-warning mt-3 mb-0"><strong>Live update:</strong> Approving this candidate will rebuild all production files and mockups, update the existing Printify product, and synchronize its Etsy listing.</div>{% endif %}
     <div class="row g-3 mt-2">
       <div class="col-md-6"><div class="small fw-semibold mb-2">Current original</div><img class="img-fluid rounded border ai-compare-image" src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="Current source artwork"></div>
@@ -355,6 +361,12 @@
     <form class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3" method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/approve">
       <div class="form-check"><input class="form-check-input" id="approve-ai-upscale" name="confirmed" value="true" type="checkbox" required><label class="form-check-label" for="approve-ai-upscale">I inspected the details, faces, linework, and colors.</label></div>
       <button class="btn btn-success" type="submit" {% if auto_update_listing %}onclick="return confirm('Approve this artwork and update the live Printify product and Etsy listing now?')"{% endif %}>{% if auto_update_listing %}Approve and update everywhere{% else %}Approve AI upscale{% endif %}</button>
+    </form>
+    {% endif %}
+    {% if not production['original_approved'] and (not ai_upscale_candidate or production['ai_enhanced_at']) %}
+    <form class="d-flex justify-content-end mt-3" method="post" action="/artworks/{{ artwork['artwork_code'] }}/certification/approve">
+      <input type="hidden" name="confirmed" value="true">
+      <button class="btn btn-primary" type="submit" onclick="return confirm('Approve this source artwork for production?')">Approve current source</button>
     </form>
     {% endif %}
     {% else %}<div class="alert alert-secondary mb-0">Upload the original artwork or a print-ready file to run certification.</div>{% endif %}
@@ -600,6 +612,10 @@
         if (!input || !form) return;
         input.addEventListener('change', function () {
             if (!input.files || !input.files.length) return;
+            if (input.dataset.replacing === 'true' && !window.confirm('Upload this new source? Existing certification, print files, mockups, listing content, and publishing will be marked out of date. Existing files will not be deleted.')) {
+                input.value = '';
+                return;
+            }
             input.style.pointerEvents = 'none';
             input.setAttribute('aria-disabled', 'true');
             if (status) status.textContent = 'Uploading and saving…';
@@ -614,7 +630,7 @@
 
 
 
-<section id="listing-workspace" class="card border-0 shadow-sm mt-4" data-workflow-stage="listing">
+<section id="listing-workspace" class="card border-0 shadow-sm mt-3" data-workflow-stage="publish">
     <div class="card-body p-4">
         {% if request.query_params.get('updated_everywhere') %}<div class="alert alert-success"><strong>Artwork updated everywhere.</strong> New print files and mockups were created, then Printify and Etsy were synchronized.</div>{% endif %}
         {% if request.query_params.get('update_pending') %}<div class="alert alert-warning"><strong>The update is safely paused.</strong> Use “Continue update” below. Completed work will not be repeated.</div>{% endif %}
@@ -623,7 +639,10 @@
                 <div class="eyebrow">Publishing</div>
                 <h2 class="h4 mb-0">Listings</h2>
             </div>
-            <a class="btn btn-outline-primary" href="/artworks/{{ artwork['artwork_code'] }}/listings/new">Create listing</a>
+            <div class="d-flex gap-2 flex-wrap">
+              {% if artwork['status'] != 'retired' %}<button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#prepare-artwork-modal">{% if automatic_preparation_complete %}Refresh preparation{% else %}Prepare automatically{% endif %}</button>{% endif %}
+              {% if not listings %}<a class="btn btn-primary" href="/artworks/{{ artwork['artwork_code'] }}/listings/new">Create listing</a>{% endif %}
+            </div>
         </div>
         {% if listings %}
         <div class="list-group list-group-flush">

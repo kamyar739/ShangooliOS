@@ -1,4 +1,4 @@
-<div class="mb-4">
+<div class="artwork-back-row">
     <a href="/collections/{{ artwork['collection_code'] }}" class="context-nav-link"><span aria-hidden="true">←</span> {{ artwork["collection_name"] }}</a>
 </div>
 {% if request.query_params.get('prepared') %}<div class="alert alert-success">Artwork prepared successfully. Review the ready listing before continuing to Printify.</div>{% endif %}
@@ -6,7 +6,7 @@
 {% set next_listing = namespace(id=none) %}
 {% for artwork_listing in listings %}{% if next_listing.id is none and artwork_listing['status'] in ['draft', 'ready'] %}{% set next_listing.id = artwork_listing['id'] %}{% endif %}{% endfor %}
 
-<div class="page-header artwork-detail-header mb-4">
+<div class="page-header artwork-detail-header">
     {% set live_etsy = namespace(url='') %}
     {% for artwork_listing in listings %}{% if artwork_listing['etsy_state'] == 'active' and artwork_listing['marketplace_url'] %}{% set live_etsy.url = artwork_listing['marketplace_url'] %}{% endif %}{% endfor %}
     <div class="artwork-detail-title-group">
@@ -27,9 +27,6 @@
     </div>
 
     <div class="d-flex align-items-center gap-2 flex-wrap">
-        {% if automatic_preparation_complete and next_listing.id %}<a class="btn artwork-next-automation-link" href="/listings/{{ next_listing.id }}"><span aria-hidden="true">✦</span><span><strong>Continue automation</strong><small>Open the ready listing</small></span><span aria-hidden="true">→</span></a>{% endif %}
-        {% if artwork['status'] != 'retired' %}<button class="btn artwork-automation-button{% if automatic_preparation_complete %} is-complete{% endif %}" type="button" data-bs-toggle="modal" data-bs-target="#prepare-artwork-modal"><span aria-hidden="true">{% if automatic_preparation_complete %}✓{% else %}✦{% endif %}</span>{% if automatic_preparation_complete %}Preparation complete{% else %}Prepare automatically{% endif %}</button>{% endif %}
-        <a class="btn btn-primary" href="/artworks/{{ artwork['artwork_code'] }}/listings/new">Create listing</a>
         {% if artwork['status'] == 'listed' and live_etsy.url %}<a class="status-pill status-pill-link status-listed" href="{{ live_etsy.url }}" target="_blank" rel="noopener noreferrer" title="Open this artwork on Etsy">Listed on Etsy ↗</a>{% else %}<span class="status-pill status-{{ artwork['status'] }}">{{ artwork["status"] }}</span>{% endif %}
     </div>
 </div>

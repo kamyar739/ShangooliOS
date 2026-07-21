@@ -933,12 +933,37 @@ body {
 }
 
 .workflow-compact .artwork-detail-thumb {
-    flex-basis: 72px;
-    height: 58px;
+    flex-basis: 54px;
+    height: 44px;
+}
+
+.artwork-workflow-sticky {
+    background: rgba(246, 247, 251, 0.96);
+    backdrop-filter: blur(12px);
+    margin: -0.25rem -0.35rem 0;
+    padding: 0.25rem 0.35rem 0.05rem;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.artwork-back-row {
+    font-size: 0.75rem;
+    margin-bottom: 0.35rem;
+}
+
+.workflow-compact .artwork-detail-header {
+    min-height: 46px;
+}
+
+.workflow-compact .artwork-detail-header h1 {
+    font-size: 1.3rem;
+    line-height: 1.15;
 }
 
 .workflow-compact .workflow-step-buttons {
     gap: 0.35rem;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     margin-bottom: 0.85rem;
 }
 
@@ -946,7 +971,7 @@ body {
     border-radius: 0.62rem;
     font-size: 0.73rem;
     gap: 0.35rem;
-    min-height: 2.55rem;
+    min-height: 2.7rem;
     padding: 0.38rem 0.5rem;
 }
 
@@ -1030,12 +1055,20 @@ body {
 }
 
 .workflow-compact .workflow-stage-controls {
+    bottom: 0.5rem;
+    box-shadow: 0 0.45rem 1.5rem rgba(42, 37, 85, 0.12);
     margin-top: 0.85rem;
     padding: 0.65rem;
+    position: sticky;
+    z-index: 15;
 }
 
 .workflow-context-header {
     min-height: 58px;
+}
+
+.workflow-compact {
+    padding-bottom: 4.5rem;
 }
 
 .app-wait-overlay {
@@ -1138,6 +1171,14 @@ body.is-waiting {
 
     .workflow-sidebar {
         position: static;
+    }
+
+    .workflow-compact .workflow-step-buttons {
+        grid-auto-columns: 110px;
+        grid-auto-flow: column;
+        grid-template-columns: none;
+        overflow-x: auto;
+        padding-bottom: 0.3rem;
     }
 }
 
@@ -1741,6 +1782,39 @@ body.is-waiting {
     border-color: #7666df;
     color: #493bb4;
     box-shadow: 0 0 0 0.16rem rgba(95, 75, 211, 0.1);
+}
+
+.workflow-step-copy {
+    display: grid;
+    line-height: 1.15;
+    min-width: 0;
+}
+
+.workflow-step-copy strong {
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workflow-step-copy small {
+    color: #818797;
+    font-size: 0.62rem;
+    font-weight: 600;
+    margin-top: 0.14rem;
+}
+
+.workflow-step-button.state-needs_review .workflow-stage-icon,
+.workflow-step-button.state-out_of_date .workflow-stage-icon,
+.workflow-step-button.state-unpublished_changes .workflow-stage-icon {
+    background: #fff2cc;
+    color: #8b6500;
+}
+
+.workflow-step-button.state-not_started .workflow-stage-icon,
+.workflow-step-button.state-in_progress .workflow-stage-icon {
+    background: #eef0f5;
+    color: #747b8b;
 }
 
 .context-nav-link {
