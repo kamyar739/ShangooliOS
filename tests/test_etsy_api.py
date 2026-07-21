@@ -240,29 +240,9 @@ class EtsyAPITests(unittest.TestCase):
         self.assertEqual(payload["price_on_property"], [100])
         self.assertEqual(rows[0]["quantity"], 2)
 
-    def test_inventory_can_set_every_enabled_size_to_zero(self):
-        current = {
-            "products": [{
-                "product_id": 44, "sku": "PRINTIFY-11X14",
-                "property_values": [],
-                "offerings": [{
-                    "quantity": 2, "is_enabled": True,
-                    "price": {"amount": 2500, "divisor": 100},
-                }],
-            }],
-        }
-        verified = {
-            **current,
-            "products": [{
-                **current["products"][0],
-                "offerings": [{**current["products"][0]["offerings"][0], "quantity": 0}],
-            }],
-        }
-        with patch("web.etsy_sync.get_etsy_listing_inventory", side_effect=[current, verified]), \
-             patch("web.etsy_sync.update_etsy_listing_inventory") as update:
-            rows = set_etsy_inventory_quantity({"external_listing_id": "123"}, 0)
-        self.assertEqual(update.call_args.args[1]["products"][0]["offerings"][0]["quantity"], 0)
-        self.assertEqual(rows[0]["quantity"], 0)
+    def test_inventory_rejects_zero_before_calling_etsy(self):
+        with self.assertRaisesRegex(ValueError, "between 1 and 999"):
+            set_etsy_inventory_quantity({"external_listing_id": "123"}, 0)
 
 
 class EtsyConnectionPageTests(unittest.TestCase):

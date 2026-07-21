@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS listings (
     etsy_inventory_quantity INTEGER,
     etsy_inventory_restore_quantity INTEGER,
     etsy_inventory_updated_at TEXT,
+    etsy_paused_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

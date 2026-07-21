@@ -269,6 +269,7 @@ def ensure_production_schema():
             "etsy_inventory_quantity",
             "etsy_inventory_restore_quantity",
             "etsy_inventory_updated_at",
+            "etsy_paused_at",
             "publishing_recovery_stage",
             "publishing_recovery_message",
             "publishing_recovery_checked_at",
@@ -1780,6 +1781,7 @@ def list_listings(status=None):
                l.printify_publish_requested_at, l.etsy_last_synced_at,
                l.etsy_inventory_quantity, l.etsy_inventory_restore_quantity,
                l.etsy_inventory_updated_at,
+               l.etsy_paused_at,
                a.artwork_code, a.public_title,
                EXISTS (
                    SELECT 1 FROM artwork_files AS source_file
@@ -1829,6 +1831,7 @@ def get_artwork_listings(artwork_code):
                    l.etsy_last_synced_at, l.etsy_state,
                    l.etsy_inventory_quantity, l.etsy_inventory_restore_quantity,
                    l.etsy_inventory_updated_at,
+                   l.etsy_paused_at,
                    l.publishing_recovery_stage,
                    l.publishing_recovery_message,
                    l.publishing_recovery_checked_at,
@@ -1857,6 +1860,7 @@ def get_listing(listing_id):
                    l.etsy_last_synced_at, l.etsy_state,
                    l.etsy_inventory_quantity, l.etsy_inventory_restore_quantity,
                    l.etsy_inventory_updated_at,
+                   l.etsy_paused_at,
                    l.publishing_recovery_stage,
                    l.publishing_recovery_message,
                    l.publishing_recovery_checked_at,
@@ -2144,6 +2148,24 @@ def record_etsy_inventory_quantity(listing_id, quantity):
             WHERE id = ?
             """,
             (quantity, quantity, quantity, listing_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
+        conn.commit()
+
+
+def record_etsy_paused(listing_id, paused):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET etsy_paused_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
+                etsy_state = CASE WHEN ? THEN 'inactive' ELSE 'active' END,
+                status = CASE WHEN ? THEN 'ready' ELSE 'published' END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (int(bool(paused)), int(bool(paused)), int(bool(paused)), listing_id),
         )
         if cursor.rowcount == 0:
             raise ValueError("Listing not found")

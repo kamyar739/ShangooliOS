@@ -1,6 +1,7 @@
 from pathlib import Path
 import secrets
 import shutil
+from urllib.parse import urlencode
 
 from fastapi import (
     FastAPI,
@@ -55,6 +56,7 @@ from web.db import (
     mark_etsy_synced,
     record_etsy_state,
     record_etsy_inventory_quantity,
+    record_etsy_paused,
     record_ai_enhancement,
     record_publishing_recovery,
     publish_listing,
@@ -955,13 +957,15 @@ def mark_etsy_listing_sold_out(listing_id: int, confirmed: bool = Form(False)):
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
     if not confirmed:
-        raise HTTPException(status_code=400, detail="Confirm the sold-out change")
+        raise HTTPException(status_code=400, detail="Confirm pausing Etsy sales")
     try:
-        set_etsy_inventory_quantity(listing, 0)
-        record_etsy_inventory_quantity(listing_id, 0)
+        update_etsy_listing_state(str(listing["external_listing_id"]), "inactive")
+        record_etsy_paused(listing_id, True)
     except (EtsyAPIError, ValueError) as failure:
-        raise HTTPException(status_code=400, detail=str(failure)) from failure
-    return RedirectResponse("/listings?inventory_updated=0", status_code=303)
+        return RedirectResponse(
+            f"/listings?{urlencode({'etsy_error': str(failure)})}", status_code=303
+        )
+    return RedirectResponse("/listings?etsy_paused=1", status_code=303)
 
 
 @app.post("/listings/{listing_id}/etsy/inventory/restore")
@@ -971,15 +975,15 @@ def restore_etsy_listing_inventory(listing_id: int, confirmed: bool = Form(False
         raise HTTPException(status_code=404, detail="Listing not found")
     if not confirmed:
         raise HTTPException(status_code=400, detail="Confirm the inventory restore")
-    quantity = listing["etsy_inventory_restore_quantity"] or 2
     try:
         update_etsy_listing_state(str(listing["external_listing_id"]), "active")
-        set_etsy_inventory_quantity(listing, quantity)
-        record_etsy_inventory_quantity(listing_id, quantity)
+        record_etsy_paused(listing_id, False)
     except (EtsyAPIError, ValueError) as failure:
-        raise HTTPException(status_code=400, detail=str(failure)) from failure
+        return RedirectResponse(
+            f"/listings?{urlencode({'etsy_error': str(failure)})}", status_code=303
+        )
     return RedirectResponse(
-        f"/listings?inventory_updated={quantity}", status_code=303
+        "/listings?etsy_reactivated=1", status_code=303
     )
 
 
@@ -2012,8 +2016,6 @@ def save_artwork(
             ]
 
             missing_text = ", ".join(missing_steps)
-
-            from urllib.parse import urlencode
 
             message = (
                 "This artwork cannot be marked Listed yet. "
