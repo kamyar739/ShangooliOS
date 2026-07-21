@@ -53,6 +53,7 @@ from web.db import (
     link_etsy_listing,
     mark_etsy_synced,
     record_etsy_state,
+    record_etsy_inventory_quantity,
     record_publishing_recovery,
     publish_listing,
     save_printify_product,
@@ -84,6 +85,7 @@ from web.etsy_api import (
     etsy_config,
     get_etsy_listing,
     update_etsy_listing,
+    update_etsy_listing_state,
 )
 from web.etsy_sync import (
     build_etsy_sync_preview,
@@ -883,11 +885,46 @@ def update_etsy_inventory_post(
         raise HTTPException(status_code=400, detail="Confirm the inventory change")
     try:
         set_etsy_inventory_quantity(listing, quantity)
+        record_etsy_inventory_quantity(listing_id, quantity)
     except (EtsyAPIError, ValueError) as failure:
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     return RedirectResponse(
         f"/listings/{listing_id}/etsy?inventory_updated={quantity}",
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/listings/{listing_id}/etsy/inventory/sold-out")
+def mark_etsy_listing_sold_out(listing_id: int, confirmed: bool = Form(False)):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the sold-out change")
+    try:
+        set_etsy_inventory_quantity(listing, 0)
+        record_etsy_inventory_quantity(listing_id, 0)
+    except (EtsyAPIError, ValueError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse("/listings?inventory_updated=0", status_code=303)
+
+
+@app.post("/listings/{listing_id}/etsy/inventory/restore")
+def restore_etsy_listing_inventory(listing_id: int, confirmed: bool = Form(False)):
+    listing = get_listing(listing_id)
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the inventory restore")
+    quantity = listing["etsy_inventory_restore_quantity"] or 2
+    try:
+        update_etsy_listing_state(str(listing["external_listing_id"]), "active")
+        set_etsy_inventory_quantity(listing, quantity)
+        record_etsy_inventory_quantity(listing_id, quantity)
+    except (EtsyAPIError, ValueError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse(
+        f"/listings?inventory_updated={quantity}", status_code=303
     )
 
 

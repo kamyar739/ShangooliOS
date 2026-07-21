@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS listings (
     printify_publish_requested_at TEXT,
     etsy_last_synced_at TEXT,
     etsy_state TEXT,
+    etsy_inventory_quantity INTEGER,
+    etsy_inventory_restore_quantity INTEGER,
+    etsy_inventory_updated_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
