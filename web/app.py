@@ -2352,6 +2352,8 @@ def update_artwork_everywhere(
         if not certification["valid"]:
             raise ValueError("The replacement artwork did not pass certification")
         upsert_artwork_certification(artwork_code, certification)
+        refreshed_intelligence = analyze_artwork(artwork, source_path)
+        update_artwork_intelligence(artwork_code, **refreshed_intelligence)
         master = build_print_master(artwork, source_path)
         upsert_artwork_file(
             artwork_code=artwork_code, role="print_master",
@@ -2434,7 +2436,8 @@ def update_artwork_everywhere(
         mark_etsy_synced(listing_id, result.get("state", ""))
         record_publishing_recovery(
             listing_id, "update_complete",
-            "Printify published the replacement and Etsy has the final ShangooliOS details.",
+            "Artwork Intelligence was refreshed, Printify published the replacement, "
+            "and Etsy has the final ShangooliOS details.",
         )
     except PrintifyPublishPending as failure:
         record_publishing_recovery(
