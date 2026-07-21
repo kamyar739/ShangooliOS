@@ -30,6 +30,11 @@ def ensure_production_schema():
                 ratio_exports_ready INTEGER NOT NULL DEFAULT 0,
                 mockups_ready INTEGER NOT NULL DEFAULT 0,
                 listing_content_ready INTEGER NOT NULL DEFAULT 0,
+                ai_enhanced_at TEXT,
+                ai_enhanced_original_width INTEGER,
+                ai_enhanced_original_height INTEGER,
+                ai_enhanced_width INTEGER,
+                ai_enhanced_height INTEGER,
                 notes TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -37,6 +42,20 @@ def ensure_production_schema():
             )
             """
         )
+        production_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(artwork_production)")
+        }
+        for column_name, column_type in (
+            ("ai_enhanced_at", "TEXT"),
+            ("ai_enhanced_original_width", "INTEGER"),
+            ("ai_enhanced_original_height", "INTEGER"),
+            ("ai_enhanced_width", "INTEGER"),
+            ("ai_enhanced_height", "INTEGER"),
+        ):
+            if column_name not in production_columns:
+                conn.execute(
+                    f"ALTER TABLE artwork_production ADD COLUMN {column_name} {column_type}"
+                )
 
         conn.execute(
             """
@@ -305,6 +324,42 @@ def ensure_production_schema():
                     NULLIF(required_ratios, ''),
                     '3:2, 4:3, 5:4, 14:11'
                 )
+            """
+        )
+        conn.execute(
+            """
+            UPDATE artwork_production
+            SET ai_enhanced_at = COALESCE(
+                    (SELECT f.updated_at FROM artwork_files AS f
+                     WHERE f.artwork_id = artwork_production.artwork_id
+                       AND f.role = 'source'),
+                    CURRENT_TIMESTAMP
+                ),
+                ai_enhanced_original_width = (
+                    SELECT CAST(c.width / 4 AS INTEGER)
+                    FROM artwork_certification AS c
+                    WHERE c.artwork_id = artwork_production.artwork_id
+                ),
+                ai_enhanced_original_height = (
+                    SELECT CAST(c.height / 4 AS INTEGER)
+                    FROM artwork_certification AS c
+                    WHERE c.artwork_id = artwork_production.artwork_id
+                ),
+                ai_enhanced_width = (
+                    SELECT c.width FROM artwork_certification AS c
+                    WHERE c.artwork_id = artwork_production.artwork_id
+                ),
+                ai_enhanced_height = (
+                    SELECT c.height FROM artwork_certification AS c
+                    WHERE c.artwork_id = artwork_production.artwork_id
+                )
+            WHERE ai_enhanced_at IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM artwork_files AS f
+                  WHERE f.artwork_id = artwork_production.artwork_id
+                    AND f.role = 'source'
+                    AND f.stored_filename LIKE '%_ai_upscaled_approved.png'
+              )
             """
         )
 
@@ -636,6 +691,11 @@ def get_artwork_production(artwork_code):
                 p.ratio_exports_ready,
                 p.mockups_ready,
                 p.listing_content_ready,
+                p.ai_enhanced_at,
+                p.ai_enhanced_original_width,
+                p.ai_enhanced_original_height,
+                p.ai_enhanced_width,
+                p.ai_enhanced_height,
                 p.notes
             FROM artwork_production AS p
             JOIN artworks AS a
@@ -675,6 +735,11 @@ def get_artwork_production(artwork_code):
                     ratio_exports_ready,
                     mockups_ready,
                     listing_content_ready,
+                    ai_enhanced_at,
+                    ai_enhanced_original_width,
+                    ai_enhanced_original_height,
+                    ai_enhanced_width,
+                    ai_enhanced_height,
                     notes
                 FROM artwork_production
                 WHERE artwork_id = ?
@@ -776,6 +841,61 @@ def set_artwork_production_flags(artwork_code, **flags):
             )
             """,
             values,
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork production record not found")
+        conn.commit()
+
+
+def invalidate_artwork_after_source_change(artwork_code):
+    """Keep generated files, but mark source-dependent work as out of date."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE artwork_production
+            SET original_approved = 0,
+                print_master_ready = 0,
+                ratio_exports_ready = 0,
+                mockups_ready = 0,
+                listing_content_ready = 0,
+                ai_enhanced_at = NULL,
+                ai_enhanced_original_width = NULL,
+                ai_enhanced_original_height = NULL,
+                ai_enhanced_width = NULL,
+                ai_enhanced_height = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_id = (
+                SELECT id FROM artworks WHERE artwork_code = ?
+            )
+            """,
+            (artwork_code.upper(),),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork production record not found")
+        conn.commit()
+
+
+def record_ai_enhancement(
+    artwork_code, *, original_width, original_height, enhanced_width, enhanced_height,
+):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE artwork_production
+            SET ai_enhanced_at = CURRENT_TIMESTAMP,
+                ai_enhanced_original_width = ?,
+                ai_enhanced_original_height = ?,
+                ai_enhanced_width = ?,
+                ai_enhanced_height = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_id = (
+                SELECT id FROM artworks WHERE artwork_code = ?
+            )
+            """,
+            (
+                original_width, original_height, enhanced_width, enhanced_height,
+                artwork_code.upper(),
+            ),
         )
         if cursor.rowcount == 0:
             raise ValueError("Artwork production record not found")

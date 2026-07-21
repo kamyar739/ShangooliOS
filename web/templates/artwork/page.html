@@ -4,8 +4,10 @@
 <div class="workflow-shell">
   {% include "components/workflow_sidebar.html" %}
   <div class="workflow-stage-content workflow-compact" data-workflow-controller>
-    {% include "artwork/header.html" %}
-    {% include "components/workflow_step_buttons.html" %}
+    <div class="artwork-workflow-sticky">
+      {% include "artwork/header.html" %}
+      {% include "components/workflow_step_buttons.html" %}
+    </div>
     <div class="workflow-task-heading">
       <div class="eyebrow" data-workflow-step-label></div>
       <h2 class="h3 mb-1" data-workflow-step-title></h2>
@@ -24,7 +26,7 @@
 (function () {
   const controller = document.querySelector('[data-workflow-controller]');
   if (!controller) return;
-  const stages = ['details', 'source', 'print', 'mockups', 'listing'];
+  const stages = ['details', 'source', 'certification', 'print', 'mockups', 'listing', 'publish'];
   const panels = Array.from(controller.querySelectorAll('[data-workflow-stage]'));
   const links = Array.from(document.querySelectorAll('[data-workflow-link]'));
   const previous = controller.querySelector('[data-workflow-previous]');
@@ -35,10 +37,12 @@
   const stepDescription = controller.querySelector('[data-workflow-step-description]');
   const stageCopy = {
     details: ['Step 1', 'Artwork details', 'Review the artwork identity and reusable creative context.'],
-    source: ['Step 2', 'Source artwork', 'Upload the original artwork. It becomes the print-ready file automatically unless you replace it.'],
-    print: ['Step 3', 'Print production', 'Confirm orientation and review the generated print ratios.'],
-    mockups: ['Step 4', 'Listing images', 'Create, review, and order the images customers will see.'],
-    listing: ['Step 5', 'Listing & SEO', 'Prepare the marketplace title, description, tags, and listing record.']
+    source: ['Step 2', 'Source artwork', 'Upload or replace the original. Existing downstream files remain available but are marked out of date.'],
+    certification: ['Step 3', 'Artwork certification', 'Review dimensions, effective PPI, and any AI-enhancement decision.'],
+    print: ['Step 4', 'Print files', 'Confirm orientation and review the generated print ratios.'],
+    mockups: ['Step 5', 'Mockups', 'Create, review, and order the images customers will see.'],
+    listing: ['Step 6', 'Listing', 'Prepare the marketplace title, description, tags, and listing record.'],
+    publish: ['Step 7', 'Publish', 'Review the current state, then update Printify and Etsy from one place.']
   };
 
   function showStage(key, updateHash) {
@@ -48,31 +52,30 @@
     const index = stages.indexOf(key);
     [stepLabel.textContent, stepTitle.textContent, stepDescription.textContent] = stageCopy[key];
     previous.disabled = index === 0;
-    next.textContent = index === stages.length - 1 ? 'Open listing →' : 'Continue →';
+    next.disabled = index === stages.length - 1;
+    next.textContent = index === stages.length - 1 ? 'Workflow complete ✓' : 'Continue →';
     position.textContent = `${index + 1} of ${stages.length}`;
     previous.dataset.target = stages[Math.max(0, index - 1)];
     next.dataset.target = stages[Math.min(stages.length - 1, index + 1)];
-    if (updateHash) history.replaceState(null, '', `#${key}`);
+    if (updateHash) history.replaceState(null, '', `?step=${key}`);
     window.scrollTo({top: 0, behavior: 'smooth'});
   }
 
   links.forEach((link) => link.addEventListener('click', function (event) {
     const destination = new URL(link.href);
-    if (destination.pathname === window.location.pathname && stages.includes(destination.hash.slice(1))) {
+    const destinationStep = destination.searchParams.get('step');
+    if (destination.pathname === window.location.pathname && stages.includes(destinationStep)) {
       event.preventDefault();
-      showStage(destination.hash.slice(1), true);
+      showStage(destinationStep, true);
     }
   }));
   previous.addEventListener('click', () => showStage(previous.dataset.target, true));
   next.addEventListener('click', () => {
-    if (next.dataset.target === 'listing' && location.hash === '#listing') {
-      const listingLink = links.find((link) => link.dataset.workflowLink === 'listing');
-      if (listingLink && new URL(listingLink.href).pathname !== location.pathname) location.href = listingLink.href;
-      return;
-    }
+    if (next.disabled) return;
     showStage(next.dataset.target, true);
   });
-  showStage(location.hash.slice(1) || 'details', false);
+  const initialStep = new URL(window.location.href).searchParams.get('step') || '{{ workflow_nav["active_stage"] }}';
+  showStage(initialStep, false);
 })();
 </script>
 {% endblock %}

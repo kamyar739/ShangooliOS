@@ -351,25 +351,29 @@ class DashboardTests(unittest.TestCase):
             'aria-label="Collection and artwork workflow"', artwork_page.text
         )
         labels = [
-            "Artwork details",
-            "Source artwork",
-            "Print production",
-            "Listing images",
-            "Listing &amp; SEO",
-            "Printify product",
-            "Etsy publishing",
+            "Details",
+            "Source",
+            "Quality",
+            "Print files",
+            "Mockups",
+            "Listing",
+            "Publish",
         ]
-        positions = [artwork_page.text.index(label) for label in labels]
+        workflow_buttons = artwork_page.text[
+            artwork_page.text.index('<nav class="workflow-step-buttons"'):
+        ]
+        positions = [workflow_buttons.index(label) for label in labels]
         self.assertEqual(positions, sorted(positions))
         self.assertIn('aria-label="Artwork workflow steps"', artwork_page.text)
         sidebar_end = artwork_page.text.index("</aside>")
         self.assertNotIn('data-workflow-link=', artwork_page.text[:sidebar_end])
-        for stage in ("details", "source", "print", "mockups", "listing"):
+        for stage in (
+            "details", "source", "certification", "print", "mockups", "listing", "publish"
+        ):
             self.assertIn(f'data-workflow-stage="{stage}"', artwork_page.text)
         self.assertIn('data-bs-target="#prepare-artwork-modal"', artwork_page.text)
         self.assertIn('id="prepare-artwork-modal"', artwork_page.text)
         self.assertIn("Prepare automatically", artwork_page.text)
-        self.assertIn("artwork-automation-button", artwork_page.text)
         self.assertIn('data-long-operation', artwork_page.text)
         self.assertIn("Do not publish to Printify or Etsy", artwork_page.text)
 
@@ -386,6 +390,50 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertEqual(unconfirmed.status_code, 400)
         self.assertIn("Confirm automatic preparation", unconfirmed.json()["detail"])
+
+    def test_source_change_marks_downstream_work_stale_and_resets_ai_lock(self):
+        self._complete_artwork_files()
+        db.set_artwork_production_flags(
+            "CEL-001", original_approved=True, listing_content_ready=True,
+        )
+        db.record_ai_enhancement(
+            "CEL-001", original_width=1000, original_height=800,
+            enhanced_width=4000, enhanced_height=3200,
+        )
+        db.invalidate_artwork_after_source_change("CEL-001")
+
+        production = db.get_artwork_production("CEL-001")
+        self.assertFalse(production["original_approved"])
+        self.assertFalse(production["print_master_ready"])
+        self.assertFalse(production["ratio_exports_ready"])
+        self.assertFalse(production["mockups_ready"])
+        self.assertFalse(production["listing_content_ready"])
+        self.assertIsNone(production["ai_enhanced_at"])
+        self.assertEqual(len(db.get_artwork_file_assignments("CEL-001")), 2)
+
+        page = self.client.get("/artworks/CEL-001?step=print")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('data-workflow-state="out_of_date"', page.text)
+        self.assertIn('data-workflow-stage="certification"', page.text)
+
+    def test_ai_enhancement_is_blocked_after_approval_record(self):
+        db.record_ai_enhancement(
+            "CEL-001", original_width=1000, original_height=800,
+            enhanced_width=4000, enhanced_height=3200,
+        )
+        response = self.client.post("/artworks/CEL-001/ai-upscale")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already been AI enhanced", response.json()["detail"])
+
+    def test_existing_approved_ai_source_is_backfilled_as_enhanced(self):
+        db.upsert_artwork_file(
+            "CEL-001", role="source", relative_path="approved.png",
+            stored_filename="CEL-001_ai_upscaled_approved.png",
+            original_filename="CEL-001_ai_upscaled_approved.png",
+        )
+        db.ensure_production_schema()
+        production = db.get_artwork_production("CEL-001")
+        self.assertIsNotNone(production["ai_enhanced_at"])
 
     def test_collection_order_is_saved_and_used_by_dashboard(self):
         with db.get_connection() as connection:

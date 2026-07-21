@@ -47,6 +47,7 @@ from web.db import (
     get_listing_status_counts,
     get_artwork_listings,
     get_mockup_scene,
+    invalidate_artwork_after_source_change,
     restore_artwork,
     list_listings,
     list_mockup_scenes,
@@ -54,6 +55,7 @@ from web.db import (
     mark_etsy_synced,
     record_etsy_state,
     record_etsy_inventory_quantity,
+    record_ai_enhancement,
     record_publishing_recovery,
     publish_listing,
     save_printify_product,
@@ -215,7 +217,7 @@ def _generate_required_ratios(artwork, *, overwrite: bool) -> list[dict]:
     return results
 
 
-def _artwork_context(artwork_code: str, **extra):
+def _artwork_context(artwork_code: str, active_stage="details", **extra):
     artwork = get_artwork(artwork_code)
 
     if artwork is None:
@@ -285,7 +287,7 @@ def _artwork_context(artwork_code: str, **extra):
             production=production,
             assignments=assignments,
             listings=artwork_listings,
-            active_stage="details",
+            active_stage=active_stage,
         ),
     }
     context.update(extra)
@@ -308,22 +310,74 @@ def _workflow_navigation(
     roles = {row["role"] for row in assignments}
     _, collection_artworks, _ = get_collection(artwork["collection_code"])
     artwork_url = f"/artworks/{artwork['artwork_code']}"
-    listing_url = f"/listings/{listing['id']}" if listing else f"{artwork_url}#listing"
+    certification = get_artwork_certification(artwork["artwork_code"])
+    has_source = "source" in roles
+    has_print_files = "print_master" in roles or any(role.startswith("ratio:") for role in roles)
+    has_mockups = any(role.startswith("mockup:") for role in roles)
+    has_listing_work = bool(listing or get_artwork_listing_content(artwork["artwork_code"])["etsy_title"])
+    print_complete = bool(production["print_master_ready"] and production["ratio_exports_ready"])
+    all_current = bool(
+        has_source and production["original_approved"] and print_complete
+        and production["mockups_ready"] and production["listing_content_ready"]
+    )
+    live_listing = next(
+        (item for item in listings if item["status"] == "published" and item["external_listing_id"]),
+        None,
+    )
+
+    def stage(key, label, state, complete=False):
+        labels = {
+            "not_started": "Not started", "in_progress": "In progress",
+            "needs_review": "Needs review", "out_of_date": "Out of date",
+            "complete": "Complete", "published": "Published",
+            "unpublished_changes": "Unpublished changes",
+        }
+        return {
+            "key": key, "label": label, "href": f"{artwork_url}?step={key}",
+            "state": state, "state_label": labels[state], "complete": complete,
+        }
+
     stages = [
-        {"key": "details", "label": "Artwork details", "href": f"{artwork_url}#details", "complete": bool(artwork["public_title"])},
-        {"key": "source", "label": "Source artwork", "href": f"{artwork_url}#source", "complete": "source" in roles and bool(production["original_approved"])},
-        {"key": "print", "label": "Print production", "href": f"{artwork_url}#print", "complete": bool(production["print_master_ready"] and production["ratio_exports_ready"])},
-        {"key": "mockups", "label": "Listing images", "href": f"{artwork_url}#mockups", "complete": bool(production["mockups_ready"])},
-        {"key": "listing", "label": "Listing & SEO", "href": listing_url, "complete": bool(production["listing_content_ready"] and listing)},
-        {"key": "printify", "label": "Printify product", "href": f"{listing_url}#printify" if listing else listing_url, "complete": bool(listing and listing["printify_product_id"])},
-        {"key": "etsy", "label": "Etsy publishing", "href": f"/listings/{listing['id']}/etsy" if listing else listing_url, "complete": bool(listing and listing["external_listing_id"] and listing["etsy_last_synced_at"])},
+        stage("details", "Details", "complete" if artwork["public_title"] else "in_progress", bool(artwork["public_title"])),
+        stage("source", "Source", "complete" if has_source else "not_started", has_source),
+        stage(
+            "certification", "Quality",
+            "complete" if certification and production["original_approved"] else "needs_review" if certification else "not_started",
+            bool(certification and production["original_approved"]),
+        ),
+        stage(
+            "print", "Print files",
+            "complete" if print_complete else "out_of_date" if has_print_files else "not_started",
+            print_complete,
+        ),
+        stage(
+            "mockups", "Mockups",
+            "complete" if production["mockups_ready"] else "out_of_date" if has_mockups else "not_started",
+            bool(production["mockups_ready"]),
+        ),
+        stage(
+            "listing", "Listing",
+            "complete" if production["listing_content_ready"] and listing else "out_of_date" if has_listing_work else "not_started",
+            bool(production["listing_content_ready"] and listing),
+        ),
+        stage(
+            "publish", "Publish",
+            "published" if live_listing and all_current and live_listing["etsy_last_synced_at"]
+            else "unpublished_changes" if live_listing
+            else "in_progress" if listing and listing["printify_product_id"]
+            else "not_started",
+            bool(live_listing and all_current and live_listing["etsy_last_synced_at"]),
+        ),
     ]
+    normalized_active = {
+        "printify": "publish", "etsy": "publish"
+    }.get(active_stage, active_stage)
     return {
         "collection": {"code": artwork["collection_code"], "name": artwork["collection_name"]},
         "artwork": {"code": artwork["artwork_code"], "title": artwork["public_title"]},
         "collection_artworks": collection_artworks,
         "stages": stages,
-        "active_stage": active_stage,
+        "active_stage": normalized_active,
     }
 
 
@@ -867,7 +921,7 @@ def sync_listing_title(listing_id: int, title: str = Form(...), confirmed: bool 
         price_cents=listing["price_cents"], status=listing["status"],
     )
     return RedirectResponse(
-        f"/artworks/{listing['artwork_code']}?marketplace_title_synced=1#artwork-details",
+        f"/artworks/{listing['artwork_code']}?step=details&marketplace_title_synced=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -1664,7 +1718,7 @@ def analyze_artwork_post(artwork_code: str):
             source = None
     result = analyze_artwork(artwork, source)
     update_artwork_intelligence(artwork_code, **result)
-    return RedirectResponse(url=f"/artworks/{artwork_code}#artwork-intelligence", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/artworks/{artwork_code}?step=details", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/artworks/{artwork_code}/intelligence")
@@ -1683,7 +1737,7 @@ def save_artwork_intelligence_post(
         negative_prompt=negative_prompt.strip(), ai_model=ai_model.strip(),
         analysis_notes=analysis_notes.strip(),
     )
-    return RedirectResponse(url=f"/artworks/{artwork_code}#artwork-intelligence", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/artworks/{artwork_code}?step=details", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/artworks/{artwork_code}/listing-content/generate")
@@ -1696,7 +1750,7 @@ def generate_listing_content_post(artwork_code: str):
     update_artwork_listing_content(artwork_code, **result)
     set_artwork_production_flags(artwork_code, listing_content_ready=True)
     return RedirectResponse(
-        url=f"/artworks/{artwork_code}#story-seo-writer",
+        url=f"/artworks/{artwork_code}?step=listing",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -1901,18 +1955,26 @@ def save_listing_content_post(
     required_ready = all(values[key] for key in ("etsy_title", "etsy_description", "etsy_tags", "alt_text"))
     set_artwork_production_flags(artwork_code, listing_content_ready=required_ready)
     return RedirectResponse(
-        url=f"/artworks/{artwork_code}#story-seo-writer",
+        url=f"/artworks/{artwork_code}?step=listing",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
 @app.get("/artworks/{artwork_code}")
-def artwork_page(request: Request, artwork_code: str):
+def artwork_page(
+    request: Request, artwork_code: str,
+    step: str = Query("details"),
+):
+    allowed_steps = {
+        "details", "source", "certification", "print", "mockups", "listing", "publish"
+    }
+    active_step = step if step in allowed_steps else "details"
     return templates.TemplateResponse(
         request=request,
         name="artwork.html",
         context=_artwork_context(
             artwork_code,
+            active_stage=active_step,
             workflow_error=request.query_params.get("workflow_error"),
         ),
     )
@@ -1977,7 +2039,7 @@ def save_artwork(
     )
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}",
+        url=f"/artworks/{artwork_code.upper()}?step=details",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2038,7 +2100,7 @@ def save_artwork_production(
     )
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?production_saved=1",
+        url=f"/artworks/{artwork_code.upper()}?step=print&production_saved=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2062,6 +2124,7 @@ def upload_source_file(
             upload=upload,
             role="source",
         )
+        invalidate_artwork_after_source_change(artwork_code)
         upsert_artwork_file(
             artwork_code=artwork_code,
             **saved,
@@ -2096,7 +2159,7 @@ def upload_source_file(
         upload.file.close()
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?file_saved=source",
+        url=f"/artworks/{artwork_code.upper()}?step=source&file_saved=source",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2106,6 +2169,12 @@ def generate_ai_upscale(artwork_code: str):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
+    production = get_artwork_production(artwork_code)
+    if production["ai_enhanced_at"]:
+        raise HTTPException(
+            status_code=400,
+            detail="This source has already been AI enhanced. Upload a new original to reset it.",
+        )
     assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
     if "source" not in assignments:
         raise HTTPException(status_code=400, detail="Upload source artwork first")
@@ -2115,7 +2184,7 @@ def generate_ai_upscale(artwork_code: str):
     except ValueError as failure:
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?ai_upscaled=1#artwork-certification",
+        f"/artworks/{artwork_code.upper()}?step=certification&ai_upscaled=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2128,6 +2197,23 @@ def view_ai_upscale(artwork_code: str):
     return FileResponse(candidate_path(artwork), media_type="image/png")
 
 
+@app.post("/artworks/{artwork_code}/certification/approve")
+def approve_current_source_certification(
+    artwork_code: str, confirmed: bool = Form(False),
+):
+    artwork = get_artwork(artwork_code)
+    certification = get_artwork_certification(artwork_code)
+    if artwork is None or certification is None:
+        raise HTTPException(status_code=400, detail="Certify a source artwork first")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the source review")
+    set_artwork_production_flags(artwork_code, original_approved=True)
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?step=certification&certification_approved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/artworks/{artwork_code}/ai-upscale/approve")
 def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
     artwork = get_artwork(artwork_code)
@@ -2136,10 +2222,18 @@ def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
     path = candidate_path(artwork)
     if not confirmed or not path.is_file():
         raise HTTPException(status_code=400, detail="Review and approve the AI upscale first")
+    production = get_artwork_production(artwork_code)
+    if production["ai_enhanced_at"]:
+        raise HTTPException(
+            status_code=400,
+            detail="This source has already been AI enhanced. Upload a new original to reset it.",
+        )
+    current_certification = get_artwork_certification(artwork_code)
     workspace = get_artwork_folder(artwork)
     approved_path = path.with_name(f"{artwork_code.upper()}_ai_upscaled_approved.png")
     shutil.copy2(path, approved_path)
     certification = certify_artwork(approved_path).to_dict()
+    invalidate_artwork_after_source_change(artwork_code)
     upsert_artwork_file(
         artwork_code=artwork_code, role="source",
         relative_path=str(approved_path.relative_to(workspace)), stored_filename=approved_path.name,
@@ -2159,6 +2253,12 @@ def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
         artwork_code, original_approved=True, print_master_ready=True,
         ratio_exports_ready=False, mockups_ready=False,
     )
+    record_ai_enhancement(
+        artwork_code,
+        original_width=current_certification["width"] if current_certification else 0,
+        original_height=current_certification["height"] if current_certification else 0,
+        enhanced_width=certification["width"], enhanced_height=certification["height"],
+    )
     path.unlink()
     live_listing = next((
         item for item in get_artwork_listings(artwork_code)
@@ -2172,9 +2272,9 @@ def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
         )
         update_pending = "update_pending=1" in update_result.headers.get("location", "")
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?ai_upscale_approved=1"
+        f"/artworks/{artwork_code.upper()}?step=certification&ai_upscale_approved=1"
         f"{'&update_pending=1' if update_pending else '&updated_everywhere=1' if live_listing else ''}"
-        "#artwork-certification",
+        "",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2201,6 +2301,7 @@ def update_artwork_everywhere(
         workspace = get_artwork_folder(artwork)
         if upload and upload.filename:
             saved = save_uploaded_file(artwork=artwork, upload=upload, role="source")
+            invalidate_artwork_after_source_change(artwork_code)
             upsert_artwork_file(artwork_code=artwork_code, **saved)
             source_path = workspace / saved["relative_path"]
             original_filename = saved["original_filename"]
@@ -2303,7 +2404,7 @@ def update_artwork_everywhere(
             listing_id, "update_waiting_for_printify", str(failure)
         )
         return RedirectResponse(
-            f"/artworks/{artwork_code.upper()}?update_pending=1#listing-workspace",
+            f"/artworks/{artwork_code.upper()}?step=publish&update_pending=1",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except (ValueError, PrintifyAPIError, EtsyAPIError) as failure:
@@ -2313,7 +2414,7 @@ def update_artwork_everywhere(
         }:
             record_publishing_recovery(listing_id, checkpoint, f"Paused safely: {failure}")
             return RedirectResponse(
-                f"/artworks/{artwork_code.upper()}?update_pending=1#listing-workspace",
+                f"/artworks/{artwork_code.upper()}?step=publish&update_pending=1",
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         raise HTTPException(status_code=400, detail=str(failure)) from failure
@@ -2321,7 +2422,7 @@ def update_artwork_everywhere(
         if upload:
             upload.file.close()
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?updated_everywhere=1#listing-workspace",
+        f"/artworks/{artwork_code.upper()}?step=publish&updated_everywhere=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2368,7 +2469,7 @@ def recover_artwork_update_everywhere(artwork_code: str, listing_id: int):
         record_publishing_recovery(listing_id, current, f"Paused safely: {failure}")
     completed = get_listing(listing_id)["publishing_recovery_stage"] == "update_complete"
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?{'updated_everywhere' if completed else 'update_pending'}=1#listing-workspace",
+        f"/artworks/{artwork_code.upper()}?step=publish&{'updated_everywhere' if completed else 'update_pending'}=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2408,7 +2509,7 @@ def create_print_master_from_source(artwork_code: str):
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?master_built=1",
+        url=f"/artworks/{artwork_code.upper()}?step=print&master_built=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2450,7 +2551,7 @@ def upload_print_master(
         upload.file.close()
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?file_saved=master",
+        url=f"/artworks/{artwork_code.upper()}?step=print&file_saved=master",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2483,7 +2584,7 @@ def upload_ratio_output(
         upload.file.close()
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?file_saved=ratio",
+        url=f"/artworks/{artwork_code.upper()}?step=print&file_saved=ratio",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2561,7 +2662,7 @@ def generate_mockups_post(artwork_code: str, template_key: str = Form(DEFAULT_TE
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?mockups_generated=8&template_pack={template_key}#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?step=mockups&mockups_generated=8&template_pack={template_key}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2602,7 +2703,7 @@ def generate_scene_mockup_post(artwork_code: str, scene_id: int = Form(...)):
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?scene_mockup_generated=1#mockup-workspace",
+        f"/artworks/{artwork_code.upper()}?step=mockups&scene_mockup_generated=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2635,7 +2736,7 @@ def upload_mockup_file(
         upload.file.close()
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?mockup_saved={slot_key}#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?step=mockups&mockup_saved={slot_key}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2685,7 +2786,7 @@ async def generate_one_listing_image_post(artwork_code: str, slot_key: str, requ
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?listing_image_generated={slot_key}&template_pack={template_key}#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?step=mockups&listing_image_generated={slot_key}&template_pack={template_key}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2722,7 +2823,7 @@ async def save_mockup_settings(artwork_code: str, request: Request):
     set_artwork_production_flags(artwork_code, mockups_ready=reviewed)
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?mockup_settings_saved=1#mockup-workspace",
+        url=f"/artworks/{artwork_code.upper()}?step=mockups&mockup_settings_saved=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2764,7 +2865,7 @@ def mark_ratio_review(
         ratio_exports_ready=reviewed,
     )
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?ratio_review_saved=1#ratio-management",
+        url=f"/artworks/{artwork_code.upper()}?step=print&ratio_review_saved=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2772,7 +2873,7 @@ def mark_ratio_review(
 @app.post("/artworks/{artwork_code}/validate")
 def validate_artwork_production(artwork_code: str):
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?validated=1#validation",
+        url=f"/artworks/{artwork_code.upper()}?step=details&validated=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2787,7 +2888,7 @@ def refresh_artwork_workspace(artwork_code: str):
     refresh_workspace(artwork)
 
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?workspace_refreshed=1",
+        url=f"/artworks/{artwork_code.upper()}?step=source&workspace_refreshed=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
