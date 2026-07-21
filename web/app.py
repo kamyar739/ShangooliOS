@@ -42,6 +42,7 @@ from web.db import (
     get_artwork_listing_content,
     get_artwork_production,
     get_collection,
+    get_collections,
     get_dashboard,
     get_listing,
     get_listing_readiness,
@@ -675,15 +676,23 @@ def listings_page(
     request: Request,
     listing_status: str = Query("", alias="status"),
     listing_view: str = Query("", alias="view"),
+    collection_code: str = Query("", alias="collection"),
 ):
     normalized_status = listing_status.strip().lower()
     normalized_view = listing_view.strip().lower()
+    normalized_collection = collection_code.strip().upper()
     if normalized_view not in ("", "ready", "attention"):
         raise HTTPException(status_code=400, detail="Invalid listing view")
     if normalized_status and normalized_view:
         raise HTTPException(status_code=400, detail="Choose a status or readiness view, not both")
+    collections = list(get_collections())
+    collection_codes = {item["code"] for item in collections}
+    if normalized_collection and normalized_collection not in collection_codes:
+        raise HTTPException(status_code=400, detail="Invalid collection filter")
     try:
-        listing_rows = list_listings(normalized_status or None)
+        listing_rows = list_listings(
+            normalized_status or None, normalized_collection or None
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     listings = []
@@ -709,6 +718,8 @@ def listings_page(
             "listings": listings,
             "active_status": normalized_status,
             "active_view": normalized_view,
+            "active_collection": normalized_collection,
+            "collections": collections,
             "statuses": ("draft", "ready", "published", "archived"),
             "status_counts": get_listing_status_counts(),
         },

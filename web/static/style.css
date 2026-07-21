@@ -2019,6 +2019,35 @@ body.is-waiting {
     outline-offset: 2px;
 }
 
+.listing-collection-toolbar {
+    align-items: end;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    padding: 0.65rem 0.75rem;
+}
+
+.listing-collection-toolbar .form-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 750;
+    margin-bottom: 0.2rem;
+}
+
+.listing-collection-toolbar .form-select {
+    min-width: 220px;
+}
+
+.listing-result-summary {
+    color: var(--muted);
+    font-size: 0.8rem;
+    padding-bottom: 0.35rem;
+    white-space: nowrap;
+}
+
 .collection-status-live { background: #dff3e7; color: #247244; text-transform: none; }
 .collection-status-ready { background: #fff3ca; color: #856404; }
 .collection-status-production { background: #efe8ff; color: #6542a6; }
@@ -2034,6 +2063,24 @@ body.is-waiting {
 .listing-card-grid {
     display: grid;
     gap: 0.65rem;
+}
+
+.listing-collection-divider {
+    align-items: baseline;
+    display: flex;
+    gap: 0.55rem;
+    padding: 0.55rem 0.2rem 0.05rem;
+}
+
+.listing-collection-divider span {
+    color: var(--brand);
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.1em;
+}
+
+.listing-collection-divider strong {
+    font-size: 0.9rem;
 }
 
 .listing-summary-card {
@@ -2208,6 +2255,20 @@ body.is-waiting {
 @media (max-width: 1200px) {
     .listing-summary-card { grid-template-columns: minmax(240px, 1fr) 90px minmax(140px, 0.7fr); }
     .listing-summary-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+@media (max-width: 768px) {
+    .listing-collection-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .listing-collection-toolbar .form-select {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .listing-result-summary { white-space: normal; }
 }
 
 .listing-status-draft {

@@ -128,6 +128,56 @@ class ListingTests(unittest.TestCase):
         self.assertIn("listing-summary-thumb", index_response.text)
         self.assertIn("No image", index_response.text)
 
+    def test_listings_filter_by_collection_and_sort_by_artwork_number(self):
+        with db.get_connection() as connection:
+            cel_id = connection.execute(
+                "SELECT id FROM collections WHERE code='CEL'"
+            ).fetchone()["id"]
+            brand_id = connection.execute(
+                "SELECT id FROM brands WHERE code='SHG'"
+            ).fetchone()["id"]
+            connection.execute(
+                "INSERT INTO collections (brand_id, code, name, collection_type, vertical, status) "
+                "VALUES (?, 'ALT', 'Alternate', 'curated', 'home_art', 'active')",
+                (brand_id,),
+            )
+            alt_id = connection.execute(
+                "SELECT id FROM collections WHERE code='ALT'"
+            ).fetchone()["id"]
+            connection.executemany(
+                "INSERT INTO artworks (artwork_code, collection_id, sequence_number, public_title, status) "
+                "VALUES (?, ?, ?, ?, 'approved')",
+                [
+                    ("CEL-009", cel_id, 9, "Gathering"),
+                    ("CEL-002", cel_id, 2, "Interwoven"),
+                    ("ALT-001", alt_id, 1, "Alternate One"),
+                ],
+            )
+            connection.commit()
+        for code, title in (
+            ("CEL-009", "Gathering listing"),
+            ("CEL-001", "Unbound listing"),
+            ("CEL-002", "Interwoven listing"),
+            ("ALT-001", "Alternate listing"),
+        ):
+            db.create_listing(
+                code, marketplace="Etsy", product="Poster", title=title,
+                description="Description", tags="one, two", price_cents=2500,
+            )
+
+        rows = db.list_listings(collection_code="CEL")
+        self.assertEqual(
+            [row["artwork_code"] for row in rows],
+            ["CEL-001", "CEL-002", "CEL-009"],
+        )
+        response = self.client.get("/listings?collection=CEL")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Artwork number order", response.text)
+        self.assertIn("Celebration", response.text)
+        self.assertNotIn("Alternate listing", response.text)
+        self.assertLess(response.text.index("Unbound listing"), response.text.index("Interwoven listing"))
+        self.assertLess(response.text.index("Interwoven listing"), response.text.index("Gathering listing"))
+
     def test_listing_page_keeps_workflow_navigation(self):
         listing_id = db.create_listing(
             "CEL-001", marketplace="Etsy", product="Poster",

@@ -1768,8 +1768,9 @@ def get_print_master_certification(artwork_code):
 LISTING_STATUSES = ("draft", "ready", "published", "archived")
 
 
-def list_listings(status=None):
+def list_listings(status=None, collection_code=None):
     normalized_status = (status or "").strip().lower()
+    normalized_collection = (collection_code or "").strip().upper()
     if normalized_status and normalized_status not in LISTING_STATUSES:
         raise ValueError("Invalid listing status")
 
@@ -1782,25 +1783,34 @@ def list_listings(status=None):
                l.etsy_inventory_quantity, l.etsy_inventory_restore_quantity,
                l.etsy_inventory_updated_at,
                l.etsy_paused_at,
-               a.artwork_code, a.public_title,
+               a.artwork_code, a.public_title, a.sequence_number,
                EXISTS (
                    SELECT 1 FROM artwork_files AS source_file
                    WHERE source_file.artwork_id = a.id
                      AND source_file.role = 'source'
                ) AS has_source_image,
-               c.name AS collection_name
+               c.code AS collection_code, c.name AS collection_name
         FROM listings AS l
         JOIN artworks AS a ON a.id = l.artwork_id
         JOIN collections AS c ON c.id = a.collection_id
     """
-    params = ()
+    clauses = []
+    params = []
     if normalized_status:
-        query += " WHERE l.status = ?"
-        params = (normalized_status,)
-    query += " ORDER BY l.updated_at DESC, l.id DESC"
+        clauses.append("l.status = ?")
+        params.append(normalized_status)
+    if normalized_collection:
+        clauses.append("c.code = ?")
+        params.append(normalized_collection)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += (
+        " ORDER BY c.display_order IS NULL, c.display_order, c.code, "
+        "a.sequence_number, l.id"
+    )
 
     with get_connection() as conn:
-        return conn.execute(query, params).fetchall()
+        return conn.execute(query, tuple(params)).fetchall()
 
 
 def get_listing_status_counts():

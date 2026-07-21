@@ -26,19 +26,31 @@
 {% endif %}
 
 <div class="listing-filter-bar mb-4">
-    <a class="listing-filter filter-all {% if not active_status and not active_view %}active{% endif %}" href="/listings">
+    <a class="listing-filter filter-all {% if not active_status and not active_view %}active{% endif %}" href="/listings{% if active_collection %}?collection={{ active_collection }}{% endif %}">
         <span class="filter-dot">●</span><strong>All</strong><span class="filter-count">{{ status_counts['all'] }}</span>
     </a>
     {% for value in statuses %}
-    <a class="listing-filter filter-{{ value }} {% if active_status == value %}active{% endif %}" href="/listings?status={{ value }}">
+    <a class="listing-filter filter-{{ value }} {% if active_status == value %}active{% endif %}" href="/listings?status={{ value }}{% if active_collection %}&collection={{ active_collection }}{% endif %}">
         <span class="filter-dot">●</span><strong>{% if value == 'published' %}Live on Etsy{% else %}{{ value|title }}{% endif %}</strong><span class="filter-count">{{ status_counts[value] }}</span>
     </a>
     {% endfor %}
 </div>
 
+<div class="listing-collection-toolbar mb-3">
+  <form method="get" action="/listings" class="d-flex align-items-end gap-2 flex-wrap">
+    {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+    {% if active_view %}<input type="hidden" name="view" value="{{ active_view }}">{% endif %}
+    <div><label class="form-label" for="listing-collection-filter">Collection</label><select class="form-select form-select-sm" id="listing-collection-filter" name="collection" onchange="this.form.submit()"><option value="">All collections</option>{% for collection in collections %}<option value="{{ collection['code'] }}"{% if active_collection == collection['code'] %} selected{% endif %}>{{ collection['name'] }}</option>{% endfor %}</select></div>
+    {% if active_collection %}<a class="btn btn-sm btn-outline-secondary" href="/listings{% if active_status %}?status={{ active_status }}{% elif active_view %}?view={{ active_view }}{% endif %}">Clear collection</a>{% endif %}
+  </form>
+  <div class="listing-result-summary"><strong>{{ listings|length }}</strong> listing{% if listings|length != 1 %}s{% endif %}{% if active_collection %} in {{ active_collection }}{% endif %} · Artwork number order</div>
+</div>
+
 <div class="listing-card-grid">
 {% if listings %}
+{% set grouping = namespace(collection='') %}
 {% for item in listings %}
+{% if item['collection_code'] != grouping.collection %}{% set grouping.collection = item['collection_code'] %}<div class="listing-collection-divider"><span>{{ item['collection_code'] }}</span><strong>{{ item['collection_name'] }}</strong></div>{% endif %}
 <article class="listing-summary-card">
   <div class="listing-summary-main">
     <a class="listing-summary-thumb" href="/artworks/{{ item['artwork_code'] }}" aria-label="Open {{ item['public_title'] }} artwork">
@@ -86,7 +98,7 @@
 {% endfor %}
 {% else %}
 <div class="card border-0 shadow-sm p-4 text-muted">
-    {% if active_view == 'attention' %}Nothing currently needs attention.{% elif active_view == 'ready' %}No complete listings are waiting to publish.{% elif active_status %}No {{ active_status }} listings.{% else %}No listings have been created yet.{% endif %}
+    {% if active_collection %}No listings match this collection and status combination. <a href="/listings">Clear filters</a>.{% elif active_view == 'attention' %}Nothing currently needs attention.{% elif active_view == 'ready' %}No complete listings are waiting to publish.{% elif active_status %}No {{ active_status }} listings.{% else %}No listings have been created yet.{% endif %}
 </div>
 {% endif %}
 </div>
