@@ -342,7 +342,8 @@ def _workflow_navigation(
         stage("source", "Source", "complete" if has_source else "not_started", has_source),
         stage(
             "certification", "Quality",
-            "complete" if certification and production["original_approved"] else "needs_review" if certification else "not_started",
+            "complete" if certification and production["original_approved"]
+            else "needs_review" if certification or has_source else "not_started",
             bool(certification and production["original_approved"]),
         ),
         stage(
@@ -2195,6 +2196,29 @@ def view_ai_upscale(artwork_code: str):
     if artwork is None or not candidate_path(artwork).is_file():
         raise HTTPException(status_code=404, detail="AI upscale not found")
     return FileResponse(candidate_path(artwork), media_type="image/png")
+
+
+@app.post("/artworks/{artwork_code}/certification/run")
+def run_source_certification(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    assignments = {
+        row["role"]: row for row in get_artwork_file_assignments(artwork_code)
+    }
+    source_assignment = assignments.get("source")
+    if source_assignment is None:
+        raise HTTPException(status_code=400, detail="Upload source artwork first")
+    try:
+        source_path = resolve_assigned_file(artwork, source_assignment)
+        certification = certify_artwork(source_path).to_dict()
+        upsert_artwork_certification(artwork_code, certification)
+    except ValueError as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?step=certification&quality_checked=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.post("/artworks/{artwork_code}/certification/approve")

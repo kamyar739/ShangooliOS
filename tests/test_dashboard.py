@@ -436,6 +436,25 @@ class DashboardTests(unittest.TestCase):
         production = db.get_artwork_production("CEL-001")
         self.assertIsNotNone(production["ai_enhanced_at"])
 
+    def test_existing_source_can_run_quality_check_without_rebuilding(self):
+        self._complete_artwork_files()
+        source_path = Path(self.temp_dir.name) / "source.png"
+        Image.new("RGB", (1800, 1200), "orange").save(source_path)
+
+        page = self.client.get("/artworks/CEL-001?step=certification")
+        self.assertIn("Run quality check", page.text)
+        self.assertIn("Needs review", page.text)
+        with patch("web.app.resolve_assigned_file", return_value=source_path):
+            response = self.client.post(
+                "/artworks/CEL-001/certification/run", follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("step=certification", response.headers["location"])
+        certification = db.get_artwork_certification("CEL-001")
+        self.assertEqual(certification["width"], 1800)
+        self.assertEqual(certification["height"], 1200)
+        self.assertTrue(db.get_artwork_production("CEL-001")["print_master_ready"])
+
     def test_collection_order_is_saved_and_used_by_dashboard(self):
         with db.get_connection() as connection:
             brand_id = connection.execute(
