@@ -7,8 +7,8 @@
 {% for artwork_listing in listings %}{% if next_listing.id is none and artwork_listing['status'] in ['draft', 'ready'] %}{% set next_listing.id = artwork_listing['id'] %}{% endif %}{% endfor %}
 
 <div class="page-header artwork-detail-header">
-    {% set live_etsy = namespace(url='') %}
-    {% for artwork_listing in listings %}{% if artwork_listing['etsy_state'] == 'active' and artwork_listing['marketplace_url'] %}{% set live_etsy.url = artwork_listing['marketplace_url'] %}{% endif %}{% endfor %}
+    {% set live_etsy = namespace(url='', paused_url='') %}
+    {% for artwork_listing in listings %}{% if artwork_listing['etsy_paused_at'] and artwork_listing['marketplace_url'] %}{% set live_etsy.paused_url = artwork_listing['marketplace_url'] %}{% elif artwork_listing['etsy_state'] == 'active' and artwork_listing['marketplace_url'] %}{% set live_etsy.url = artwork_listing['marketplace_url'] %}{% endif %}{% endfor %}
     <div class="artwork-detail-title-group">
         {% if production_summary["source_assignment"] %}
         <a class="artwork-detail-thumb" href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" target="_blank" aria-label="View source artwork">
@@ -27,7 +27,7 @@
     </div>
 
     <div class="d-flex align-items-center gap-2 flex-wrap">
-        {% if artwork['status'] == 'listed' and live_etsy.url %}<a class="status-pill status-pill-link status-listed artwork-marketplace-status" href="{{ live_etsy.url }}" target="_blank" rel="noopener noreferrer" title="Open this artwork on Etsy">Listed on Etsy ↗</a>{% else %}<span class="status-pill status-{{ artwork['status'] }} artwork-marketplace-status">{{ artwork["status"] }}</span>{% endif %}
+        {% if live_etsy.paused_url %}<a class="status-pill status-pill-link listing-status-ready artwork-marketplace-status" href="{{ live_etsy.paused_url }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Paused on Etsy ↗</a>{% elif live_etsy.url %}<a class="status-pill status-pill-link status-listed artwork-marketplace-status" href="{{ live_etsy.url }}" target="_blank" rel="noopener noreferrer" title="Open this artwork on Etsy">Live on Etsy ↗</a>{% else %}<span class="status-pill status-{{ artwork['status'] }} artwork-marketplace-status">{{ artwork["status"] }}</span>{% endif %}
     </div>
 </div>
 

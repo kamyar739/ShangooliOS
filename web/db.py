@@ -463,6 +463,25 @@ def get_dashboard():
                 a.status,
                 c.name AS collection_name,
                 EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_paused_at IS NOT NULL
+                ) AS etsy_paused,
+                EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_state = 'active'
+                ) AS etsy_live,
+                (
+                    SELECT marketplace_listing.marketplace_url
+                    FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.marketplace_url IS NOT NULL
+                    ORDER BY marketplace_listing.etsy_paused_at IS NULL,
+                             marketplace_listing.updated_at DESC
+                    LIMIT 1
+                ) AS etsy_url,
+                EXISTS (
                     SELECT 1
                     FROM artwork_files AS source_file
                     WHERE source_file.artwork_id = a.id
@@ -524,6 +543,25 @@ def search_artworks(query):
                 a.status,
                 c.name AS collection_name,
                 EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_paused_at IS NOT NULL
+                ) AS etsy_paused,
+                EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_state = 'active'
+                ) AS etsy_live,
+                (
+                    SELECT marketplace_listing.marketplace_url
+                    FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.marketplace_url IS NOT NULL
+                    ORDER BY marketplace_listing.etsy_paused_at IS NULL,
+                             marketplace_listing.updated_at DESC
+                    LIMIT 1
+                ) AS etsy_url,
+                EXISTS (
                     SELECT 1
                     FROM artwork_files AS source_file
                     WHERE source_file.artwork_id = a.id
@@ -577,6 +615,25 @@ def get_collection(collection_code):
                 p.mockups_ready,
                 p.listing_content_ready,
                 EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_paused_at IS NOT NULL
+                ) AS etsy_paused,
+                EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_state = 'active'
+                ) AS etsy_live,
+                (
+                    SELECT marketplace_listing.marketplace_url
+                    FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.marketplace_url IS NOT NULL
+                    ORDER BY marketplace_listing.etsy_paused_at IS NULL,
+                             marketplace_listing.updated_at DESC
+                    LIMIT 1
+                ) AS etsy_url,
+                EXISTS (
                     SELECT 1
                     FROM artwork_files AS source_file
                     WHERE source_file.artwork_id = a.id
@@ -611,6 +668,25 @@ def get_collection(collection_code):
                 p.ratio_exports_ready,
                 p.mockups_ready,
                 p.listing_content_ready,
+                EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_paused_at IS NOT NULL
+                ) AS etsy_paused,
+                EXISTS (
+                    SELECT 1 FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.etsy_state = 'active'
+                ) AS etsy_live,
+                (
+                    SELECT marketplace_listing.marketplace_url
+                    FROM listings AS marketplace_listing
+                    WHERE marketplace_listing.artwork_id = a.id
+                      AND marketplace_listing.marketplace_url IS NOT NULL
+                    ORDER BY marketplace_listing.etsy_paused_at IS NULL,
+                             marketplace_listing.updated_at DESC
+                    LIMIT 1
+                ) AS etsy_url,
                 EXISTS (
                     SELECT 1
                     FROM artwork_files AS source_file

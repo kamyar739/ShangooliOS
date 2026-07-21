@@ -18,6 +18,6 @@
   </div>
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <a class="context-nav-link context-nav-link-secondary" href="/artworks/{{ workflow_nav['artwork']['code'] }}">Open artwork</a>
-    {% if listing and listing['status'] == 'published' and listing['marketplace_url'] %}<a class="status-pill status-pill-link listing-status-published" href="{{ listing['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Live on Etsy ↗</a>{% elif listing %}<span class="status-pill listing-status-{{ listing['status'] }}">{{ listing['status']|title }}</span>{% endif %}
+    {% if listing and listing['etsy_paused_at'] and listing['marketplace_url'] %}<a class="status-pill status-pill-link listing-status-ready" href="{{ listing['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Paused on Etsy ↗</a>{% elif listing and listing['status'] == 'published' and listing['marketplace_url'] %}<a class="status-pill status-pill-link listing-status-published" href="{{ listing['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Live on Etsy ↗</a>{% elif listing %}<span class="status-pill listing-status-{{ listing['status'] }}">{{ listing['status']|title }}</span>{% endif %}
   </div>
 </div>

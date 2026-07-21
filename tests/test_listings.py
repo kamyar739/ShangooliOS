@@ -235,6 +235,16 @@ class ListingTests(unittest.TestCase):
         response = self.client.get("/listings")
         self.assertIn("Paused on Etsy ↗", response.text)
         self.assertIn("Reactivate on Etsy", response.text)
+        for page in ("/?view=listings", "/collections/CEL"):
+            page_response = self.client.get(page)
+            self.assertEqual(page_response.status_code, 200)
+            self.assertIn("Paused on Etsy", page_response.text)
+        artwork_response = self.client.get("/artworks/CEL-001")
+        self.assertEqual(artwork_response.status_code, 200)
+        self.assertIn("Paused on Etsy ↗", artwork_response.text)
+        detail_response = self.client.get(f"/listings/{listing_id}")
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertIn("Paused on Etsy ↗", detail_response.text)
 
         with patch("web.app.update_etsy_listing_state") as reactivate:
             response = self.client.post(

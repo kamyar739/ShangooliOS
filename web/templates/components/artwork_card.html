@@ -29,9 +29,13 @@ Optional variables:
         <div class="card-body{% if compact %} dashboard-recent-body{% endif %}">
             <div class="d-flex justify-content-between align-items-center gap-2 {% if compact %}mb-2{% else %}mb-3{% endif %}">
                 <span class="code-pill">{{ artwork["artwork_code"] }}</span>
-                <span class="status-pill status-{{ artwork['status'] }}">
-                    {{ artwork["status"] }}
-                </span>
+                {% if artwork['etsy_paused']|default(false) %}
+                <span class="status-pill listing-status-ready">Paused on Etsy</span>
+                {% elif artwork['etsy_live']|default(false) %}
+                <span class="status-pill listing-status-published">Live on Etsy</span>
+                {% else %}
+                <span class="status-pill status-{{ artwork['status'] }}">{{ artwork["status"] }}</span>
+                {% endif %}
             </div>
 
             <{{ title_tag }} class="{% if compact %}h6 mb-1{% else %}h5 mb-2{% endif %} text-dark">
