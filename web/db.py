@@ -247,12 +247,19 @@ def ensure_production_schema():
             "printify_publish_requested_at",
             "etsy_last_synced_at",
             "etsy_state",
+            "etsy_inventory_quantity",
+            "etsy_inventory_restore_quantity",
+            "etsy_inventory_updated_at",
             "publishing_recovery_stage",
             "publishing_recovery_message",
             "publishing_recovery_checked_at",
         ):
             if column_name not in listing_columns:
-                column_type = "INTEGER" if column_name.endswith("_cents") else "TEXT"
+                column_type = (
+                    "INTEGER"
+                    if column_name.endswith("_cents") or column_name.endswith("_quantity")
+                    else "TEXT"
+                )
                 conn.execute(
                     f"ALTER TABLE listings ADD COLUMN {column_name} {column_type}"
                 )
@@ -1651,6 +1658,8 @@ def list_listings(status=None):
                l.published_at, l.printify_product_url,
                l.printify_etsy_connected_at, l.updated_at,
                l.printify_publish_requested_at, l.etsy_last_synced_at,
+               l.etsy_inventory_quantity, l.etsy_inventory_restore_quantity,
+               l.etsy_inventory_updated_at,
                a.artwork_code, a.public_title,
                EXISTS (
                    SELECT 1 FROM artwork_files AS source_file
@@ -1698,6 +1707,8 @@ def get_artwork_listings(artwork_code):
                    l.printify_etsy_connected_at,
                    l.printify_publish_requested_at,
                    l.etsy_last_synced_at, l.etsy_state,
+                   l.etsy_inventory_quantity, l.etsy_inventory_restore_quantity,
+                   l.etsy_inventory_updated_at,
                    l.publishing_recovery_stage,
                    l.publishing_recovery_message,
                    l.publishing_recovery_checked_at,
@@ -1724,6 +1735,8 @@ def get_listing(listing_id):
                    l.printify_etsy_connected_at,
                    l.printify_publish_requested_at,
                    l.etsy_last_synced_at, l.etsy_state,
+                   l.etsy_inventory_quantity, l.etsy_inventory_restore_quantity,
+                   l.etsy_inventory_updated_at,
                    l.publishing_recovery_stage,
                    l.publishing_recovery_message,
                    l.publishing_recovery_checked_at,
@@ -1991,6 +2004,29 @@ def mark_etsy_synced(listing_id, etsy_state=""):
             raise ValueError("Listing not found")
         if normalized_state == "active":
             _mark_listing_artwork_listed(conn, listing_id)
+        conn.commit()
+
+
+def record_etsy_inventory_quantity(listing_id, quantity):
+    if quantity < 0 or quantity > 999:
+        raise ValueError("Quantity must be between 0 and 999")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE listings
+            SET etsy_inventory_quantity = ?,
+                etsy_inventory_restore_quantity = CASE
+                    WHEN ? > 0 THEN ?
+                    ELSE COALESCE(etsy_inventory_restore_quantity, 2)
+                END,
+                etsy_inventory_updated_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (quantity, quantity, quantity, listing_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Listing not found")
         conn.commit()
 
 

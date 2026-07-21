@@ -15,6 +15,7 @@ from web.etsy_api import (
     etsy_config,
     get_etsy_listing,
     update_etsy_listing,
+    update_etsy_listing_state,
     update_etsy_listing_section,
 )
 from web.etsy_sync import set_etsy_inventory_quantity, sync_etsy_listing
@@ -113,6 +114,18 @@ class EtsyAPITests(unittest.TestCase):
         self.assertEqual(form["tags"], "wall art,abstract art")
         self.assertNotIn("inventory", form)
         self.assertNotIn("price", form)
+
+    def test_reactivate_listing_sends_only_active_state(self):
+        self.env_path.write_text(
+            '\n'.join((
+                'ETSY_API_KEY="key"', 'ETSY_SHARED_SECRET="secret"',
+                'ETSY_ACCESS_TOKEN="token"', 'ETSY_REFRESH_TOKEN="refresh"',
+                'ETSY_TOKEN_EXPIRES_AT="9999999999"', 'ETSY_SHOP_ID="987"',
+            )) + '\n', encoding="utf-8",
+        )
+        with patch("web.etsy_api._request", return_value={}) as request:
+            update_etsy_listing_state("123", "active")
+        self.assertEqual(request.call_args.kwargs["form"], {"state": "active"})
 
     def test_section_assignment_uses_current_etsy_field_name(self):
         self.env_path.write_text(
@@ -227,9 +240,29 @@ class EtsyAPITests(unittest.TestCase):
         self.assertEqual(payload["price_on_property"], [100])
         self.assertEqual(rows[0]["quantity"], 2)
 
-    def test_inventory_cap_rejects_zero(self):
-        with self.assertRaisesRegex(ValueError, "between 1 and 999"):
-            set_etsy_inventory_quantity({"external_listing_id": "123"}, 0)
+    def test_inventory_can_set_every_enabled_size_to_zero(self):
+        current = {
+            "products": [{
+                "product_id": 44, "sku": "PRINTIFY-11X14",
+                "property_values": [],
+                "offerings": [{
+                    "quantity": 2, "is_enabled": True,
+                    "price": {"amount": 2500, "divisor": 100},
+                }],
+            }],
+        }
+        verified = {
+            **current,
+            "products": [{
+                **current["products"][0],
+                "offerings": [{**current["products"][0]["offerings"][0], "quantity": 0}],
+            }],
+        }
+        with patch("web.etsy_sync.get_etsy_listing_inventory", side_effect=[current, verified]), \
+             patch("web.etsy_sync.update_etsy_listing_inventory") as update:
+            rows = set_etsy_inventory_quantity({"external_listing_id": "123"}, 0)
+        self.assertEqual(update.call_args.args[1]["products"][0]["offerings"][0]["quantity"], 0)
+        self.assertEqual(rows[0]["quantity"], 0)
 
 
 class EtsyConnectionPageTests(unittest.TestCase):

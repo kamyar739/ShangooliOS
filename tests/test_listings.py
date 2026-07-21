@@ -147,6 +147,57 @@ class ListingTests(unittest.TestCase):
         self.assertIn("Back to listings", response.text)
         self.assertIn('href="/artworks/CEL-001"', response.text)
 
+    def test_listings_page_can_mark_sold_out_and_restore_inventory(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="published",
+        )
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE listings SET external_listing_id='123456789', "
+                "marketplace_url='https://www.etsy.com/listing/123456789/unbound' "
+                "WHERE id=?",
+                (listing_id,),
+            )
+            connection.commit()
+        db.record_etsy_inventory_quantity(listing_id, 4)
+
+        response = self.client.get("/listings")
+        self.assertIn("Set quantity to 0", response.text)
+        self.assertNotIn("Sold out · 0 available", response.text)
+
+        response = self.client.post(
+            f"/listings/{listing_id}/etsy/inventory/sold-out",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 400)
+
+        with patch("web.app.set_etsy_inventory_quantity", return_value=[]) as update:
+            response = self.client.post(
+                f"/listings/{listing_id}/etsy/inventory/sold-out",
+                data={"confirmed": "true"}, follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        update.assert_called_once()
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["etsy_inventory_quantity"], 0)
+        self.assertEqual(listing["etsy_inventory_restore_quantity"], 4)
+        response = self.client.get("/listings")
+        self.assertIn("Sold out · 0 available ↗", response.text)
+        self.assertIn("Restore inventory", response.text)
+
+        with patch("web.app.update_etsy_listing_state") as reactivate, \
+             patch("web.app.set_etsy_inventory_quantity", return_value=[]) as restore:
+            response = self.client.post(
+                f"/listings/{listing_id}/etsy/inventory/restore",
+                data={"confirmed": "true"}, follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        reactivate.assert_called_once_with("123456789", "active")
+        self.assertEqual(restore.call_args.args[1], 4)
+        self.assertEqual(db.get_listing(listing_id)["etsy_inventory_quantity"], 4)
+
     def test_global_printify_connection_page_shows_status(self):
         from web.printify_api import configure_printify_runtime
 

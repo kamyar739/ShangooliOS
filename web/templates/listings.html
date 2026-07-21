@@ -12,6 +12,7 @@
         <p class="text-muted mb-0">Manage draft, ready, published, and archived listings.</p>
     </div>
 </div>
+{% if request.query_params.get('inventory_updated') == '0' %}<div class="alert alert-success">The Etsy listing is now sold out with 0 available.</div>{% elif request.query_params.get('inventory_updated') %}<div class="alert alert-success">Etsy inventory restored to {{ request.query_params.get('inventory_updated') }} per size.</div>{% endif %}
 
 {% if active_view %}
 <div class="listing-view-banner {% if active_view == 'attention' %}is-attention{% else %}is-ready{% endif %} mb-4">
@@ -43,7 +44,7 @@
       {% if item['has_source_image'] %}<img src="/artworks/{{ item['artwork_code'] }}/files/view?role=source" alt="{{ item['public_title'] }} thumbnail" loading="lazy">{% else %}<span>No image</span>{% endif %}
     </a>
     <div class="listing-summary-copy">
-      <div class="d-flex align-items-center gap-2 mb-2">{% if item['status'] == 'published' and item['marketplace_url'] %}<a class="status-pill status-pill-link listing-status-published" href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Live on Etsy ↗</a>{% else %}<span class="status-pill listing-status-{{ item['status'] }}">{{ item['status'] }}</span>{% endif %}<span class="small text-muted">{{ item['marketplace'] }} · {{ item['product'] }}</span></div>
+      <div class="d-flex align-items-center gap-2 mb-2">{% if item['etsy_inventory_quantity'] == 0 and item['marketplace_url'] %}<a class="status-pill status-pill-link listing-status-ready" href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Sold out · 0 available ↗</a>{% elif item['status'] == 'published' and item['marketplace_url'] %}<a class="status-pill status-pill-link listing-status-published" href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Live on Etsy ↗</a>{% else %}<span class="status-pill listing-status-{{ item['status'] }}">{{ item['status'] }}</span>{% endif %}<span class="small text-muted">{{ item['marketplace'] }} · {{ item['product'] }}</span></div>
       <h2 class="h5 mb-2"><a href="/listings/{{ item['id'] }}">{{ item['title'] }}</a></h2>
       <a href="/artworks/{{ item['artwork_code'] }}" class="listing-artwork-link">{{ item['artwork_code'] }} — {{ item['public_title'] }}</a>
     </div>
@@ -63,6 +64,19 @@
   <div class="listing-summary-actions">
     {% if item['printify_product_url'] %}<a class="btn btn-sm btn-outline-success" href="{{ item['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Printify</a>{% endif %}
     <a class="btn btn-sm btn-outline-secondary" href="/artworks/{{ item['artwork_code'] }}">Artwork</a>
+    {% if item['status'] == 'published' and item['external_listing_id'] %}
+      {% if item['etsy_inventory_quantity'] == 0 %}
+      <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/etsy/inventory/restore">
+        <input type="hidden" name="confirmed" value="true">
+        <button class="btn btn-sm btn-outline-success" type="submit" onclick="return confirm('Reactivate this Etsy listing and restore {{ item['etsy_inventory_restore_quantity'] or 2 }} available per size? Etsy may charge its normal renewal fee.')">Restore inventory</button>
+      </form>
+      {% else %}
+      <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/etsy/inventory/sold-out">
+        <input type="hidden" name="confirmed" value="true">
+        <button class="btn btn-sm btn-outline-warning" type="submit" onclick="return confirm('Set every enabled Etsy size to 0? The listing will become sold out.')">Set quantity to 0</button>
+      </form>
+      {% endif %}
+    {% endif %}
     <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/duplicate">
         <button class="btn btn-sm btn-outline-primary" type="submit">Duplicate</button>
     </form>

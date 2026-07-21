@@ -251,6 +251,16 @@ def update_etsy_listing(listing_id: str, *, title: str, description: str, tags: 
     )
 
 
+def update_etsy_listing_state(listing_id: str, state: str):
+    config = _authorized_config()
+    return _request(
+        f"https://api.etsy.com/v3/application/shops/{config['shop_id']}/listings/{listing_id}",
+        method="PATCH",
+        headers=_authorized_headers("application/x-www-form-urlencoded"),
+        form={"state": state},
+    )
+
+
 def _multipart_image(path: Path, rank: int, alt_text: str) -> tuple[bytes, str]:
     boundary = f"----ShangooliOS{secrets.token_hex(16)}"
     mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
