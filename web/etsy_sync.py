@@ -208,8 +208,8 @@ def _inventory_update_payload(inventory: dict, quantity: int) -> dict:
 
 
 def set_etsy_inventory_quantity(listing, quantity: int) -> list[dict]:
-    if quantity < 0 or quantity > 999:
-        raise ValueError("Quantity must be between 0 and 999")
+    if quantity < 1 or quantity > 999:
+        raise ValueError("Quantity must be between 1 and 999")
     listing_id = str(listing["external_listing_id"] or "").strip()
     if not listing_id:
         raise ValueError("Link the Etsy listing first")
