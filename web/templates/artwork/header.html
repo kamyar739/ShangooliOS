@@ -27,7 +27,7 @@
     </div>
 
     <div class="d-flex align-items-center gap-2 flex-wrap">
-        {% if artwork['status'] == 'listed' and live_etsy.url %}<a class="status-pill status-pill-link status-listed" href="{{ live_etsy.url }}" target="_blank" rel="noopener noreferrer" title="Open this artwork on Etsy">Listed on Etsy ↗</a>{% else %}<span class="status-pill status-{{ artwork['status'] }}">{{ artwork["status"] }}</span>{% endif %}
+        {% if artwork['status'] == 'listed' and live_etsy.url %}<a class="status-pill status-pill-link status-listed artwork-marketplace-status" href="{{ live_etsy.url }}" target="_blank" rel="noopener noreferrer" title="Open this artwork on Etsy">Listed on Etsy ↗</a>{% else %}<span class="status-pill status-{{ artwork['status'] }} artwork-marketplace-status">{{ artwork["status"] }}</span>{% endif %}
     </div>
 </div>
 

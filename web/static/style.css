@@ -34,6 +34,16 @@ body {
     min-width: 0;
 }
 
+.artwork-detail-header > .d-flex,
+.artwork-marketplace-status {
+    flex: 0 0 auto;
+}
+
+.artwork-marketplace-status {
+    overflow-wrap: normal;
+    white-space: nowrap;
+}
+
 .artwork-detail-thumb {
     align-items: center;
     background: #eef0f5;

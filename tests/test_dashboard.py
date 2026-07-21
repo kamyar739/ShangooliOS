@@ -372,6 +372,7 @@ class DashboardTests(unittest.TestCase):
         ):
             self.assertIn(f'data-workflow-stage="{stage}"', artwork_page.text)
         self.assertIn('data-bs-target="#prepare-artwork-modal"', artwork_page.text)
+        self.assertIn("artwork-marketplace-status", artwork_page.text)
         self.assertIn('id="prepare-artwork-modal"', artwork_page.text)
         self.assertIn("Prepare automatically", artwork_page.text)
         self.assertIn('data-long-operation', artwork_page.text)
