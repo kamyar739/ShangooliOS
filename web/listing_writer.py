@@ -23,6 +23,24 @@ def _unique(values: list[str]) -> list[str]:
     return result
 
 
+def collection_series_label(artwork) -> str:
+    keys = artwork.keys() if hasattr(artwork, "keys") else ()
+    sequence = artwork["sequence_number"] if "sequence_number" in keys else None
+    collection = _clean(artwork["collection_name"] if "collection_name" in keys else "")
+    if not sequence or not collection:
+        return ""
+    return f"{collection} · No. {int(sequence)}"
+
+
+def customer_etsy_description(listing) -> str:
+    keys = listing.keys() if hasattr(listing, "keys") else ()
+    description = (listing["description"] if "description" in keys else "") or ""
+    label = collection_series_label(listing)
+    if not label or label.casefold() in description.casefold():
+        return description
+    return f"{label}\n\n{description}".strip()
+
+
 def _etsy_tags(title: str, theme: str, style: str, mood: str, colors: list[str]) -> list[str]:
     candidates = [
         "modern wall art",
@@ -60,6 +78,7 @@ def generate_listing_content(artwork, intelligence) -> dict:
     colors = _csv(intelligence["primary_colors"])
     color_phrase = ", ".join(colors[:4]) if colors else "a vibrant contemporary palette"
     theme_phrase = theme or "celebration and human connection"
+    series_label = collection_series_label(artwork)
 
     short_story = (
         f'“{title}” captures {theme_phrase.lower()} through movement, color, and expressive form. '
@@ -78,7 +97,7 @@ def generate_listing_content(artwork, intelligence) -> dict:
         seo_title = seo_title[:137].rstrip(" ,-") + "..."
 
     description = (
-        f"{long_story}\n\n"
+        f"{series_label + chr(10) + chr(10) if series_label else ''}{long_story}\n\n"
         "ABOUT THIS ARTWORK\n"
         f"• Title: {title}\n"
         f"• Style: {style}\n"

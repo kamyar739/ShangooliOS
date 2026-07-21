@@ -458,6 +458,7 @@ def get_dashboard():
             """
             SELECT
                 a.artwork_code,
+                a.sequence_number,
                 a.public_title,
                 a.theme,
                 a.status,
@@ -537,6 +538,7 @@ def search_artworks(query):
             """
             SELECT
                 a.artwork_code,
+                a.sequence_number,
                 a.public_title,
                 a.working_title,
                 a.theme,
@@ -603,6 +605,7 @@ def get_collection(collection_code):
             """
             SELECT
                 a.artwork_code,
+                a.sequence_number,
                 a.public_title,
                 a.working_title,
                 a.theme,
@@ -657,6 +660,7 @@ def get_collection(collection_code):
             """
             SELECT
                 a.artwork_code,
+                a.sequence_number,
                 a.public_title,
                 a.working_title,
                 a.theme,
@@ -739,6 +743,7 @@ def get_artwork(artwork_code):
             SELECT
                 a.id,
                 a.artwork_code,
+                a.sequence_number,
                 a.public_title,
                 a.working_title,
                 a.theme,
@@ -1951,7 +1956,7 @@ def get_listing(listing_id):
                    l.publishing_recovery_message,
                    l.publishing_recovery_checked_at,
                    l.created_at, l.updated_at,
-                   a.artwork_code, a.public_title, c.code AS collection_code,
+                   a.artwork_code, a.sequence_number, a.public_title, c.code AS collection_code,
                    EXISTS (
                        SELECT 1 FROM artwork_files AS source_file
                        WHERE source_file.artwork_id = a.id

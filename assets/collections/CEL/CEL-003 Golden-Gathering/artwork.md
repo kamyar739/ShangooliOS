@@ -1,4 +1,4 @@
-# CEL-009 — Golden Gathering
+# CEL-003 — Golden Gathering
 
 ## Working Title
 

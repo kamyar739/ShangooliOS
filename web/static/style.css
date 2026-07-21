@@ -272,8 +272,8 @@ body {
 
 .status-approved,
 .status-complete {
-    background: #e2f6e9;
-    color: #257545;
+    background: #dff7f1;
+    color: #166b5c;
 }
 
 .status-production {
@@ -962,6 +962,12 @@ body {
     margin-bottom: 0.35rem;
 }
 
+.artwork-series-label {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+
 .workflow-compact .artwork-detail-header {
     min-height: 46px;
 }
@@ -1356,13 +1362,70 @@ body.is-waiting {
 .collection-gallery-caption { display: flex; align-items: center; gap: 0.6rem; padding-top: 0.6rem; }
 .collection-gallery-caption strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.marketplace-title-sync { display: grid; grid-template-columns: minmax(170px, 0.65fr) minmax(260px, 1.5fr) auto auto; align-items: end; gap: 0.8rem; padding: 1rem; border: 1px solid var(--app-border, #e4e1da); border-radius: 0.85rem; background: #f7f5f1; }
+.marketplace-title-sync {
+    background: #f8f7fc;
+    border: 1px solid #dfdced;
+    border-radius: 0.9rem;
+    display: grid;
+    gap: 0.85rem;
+    padding: 1rem;
+}
 
-@media (max-width: 991.98px) { .marketplace-title-sync { grid-template-columns: 1fr; align-items: start; } }
+.marketplace-title-heading,
+.marketplace-title-actions {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+}
+
+.marketplace-sync-targets {
+    background: #ece9ff;
+    border-radius: 999px;
+    color: #5142b9;
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    font-weight: 750;
+    padding: 0.32rem 0.62rem;
+}
+
+.marketplace-title-field .form-control {
+    background: #fff;
+}
+
+.marketplace-title-actions {
+    border-top: 1px solid #e6e3ef;
+    padding-top: 0.8rem;
+}
+
+.marketplace-title-actions .form-check {
+    margin: 0;
+}
+
+.marketplace-title-actions .btn {
+    min-width: 118px;
+    white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+    .marketplace-title-heading,
+    .marketplace-title-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .marketplace-sync-targets {
+        align-self: flex-start;
+    }
+
+    .marketplace-title-actions .btn {
+        width: 100%;
+    }
+}
 
 .dashboard-recent-grid > .col-auto {
-    flex: 0 0 145px;
-    width: 145px;
+    flex: 0 0 155px;
+    width: 155px;
 }
 
 .collection-empty-artwork-card {
@@ -2284,6 +2347,18 @@ body.is-waiting {
 .listing-status-published {
     background: #e2f6e9;
     color: #257545;
+}
+
+.marketplace-status-live {
+    background: #d8f5df;
+    box-shadow: inset 0 0 0 1px #9ed8ad;
+    color: #176a34;
+}
+
+.marketplace-status-paused {
+    background: #fff0cc;
+    box-shadow: inset 0 0 0 1px #efcf7a;
+    color: #855800;
 }
 
 .listing-status-archived {

@@ -84,10 +84,18 @@
                 {% for item in listings %}
                 {% if item['printify_product_id'] or item['external_listing_id'] %}
                 <form class="marketplace-title-sync mt-4" method="post" action="/listings/{{ item['id'] }}/title/sync" data-long-operation>
-                    <div><label class="form-label fw-semibold" for="marketplace-title-{{ item['id'] }}">Marketplace title</label><div class="form-text mt-0">Customer-facing title synchronized to{% if item['printify_product_id'] %} Printify{% endif %}{% if item['printify_product_id'] and item['external_listing_id'] %} and{% endif %}{% if item['external_listing_id'] %} Etsy{% endif %}.</div></div>
-                    <input class="form-control" id="marketplace-title-{{ item['id'] }}" name="title" maxlength="140" value="{{ item['title'] }}" required>
-                    <div class="form-check"><input class="form-check-input" id="confirm-title-{{ item['id'] }}" name="confirmed" type="checkbox" value="true" required><label class="form-check-label small" for="confirm-title-{{ item['id'] }}">Approve external title change</label></div>
-                    <button class="btn btn-outline-primary" type="submit">Save and sync title</button>
+                    <div class="marketplace-title-heading">
+                        <div><div class="eyebrow">Customer-facing title</div><label class="form-label fw-semibold mb-0" for="marketplace-title-{{ item['id'] }}">Marketplace title</label></div>
+                        <span class="marketplace-sync-targets">Syncs to{% if item['printify_product_id'] %} Printify{% endif %}{% if item['printify_product_id'] and item['external_listing_id'] %} +{% endif %}{% if item['external_listing_id'] %} Etsy{% endif %}</span>
+                    </div>
+                    <div class="marketplace-title-field">
+                        <input class="form-control" id="marketplace-title-{{ item['id'] }}" name="title" maxlength="140" value="{{ item['title'] }}" required>
+                        <div class="form-text">Use a clear customer title, up to 140 characters.</div>
+                    </div>
+                    <div class="marketplace-title-actions">
+                        <div class="form-check"><input class="form-check-input" id="confirm-title-{{ item['id'] }}" name="confirmed" type="checkbox" value="true" required><label class="form-check-label" for="confirm-title-{{ item['id'] }}">I approve changing the external title</label></div>
+                        <button class="btn btn-primary" type="submit">Save &amp; sync</button>
+                    </div>
                 </form>
                 {% endif %}
                 {% endfor %}

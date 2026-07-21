@@ -16,6 +16,7 @@ from web.etsy_api import (
     upload_etsy_listing_image,
 )
 from web.marketplace_export import _ordered_listing_images
+from web.listing_writer import customer_etsy_description
 
 
 def listing_tags(listing) -> list[str]:
@@ -51,6 +52,7 @@ def build_etsy_sync_preview(listing) -> dict:
     inventory = get_etsy_listing_inventory(external_id)
     sections = list_etsy_shop_sections()
     desired_section = (listing["etsy_section_name"] or "").strip()
+    desired_description = customer_etsy_description(listing)
     current_section = next(
         (
             section.get("title", "")
@@ -69,8 +71,8 @@ def build_etsy_sync_preview(listing) -> dict:
     changes = [
         {"field": "Title", "before": remote.get("title", ""), "after": listing["title"],
          "changed": remote.get("title", "") != listing["title"]},
-        {"field": "Description", "before": remote.get("description", ""), "after": listing["description"] or "",
-         "changed": remote.get("description", "") != (listing["description"] or "")},
+        {"field": "Description", "before": remote.get("description", ""), "after": desired_description,
+         "changed": remote.get("description", "") != desired_description},
         {"field": "Tags / SEO", "before": ", ".join(remote_tags), "after": ", ".join(local_tags),
          "changed": remote_tags != local_tags},
         {"field": "Listing images", "before": f"{len(remote_images)} Etsy image(s)",
@@ -122,7 +124,7 @@ def sync_etsy_listing(listing) -> dict:
     update_etsy_listing(
         listing_id,
         title=listing["title"],
-        description=listing["description"] or "",
+        description=customer_etsy_description(listing),
         tags=listing_tags(listing),
     )
     remote_state = preview.get("remote", {}).get("state", "")

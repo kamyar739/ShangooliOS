@@ -455,6 +455,51 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(certification["height"], 1200)
         self.assertTrue(db.get_artwork_production("CEL-001")["print_master_ready"])
 
+    def test_generated_print_files_awaiting_crop_approval_need_review(self):
+        with db.get_connection() as connection:
+            artwork_id = connection.execute(
+                "SELECT id FROM artworks WHERE artwork_code='CEL-001'"
+            ).fetchone()["id"]
+            connection.executemany(
+                "INSERT INTO artwork_files "
+                "(artwork_id, role, relative_path, stored_filename, original_filename) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    (artwork_id, "source", "source.png", "source.png", "source.png"),
+                    (artwork_id, "print_master", "master.png", "master.png", "master.png"),
+                    *[
+                        (
+                            artwork_id, f"ratio:{ratio}", f"{ratio}.png",
+                            f"{ratio}.png", f"{ratio}.png",
+                        )
+                        for ratio in ("3:2", "4:3", "5:4", "14:11")
+                    ],
+                ],
+            )
+            connection.execute(
+                "UPDATE artwork_production SET original_approved=1, "
+                "print_master_ready=1, ratio_exports_ready=0 WHERE artwork_id=?",
+                (artwork_id,),
+            )
+            connection.commit()
+
+        page = self.client.get("/artworks/CEL-001?step=print")
+        workflow = page.text[page.text.index('aria-label="Artwork workflow steps"'):]
+        self.assertIn("Print files", workflow)
+        self.assertIn("Needs review", workflow)
+
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE artwork_production SET print_master_ready=0 WHERE artwork_id=?",
+                (artwork_id,),
+            )
+            connection.commit()
+        stale_page = self.client.get("/artworks/CEL-001?step=print")
+        stale_workflow = stale_page.text[
+            stale_page.text.index('aria-label="Artwork workflow steps"'):
+        ]
+        self.assertIn("Out of date", stale_workflow)
+
     def test_collection_order_is_saved_and_used_by_dashboard(self):
         with db.get_connection() as connection:
             brand_id = connection.execute(

@@ -316,6 +316,12 @@ def _workflow_navigation(
     certification = get_artwork_certification(artwork["artwork_code"])
     has_source = "source" in roles
     has_print_files = "print_master" in roles or any(role.startswith("ratio:") for role in roles)
+    required_ratio_roles = {
+        f"ratio:{ratio.strip()}"
+        for ratio in (production["required_ratios"] or "").split(",")
+        if ratio.strip()
+    }
+    has_all_ratio_files = bool(required_ratio_roles) and required_ratio_roles.issubset(roles)
     has_mockups = any(role.startswith("mockup:") for role in roles)
     has_listing_work = bool(listing or get_artwork_listing_content(artwork["artwork_code"])["etsy_title"])
     print_complete = bool(production["print_master_ready"] and production["ratio_exports_ready"])
@@ -351,7 +357,11 @@ def _workflow_navigation(
         ),
         stage(
             "print", "Print files",
-            "complete" if print_complete else "out_of_date" if has_print_files else "not_started",
+            "complete" if print_complete
+            else "out_of_date" if has_print_files and not production["print_master_ready"]
+            else "needs_review" if has_all_ratio_files
+            else "in_progress" if has_print_files
+            else "not_started",
             print_complete,
         ),
         stage(
