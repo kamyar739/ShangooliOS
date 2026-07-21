@@ -96,6 +96,7 @@ from web.printify_handoff import build_printify_handoff, inspect_printify_handof
 from web.printify_api import (
     PrintifyAPI,
     PrintifyAPIError,
+    PrintifyPublishPending,
     clear_printify_local_config,
     clear_printify_runtime,
     complete_printify_runtime,
@@ -108,6 +109,7 @@ from web.printify_api import (
     save_printify_local_config,
     variant_orientation,
     update_printify_product_artwork,
+    wait_for_product_unlock,
 )
 from web.template_packs import DEFAULT_TEMPLATE_PACK, template_pack_options
 from web.print_master import build_print_master, load_print_master_manifest
@@ -2022,13 +2024,16 @@ def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
         if item["status"] == "published"
         and item["printify_product_id"] and item["external_listing_id"]
     ), None)
+    update_pending = False
     if live_listing:
-        update_artwork_everywhere(
+        update_result = update_artwork_everywhere(
             artwork_code, live_listing["id"], upload=None, confirmed=True
         )
+        update_pending = "update_pending=1" in update_result.headers.get("location", "")
     return RedirectResponse(
         f"/artworks/{artwork_code.upper()}?ai_upscale_approved=1"
-        f"{'&updated_everywhere=1' if live_listing else ''}#artwork-certification",
+        f"{'&update_pending=1' if update_pending else '&updated_everywhere=1' if live_listing else ''}"
+        "#artwork-certification",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2099,19 +2104,102 @@ def update_artwork_everywhere(
             api, product_id=listing["printify_product_id"], listing=listing,
             files_by_role=files_by_role,
         )
+        record_publishing_recovery(
+            listing_id, "update_printify_ready",
+            "The new artwork is saved in Printify and is ready to publish.",
+        )
         set_artwork_production_flags(
             artwork_code, print_master_ready=True, ratio_exports_ready=True,
             mockups_ready=True, original_approved=True,
         )
+        api.publish_product(listing["printify_product_id"])
+        mark_printify_publish_requested(listing_id)
+        record_publishing_recovery(
+            listing_id, "update_waiting_for_printify",
+            "Printify is publishing the new artwork. The upload will not be repeated.",
+        )
+        wait_for_product_unlock(api, listing["printify_product_id"])
+        record_publishing_recovery(
+            listing_id, "update_waiting_for_etsy",
+            "Printify finished. ShangooliOS is applying the final Etsy details.",
+        )
         result = sync_etsy_listing(get_listing(listing_id))
         mark_etsy_synced(listing_id, result.get("state", ""))
+        record_publishing_recovery(
+            listing_id, "update_complete",
+            "Printify published the replacement and Etsy has the final ShangooliOS details.",
+        )
+    except PrintifyPublishPending as failure:
+        record_publishing_recovery(
+            listing_id, "update_waiting_for_printify", str(failure)
+        )
+        return RedirectResponse(
+            f"/artworks/{artwork_code.upper()}?update_pending=1#listing-workspace",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     except (ValueError, PrintifyAPIError, EtsyAPIError) as failure:
+        checkpoint = get_listing(listing_id)["publishing_recovery_stage"]
+        if checkpoint in {
+            "update_printify_ready", "update_waiting_for_printify", "update_waiting_for_etsy"
+        }:
+            record_publishing_recovery(listing_id, checkpoint, f"Paused safely: {failure}")
+            return RedirectResponse(
+                f"/artworks/{artwork_code.upper()}?update_pending=1#listing-workspace",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     finally:
         if upload:
             upload.file.close()
     return RedirectResponse(
         f"/artworks/{artwork_code.upper()}?updated_everywhere=1#listing-workspace",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/listings/{listing_id}/update-everywhere/recover")
+def recover_artwork_update_everywhere(artwork_code: str, listing_id: int):
+    artwork = get_artwork(artwork_code)
+    listing = get_listing(listing_id)
+    if artwork is None or listing is None or listing["artwork_code"] != artwork_code.upper():
+        raise HTTPException(status_code=404, detail="Artwork listing not found")
+    api = PrintifyAPI.from_env()
+    if api is None:
+        raise HTTPException(status_code=400, detail="Connect Printify before continuing")
+    stage = listing["publishing_recovery_stage"] or ""
+    try:
+        if stage == "update_printify_ready":
+            api.publish_product(listing["printify_product_id"])
+            mark_printify_publish_requested(listing_id)
+            record_publishing_recovery(
+                listing_id, "update_waiting_for_printify",
+                "Printify is publishing the new artwork. The upload was not repeated.",
+            )
+            stage = "update_waiting_for_printify"
+        if stage == "update_waiting_for_printify":
+            wait_for_product_unlock(api, listing["printify_product_id"])
+            record_publishing_recovery(
+                listing_id, "update_waiting_for_etsy",
+                "Printify finished. ShangooliOS is applying the final Etsy details.",
+            )
+            stage = "update_waiting_for_etsy"
+        if stage == "update_waiting_for_etsy":
+            result = sync_etsy_listing(get_listing(listing_id))
+            mark_etsy_synced(listing_id, result.get("state", ""))
+            record_publishing_recovery(
+                listing_id, "update_complete",
+                "Printify published the replacement and Etsy has the final ShangooliOS details.",
+            )
+    except PrintifyPublishPending as failure:
+        record_publishing_recovery(
+            listing_id, "update_waiting_for_printify", str(failure)
+        )
+    except (ValueError, PrintifyAPIError, EtsyAPIError) as failure:
+        current = get_listing(listing_id)["publishing_recovery_stage"] or stage
+        record_publishing_recovery(listing_id, current, f"Paused safely: {failure}")
+    completed = get_listing(listing_id)["publishing_recovery_stage"] == "update_complete"
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?{'updated_everywhere' if completed else 'update_pending'}=1#listing-workspace",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

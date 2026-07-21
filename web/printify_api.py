@@ -3,12 +3,17 @@ import json
 import math
 import os
 import re
+import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
 class PrintifyAPIError(RuntimeError):
+    pass
+
+
+class PrintifyPublishPending(RuntimeError):
     pass
 
 
@@ -275,6 +280,28 @@ class PrintifyAPI:
                 "shipping_template": True,
             },
         )
+
+
+def wait_for_product_unlock(
+    api, product_id: str, *, attempts: int = 15, delay_seconds: float = 1.0
+):
+    """Wait for Printify to finish publishing before Etsy is synchronized."""
+    saw_locked = False
+    consecutive_unlocked = 0
+    for attempt in range(attempts):
+        product = api.get_product(product_id)
+        if product.get("is_locked", False):
+            saw_locked = True
+            consecutive_unlocked = 0
+        else:
+            consecutive_unlocked += 1
+            if saw_locked or consecutive_unlocked >= 2:
+                return product
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds)
+    raise PrintifyPublishPending(
+        "Printify is still publishing the updated artwork. Nothing needs to be uploaded again."
+    )
 
 
 def poster_blueprints(

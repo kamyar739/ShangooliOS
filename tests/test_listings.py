@@ -662,6 +662,114 @@ class ListingReadinessTests(ListingTests):
         self.assertEqual(listing["publishing_recovery_stage"], "waiting_for_etsy")
         self.assertIn("found and linked", listing["publishing_recovery_message"])
 
+    def test_artwork_update_recovery_finishes_without_repeating_publish(self):
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="published",
+        )
+        self._save_printify(listing_id)
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE listings SET external_listing_id='123456789', "
+                "marketplace_url='https://www.etsy.com/listing/123456789/unbound' WHERE id=?",
+                (listing_id,),
+            )
+            connection.commit()
+        db.record_publishing_recovery(
+            listing_id, "update_waiting_for_printify", "Printify is publishing."
+        )
+        api = MagicMock()
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=api),
+            patch("web.app.wait_for_product_unlock", return_value={"is_locked": False}) as wait,
+            patch("web.app.sync_etsy_listing", return_value={"state": "active"}) as sync,
+        ):
+            response = self.client.post(
+                f"/artworks/CEL-001/listings/{listing_id}/update-everywhere/recover",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("updated_everywhere=1", response.headers["location"])
+        api.publish_product.assert_not_called()
+        wait.assert_called_once_with(api, "printify-123")
+        sync.assert_called_once()
+        self.assertEqual(
+            db.get_listing(listing_id)["publishing_recovery_stage"], "update_complete"
+        )
+
+    def test_artwork_update_recovery_publishes_saved_printify_change_once(self):
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="published",
+        )
+        self._save_printify(listing_id)
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE listings SET external_listing_id='123456789' WHERE id=?",
+                (listing_id,),
+            )
+            connection.commit()
+        db.record_publishing_recovery(
+            listing_id, "update_printify_ready", "The replacement is saved."
+        )
+        api = MagicMock()
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=api),
+            patch("web.app.wait_for_product_unlock", return_value={"is_locked": False}),
+            patch("web.app.sync_etsy_listing", return_value={"state": "active"}),
+        ):
+            response = self.client.post(
+                f"/artworks/CEL-001/listings/{listing_id}/update-everywhere/recover",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        api.publish_product.assert_called_once_with("printify-123")
+        self.assertIsNotNone(
+            db.get_listing(listing_id)["printify_publish_requested_at"]
+        )
+        self.assertEqual(
+            db.get_listing(listing_id)["publishing_recovery_stage"], "update_complete"
+        )
+
+    def test_artwork_update_recovery_retries_only_final_etsy_sync(self):
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="published",
+        )
+        self._save_printify(listing_id)
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE listings SET external_listing_id='123456789' WHERE id=?",
+                (listing_id,),
+            )
+            connection.commit()
+        db.record_publishing_recovery(
+            listing_id, "update_waiting_for_etsy", "Etsy is temporarily busy."
+        )
+        api = MagicMock()
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=api),
+            patch("web.app.wait_for_product_unlock") as wait,
+            patch("web.app.sync_etsy_listing", return_value={"state": "active"}) as sync,
+        ):
+            response = self.client.post(
+                f"/artworks/CEL-001/listings/{listing_id}/update-everywhere/recover",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        api.publish_product.assert_not_called()
+        wait.assert_not_called()
+        sync.assert_called_once()
+        self.assertEqual(
+            db.get_listing(listing_id)["publishing_recovery_stage"], "update_complete"
+        )
+
     def test_publish_listing_requires_readiness(self):
         listing_id = db.create_listing(
             "CEL-001", marketplace="Etsy", product="Poster",

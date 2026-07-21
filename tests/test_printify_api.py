@@ -19,6 +19,7 @@ from web.printify_api import (
     save_printify_local_config,
     update_printify_product_artwork,
     variant_orientation,
+    wait_for_product_unlock,
 )
 
 
@@ -285,6 +286,20 @@ class PrintifyAPITests(unittest.TestCase):
         self.assertTrue(payload["title"])
         self.assertTrue(payload["images"])
         self.assertTrue(payload["variants"])
+
+    def test_wait_for_product_unlock_checks_until_printify_finishes(self):
+        api = MagicMock()
+        api.get_product.side_effect = [
+            {"id": "product-456", "is_locked": True},
+            {"id": "product-456", "is_locked": False},
+        ]
+        with patch("web.printify_api.time.sleep") as sleep:
+            product = wait_for_product_unlock(
+                api, "product-456", attempts=3, delay_seconds=0.01
+            )
+        self.assertFalse(product["is_locked"])
+        self.assertEqual(api.get_product.call_count, 2)
+        sleep.assert_called_once()
 
 
 if __name__ == "__main__":
