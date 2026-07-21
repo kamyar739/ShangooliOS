@@ -7,6 +7,7 @@ from web.mockup_generator import (
     GENERATED_SLOTS,
     generate_listing_image,
     generate_mockups,
+    generate_scene_mockup,
 )
 
 
@@ -45,6 +46,27 @@ def test_generate_one_listing_image_only_creates_requested_slot(tmp_path: Path):
     assert result["slot_key"] == "office"
     assert result["path"].is_file()
     assert len(list(output.glob("*.jpg"))) == 1
+
+
+def test_generate_scene_mockup_uses_saved_room_and_artwork_placement(tmp_path: Path):
+    source = tmp_path / "source.png"
+    scene_path = tmp_path / "living-room.png"
+    Image.new("RGB", (1200, 800), "#cc6633").save(source)
+    Image.new("RGB", (1200, 800), "#ddd6cb").save(scene_path)
+    result = generate_scene_mockup(
+        artwork={"artwork_code": "CEL-999"}, source_path=source,
+        scene_path=scene_path,
+        scene={
+            "name": "Bright Sofa Wall", "placement_x": 25,
+            "placement_y": 10, "placement_width": 50,
+            "placement_height": 55,
+        },
+        output_folder=tmp_path / "mockups",
+    )
+    assert result["role"] == "mockup:room"
+    with Image.open(result["path"]) as generated:
+        assert generated.size == CANVAS_SIZE
+        assert generated.format == "JPEG"
 
 
 def test_generate_mockups_rejects_pdf(tmp_path: Path):

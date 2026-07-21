@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Mockup Studio — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set primary_nav_active = "mockup_studio" %}
+  {% include "components/global_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <div class="page-header mb-4">
+      <div><div class="eyebrow">Reusable scenes</div><h1 class="display-6 fw-bold mb-2">Mockup Studio</h1><p class="text-muted mb-0">Build the room-scene library once, then reuse it across your artwork.</p></div>
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-scene-modal">+ Add scene</button>
+    </div>
+    {% if request.query_params.get('scene_saved') %}<div class="alert alert-success">Scene saved and ready to use from an artwork page.</div>{% endif %}
+    {% if request.query_params.get('scene_updated') %}<div class="alert alert-success">Scene placement updated.</div>{% endif %}
+    {% if request.query_params.get('scene_disabled') %}<div class="alert alert-success">Scene removed from the active library.</div>{% endif %}
+    {% if scenes %}
+      {% for room_group in scenes|groupby('room_type') %}
+      <section class="mb-5">
+        <h2 class="h4 mb-3">{{ room_group.grouper }}</h2>
+        <div class="row g-4">
+          {% for scene in room_group.list %}
+          <div class="col-md-6 col-xl-4">
+            <article class="card app-card h-100 mockup-scene-card">
+              <div class="mockup-scene-preview"><img src="/mockup-studio/scenes/{{ scene['id'] }}/image" alt="{{ scene['name'] }} room scene" loading="lazy"><span class="mockup-scene-placement" style="left:{{ scene['placement_x'] }}%;top:{{ scene['placement_y'] }}%;width:{{ scene['placement_width'] }}%;height:{{ scene['placement_height'] }}%"><span>Artwork area</span></span></div>
+              <div class="card-body"><div class="d-flex justify-content-between gap-2"><h3 class="h5 mb-1">{{ scene['name'] }}</h3><span class="badge text-bg-light border">{{ scene['orientation']|title }}</span></div><p class="small text-muted mb-1">Artwork area: {{ scene['placement_width']|round|int }}% × {{ scene['placement_height']|round|int }}%</p>{% if scene['source_url'] %}<a class="small" href="{{ scene['source_url'] }}" target="_blank" rel="noopener noreferrer">{{ scene['creator'] or 'Scene source' }}{% if scene['license_name'] %} · {{ scene['license_name'] }}{% endif %} ↗</a>{% endif %}
+                <details class="mt-3"><summary class="small fw-semibold">Adjust placement</summary><form class="row g-2 mt-1" method="post" action="/mockup-studio/scenes/{{ scene['id'] }}/placement"><div class="col-6"><label class="form-label small" for="left-{{ scene['id'] }}">Left %</label><input class="form-control form-control-sm" id="left-{{ scene['id'] }}" type="number" step="0.5" min="0" max="100" name="placement_x" value="{{ scene['placement_x'] }}"></div><div class="col-6"><label class="form-label small" for="top-{{ scene['id'] }}">Top %</label><input class="form-control form-control-sm" id="top-{{ scene['id'] }}" type="number" step="0.5" min="0" max="100" name="placement_y" value="{{ scene['placement_y'] }}"></div><div class="col-6"><label class="form-label small" for="width-{{ scene['id'] }}">Width %</label><input class="form-control form-control-sm" id="width-{{ scene['id'] }}" type="number" step="0.5" min="1" max="100" name="placement_width" value="{{ scene['placement_width'] }}"></div><div class="col-6"><label class="form-label small" for="height-{{ scene['id'] }}">Height %</label><input class="form-control form-control-sm" id="height-{{ scene['id'] }}" type="number" step="0.5" min="1" max="100" name="placement_height" value="{{ scene['placement_height'] }}"></div><div class="col-12 d-grid"><button class="btn btn-sm btn-primary" type="submit">Save placement</button></div></form><form class="mt-2" method="post" action="/mockup-studio/scenes/{{ scene['id'] }}/disable" onsubmit="return confirm('Remove this scene from the active library?')"><button class="btn btn-sm btn-outline-danger w-100" type="submit">Disable scene</button></form></details>
+              </div>
+            </article>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state"><h2 class="h4">No room scenes yet</h2><p class="text-muted">Add your first living room, bedroom, office, or gallery image.</p><button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-scene-modal">Add first scene</button></div>
+    {% endif %}
+  </main>
+</div>
+
+<div class="modal fade" id="new-scene-modal" tabindex="-1" aria-labelledby="new-scene-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg"><div class="modal-content"><form method="post" action="/mockup-studio/scenes" enctype="multipart/form-data">
+    <div class="modal-header"><div><div class="eyebrow">Scene library</div><h2 class="modal-title h4" id="new-scene-title">Add reusable scene</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body"><div class="row g-3">
+      <div class="col-md-7"><label class="form-label" for="scene-name">Scene name</label><input class="form-control" id="scene-name" name="name" required placeholder="Bright sofa wall"></div>
+      <div class="col-md-5"><label class="form-label" for="scene-room">Room group</label><select class="form-select" id="scene-room" name="room_type"><option>Living room</option><option>Bedroom</option><option>Dining room</option><option>Office</option><option>Nursery</option><option>Entryway</option><option>Gallery wall</option><option>Frame detail</option></select></div>
+      <div class="col-md-6"><label class="form-label" for="scene-upload">Room photograph</label><input class="form-control" id="scene-upload" type="file" name="upload" accept=".jpg,.jpeg,.png,.webp" required></div>
+      <div class="col-md-6"><label class="form-label" for="scene-orientation">Artwork orientation</label><select class="form-select" id="scene-orientation" name="orientation"><option value="any">Any orientation</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option><option value="square">Square</option></select></div>
+      <div class="col-12"><div class="alert alert-light border mb-0"><strong>Artwork placement</strong><div class="small text-muted">Enter percentages measured from the room image. These defaults place the artwork in the centered upper half; they can be refined for each photograph.</div></div></div>
+      <div class="col-6 col-md-3"><label class="form-label" for="scene-left">From left</label><div class="input-group"><input class="form-control" id="scene-left" type="number" name="placement_x" value="25" min="0" max="100" step="0.5"><span class="input-group-text">%</span></div></div>
+      <div class="col-6 col-md-3"><label class="form-label" for="scene-top">From top</label><div class="input-group"><input class="form-control" id="scene-top" type="number" name="placement_y" value="15" min="0" max="100" step="0.5"><span class="input-group-text">%</span></div></div>
+      <div class="col-6 col-md-3"><label class="form-label" for="scene-width">Area width</label><div class="input-group"><input class="form-control" id="scene-width" type="number" name="placement_width" value="50" min="1" max="100" step="0.5"><span class="input-group-text">%</span></div></div>
+      <div class="col-6 col-md-3"><label class="form-label" for="scene-height">Area height</label><div class="input-group"><input class="form-control" id="scene-height" type="number" name="placement_height" value="50" min="1" max="100" step="0.5"><span class="input-group-text">%</span></div></div>
+      <div class="col-12"><hr><div class="fw-semibold mb-2">Source and usage rights</div></div>
+      <div class="col-md-6"><label class="form-label" for="scene-source-url">Source URL</label><input class="form-control" id="scene-source-url" type="url" name="source_url" placeholder="https://..."></div>
+      <div class="col-md-3"><label class="form-label" for="scene-creator">Creator</label><input class="form-control" id="scene-creator" name="creator"></div>
+      <div class="col-md-3"><label class="form-label" for="scene-license">License</label><input class="form-control" id="scene-license" name="license_name" placeholder="Pexels License"></div>
+    </div></div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Save scene</button></div>
+  </form></div></div>
+</div>
+{% endblock %}

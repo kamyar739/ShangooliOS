@@ -55,7 +55,9 @@
 </div>
 
 <div class="row g-4">
-    {% for artwork in artworks %}
+    {% for sequence_item in collection_sequence %}
+    {% if sequence_item['artwork'] %}
+    {% set artwork = sequence_item['artwork'] %}
     <div class="col-md-6 col-lg-4">
         {% set card_variant = "default" %}
         {% set heading_tag = "h2" %}
@@ -64,6 +66,23 @@
         {% set show_production = true %}
         {% include "components/artwork_card.html" %}
     </div>
+    {% else %}
+    {% set slot_number = sequence_item['number'] %}
+    <div class="col-md-6 col-lg-4">
+        {% if collection['status'] != 'archived' %}<a class="card-link" href="/collections/{{ collection['code'] }}/new">{% endif %}
+        <div class="card app-card artwork-card collection-empty-artwork-card h-100">
+            <div class="artwork-card-media">
+                <div class="artwork-card-placeholder"><span>Empty artwork slot</span></div>
+            </div>
+            <div class="card-body">
+                <span class="code-pill">{{ collection['code'] }}-{{ '%03d'|format(slot_number) }}</span>
+                <h2 class="h5 mt-3 mb-1 text-dark">Add artwork</h2>
+                <span class="text-muted">Open sequence slot</span>
+            </div>
+        </div>
+        {% if collection['status'] != 'archived' %}</a>{% endif %}
+    </div>
+    {% endif %}
     {% else %}
     <div class="col-12">
         <div class="empty-state">No active artworks yet.</div>

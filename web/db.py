@@ -65,6 +65,34 @@ def ensure_production_schema():
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mockup_scenes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                room_type TEXT NOT NULL,
+                orientation TEXT NOT NULL,
+                image_path TEXT NOT NULL,
+                placement_x REAL NOT NULL DEFAULT 25,
+                placement_y REAL NOT NULL DEFAULT 15,
+                placement_width REAL NOT NULL DEFAULT 50,
+                placement_height REAL NOT NULL DEFAULT 50,
+                source_url TEXT,
+                creator TEXT,
+                license_name TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        scene_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mockup_scenes)")
+        }
+        for column_name in ("source_url", "creator", "license_name"):
+            if column_name not in scene_columns:
+                conn.execute(f"ALTER TABLE mockup_scenes ADD COLUMN {column_name} TEXT")
+
 
         conn.execute(
             """
@@ -1222,6 +1250,101 @@ def save_artwork_mockup_order(artwork_code, ordered_slot_keys):
                 for position, slot_key in enumerate(normalized, start=1)
             ],
         )
+        conn.commit()
+
+
+def list_mockup_scenes(*, orientation=None):
+    with get_connection() as conn:
+        if orientation and orientation != "any":
+            return conn.execute(
+                """
+                SELECT * FROM mockup_scenes
+                WHERE active = 1 AND orientation IN (?, 'any')
+                ORDER BY room_type, name
+                """,
+                (orientation,),
+            ).fetchall()
+        return conn.execute(
+            """
+            SELECT * FROM mockup_scenes
+            WHERE active = 1
+            ORDER BY room_type, name
+            """
+        ).fetchall()
+
+
+def get_mockup_scene(scene_id):
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM mockup_scenes WHERE id = ?",
+            (scene_id,),
+        ).fetchone()
+
+
+def create_mockup_scene(
+    *, name, room_type, orientation, image_path,
+    placement_x, placement_y, placement_width, placement_height,
+    source_url="", creator="", license_name="",
+):
+    values = [placement_x, placement_y, placement_width, placement_height]
+    if any(value < 0 or value > 100 for value in values):
+        raise ValueError("Scene placement values must be between 0 and 100")
+    if placement_x + placement_width > 100 or placement_y + placement_height > 100:
+        raise ValueError("The artwork placement must fit inside the scene")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO mockup_scenes (
+                name, room_type, orientation, image_path,
+                placement_x, placement_y, placement_width, placement_height,
+                source_url, creator, license_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                name.strip(), room_type.strip(), orientation.strip(), image_path,
+                placement_x, placement_y, placement_width, placement_height,
+                source_url.strip(), creator.strip(), license_name.strip(),
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def update_mockup_scene_placement(
+    scene_id, *, placement_x, placement_y, placement_width, placement_height,
+):
+    values = [placement_x, placement_y, placement_width, placement_height]
+    if any(value < 0 or value > 100 for value in values):
+        raise ValueError("Scene placement values must be between 0 and 100")
+    if placement_x + placement_width > 100 or placement_y + placement_height > 100:
+        raise ValueError("The artwork placement must fit inside the scene")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mockup_scenes
+            SET placement_x = ?, placement_y = ?, placement_width = ?,
+                placement_height = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (placement_x, placement_y, placement_width, placement_height, scene_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Mockup scene not found")
+        conn.commit()
+
+
+def disable_mockup_scene(scene_id):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mockup_scenes
+            SET active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (scene_id,),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Mockup scene not found")
         conn.commit()
 
 

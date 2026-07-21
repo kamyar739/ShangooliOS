@@ -44,7 +44,7 @@
     <div class="collection-order-status mb-5" data-collection-order-status aria-live="polite">Drag collections to reorder</div>
     <div class="dashboard-workspace-heading mb-3">
       {% if selected_collection %}
-      <div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="h4 mb-1">{{ selected_collection['name'] }} artwork</h2><p class="text-muted mb-0">Artwork belonging to the selected collection.</p></div>
+      <div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="h4 mb-1"><a class="collection-heading-link" href="/collections/{{ selected_collection['code'] }}">{{ selected_collection['name'] }} artwork</a></h2><p class="text-muted mb-0">Artwork belonging to the selected collection.</p></div>
       <div class="d-flex gap-2 flex-wrap">
         {% if retired_artworks %}
         <a class="btn btn-sm {% if show_retired %}btn-secondary{% else %}btn-outline-secondary{% endif %}" href="/collections?collection={{ selected_collection['code'] }}{% if not show_retired %}&show_retired=true{% endif %}">{% if show_retired %}Hide{% else %}Show{% endif %} retired ({{ retired_artworks|length }})</a>

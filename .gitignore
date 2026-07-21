@@ -42,6 +42,7 @@ __pycache__/
 # Production database
 # -----------------------------
 data/shangooli.db
+data/mockup_scenes/
 
 # -----------------------------
 # Logs

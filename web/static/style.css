@@ -129,6 +129,39 @@ body {
     justify-content: space-between;
 }
 
+.collection-heading-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.collection-heading-link:hover,
+.collection-heading-link:focus-visible {
+    color: var(--brand-dark);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+}
+
+.mockup-scene-card { overflow: hidden; }
+.mockup-scene-preview { position: relative; }
+.mockup-scene-preview > img {
+    background: #eef0f5;
+    display: block;
+    height: auto;
+    width: 100%;
+}
+.mockup-scene-placement {
+    align-items: center;
+    background: rgba(90, 79, 207, 0.13);
+    border: 2px dashed #5a4fcf;
+    color: #453bb3;
+    display: flex;
+    font-size: 0.7rem;
+    font-weight: 750;
+    justify-content: center;
+    position: absolute;
+}
+.mockup-scene-placement span { background: rgba(255,255,255,.84); padding: .15rem .3rem; }
+
 .metric-action {
     color: #686f80;
     font-size: 0.76rem;
@@ -452,6 +485,7 @@ body {
     .production-checklist {
         grid-template-columns: 1fr;
     }
+
 }
 
 /* Desktop collection → artwork → publishing workflow */
@@ -1094,6 +1128,16 @@ body.is-waiting {
 @media (max-width: 1100px) {
     .workflow-shell {
         grid-template-columns: 220px minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .workflow-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .workflow-sidebar {
+        position: static;
     }
 }
 
