@@ -129,6 +129,18 @@ body {
     justify-content: space-between;
 }
 
+.collection-heading-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.collection-heading-link:hover,
+.collection-heading-link:focus-visible {
+    color: var(--brand-dark);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+}
+
 .metric-action {
     color: #686f80;
     font-size: 0.76rem;

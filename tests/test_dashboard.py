@@ -132,6 +132,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('aria-current="true"', response.text)
         self.assertIn("Viewing artwork below", response.text)
         self.assertIn("Celebration artwork", response.text)
+        self.assertIn(
+            'class="collection-heading-link" href="/collections/CEL"',
+            response.text,
+        )
         self.assertIn("Unbound", response.text)
         self.assertIn('class="collection-gallery', response.text)
         self.assertIn('data-collection-gallery', response.text)
