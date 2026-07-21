@@ -328,6 +328,7 @@
       <div><h2 class="h4 mb-2">Artwork Certification</h2><p class="text-secondary mb-0">Runs automatically whenever the original artwork or print-ready file is uploaded.</p></div>
       {% if certification %}<span class="badge {% if certification['score'] >= 80 %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6">{{ certification['score'] }}% — {{ certification['status'] }}</span>{% endif %}
     </div>
+    {% if request.query_params.get('quality_checked') %}<div class="alert alert-success">Quality check completed and saved.</div>{% endif %}
     {% if certification %}
     {% if request.query_params.get('certification_approved') %}<div class="alert alert-success">Current source reviewed and approved.</div>{% endif %}
     <div class="row g-3 mb-4">
@@ -369,7 +370,15 @@
       <button class="btn btn-primary" type="submit" onclick="return confirm('Approve this source artwork for production?')">Approve current source</button>
     </form>
     {% endif %}
-    {% else %}<div class="alert alert-secondary mb-0">Upload the original artwork or a print-ready file to run certification.</div>{% endif %}
+    {% elif production_summary['source_assignment'] %}
+    <div class="empty-state compact-empty-state">
+      <h3 class="h5">Quality check has not been run</h3>
+      <p class="text-secondary">The source file is already saved. Run the check to calculate dimensions, effective PPI, print recommendations, and enhancement eligibility. Nothing will be published.</p>
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/certification/run" data-long-operation>
+        <button class="btn btn-primary" type="submit">Run quality check</button>
+      </form>
+    </div>
+    {% else %}<div class="alert alert-secondary mb-0">Upload the original artwork before running its quality check.</div>{% endif %}
   </div>
 </div>
 
