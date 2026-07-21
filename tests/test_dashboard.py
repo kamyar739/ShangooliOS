@@ -203,6 +203,16 @@ class DashboardTests(unittest.TestCase):
         collection_page = self.client.get("/collections/CEL")
         self.assertIn('href="/collections?collection=CEL"', collection_page.text)
         self.assertIn("All collections", collection_page.text)
+        self.assertIn("Empty artwork slot", collection_page.text)
+        self.assertIn("CEL-003", collection_page.text)
+        detail_grid = collection_page.text[
+            collection_page.text.index('class="row g-4"'):
+            collection_page.text.index("Archived artwork")
+            if "Archived artwork" in collection_page.text else len(collection_page.text)
+        ]
+        self.assertLess(detail_grid.index("CEL-001"), detail_grid.index("CEL-002"))
+        self.assertLess(detail_grid.index("CEL-002"), detail_grid.index("CEL-003"))
+        self.assertLess(detail_grid.index("CEL-003"), detail_grid.index("CEL-010"))
 
         new_collection = self.client.get("/collections/new")
         self.assertIn('href="/collections"', new_collection.text)

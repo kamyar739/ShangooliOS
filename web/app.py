@@ -323,6 +323,20 @@ def home(request: Request, dashboard_view: str = Query("artworks", alias="view")
     )
 
 
+def build_collection_sequence(collection, artworks):
+    artworks_by_number = {
+        int(item["artwork_code"].rsplit("-", 1)[-1]): item for item in artworks
+    }
+    upper_bound = max(
+        collection["target_artwork_count"] or 0,
+        max(artworks_by_number, default=0),
+    )
+    return [
+        {"number": number, "artwork": artworks_by_number.get(number)}
+        for number in range(1, upper_bound + 1)
+    ]
+
+
 @app.get("/collections")
 def collections_page(
     request: Request,
@@ -343,23 +357,9 @@ def collections_page(
         context["collection_artworks"] = artworks
         context["retired_artworks"] = retired_artworks
         context["show_retired"] = show_retired
-        used_numbers = {
-            int(item["artwork_code"].rsplit("-", 1)[-1]) for item in artworks
-        }
-        upper_bound = max(
-            collection["target_artwork_count"] or 0,
-            max(used_numbers, default=0),
+        context["collection_sequence"] = build_collection_sequence(
+            collection, artworks
         )
-        context["collection_empty_numbers"] = [
-            number for number in range(1, upper_bound + 1) if number not in used_numbers
-        ]
-        artworks_by_number = {
-            int(item["artwork_code"].rsplit("-", 1)[-1]): item for item in artworks
-        }
-        context["collection_sequence"] = [
-            {"number": number, "artwork": artworks_by_number.get(number)}
-            for number in range(1, upper_bound + 1)
-        ]
     return templates.TemplateResponse(
         request=request,
         name="collections_index.html",
@@ -1424,6 +1424,7 @@ def collection_page(request: Request, collection_code: str):
         context={
             "collection": collection,
             "artworks": artworks,
+            "collection_sequence": build_collection_sequence(collection, artworks),
             "archived_artworks": archived_artworks,
         },
     )
