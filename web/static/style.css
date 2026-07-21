@@ -1407,6 +1407,51 @@ body.is-waiting {
     white-space: nowrap;
 }
 
+.prompt-composer {
+    background: #f8f7ff;
+    border: 1px solid #dcd7fa;
+    border-radius: 0.9rem;
+    padding: 1rem;
+}
+
+.prompt-composer-heading {
+    align-items: flex-start;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+}
+
+.prompt-version {
+    background: #e9e5ff;
+    border-radius: 999px;
+    color: #5142b9;
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    font-weight: 750;
+    padding: 0.32rem 0.62rem;
+}
+
+.prompt-source-grid {
+    display: grid;
+    gap: 0.9rem;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+}
+
+.prompt-source-box {
+    background: #fff;
+    border: 1px solid #dedbea;
+    border-radius: 0.7rem;
+    color: #4f5668;
+    min-height: 7rem;
+    padding: 0.8rem;
+    white-space: pre-wrap;
+}
+
+.prompt-final-output {
+    background: #fff;
+    resize: vertical;
+}
+
 @media (max-width: 575.98px) {
     .marketplace-title-heading,
     .marketplace-title-actions {
@@ -1420,6 +1465,10 @@ body.is-waiting {
 
     .marketplace-title-actions .btn {
         width: 100%;
+    }
+
+    .prompt-source-grid {
+        grid-template-columns: 1fr;
     }
 }
 

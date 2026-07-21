@@ -18,6 +18,16 @@ def get_connection():
 
 def ensure_production_schema():
     with get_connection() as conn:
+        collection_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(collections)")
+        }
+        for column_name, column_type in (
+            ("creative_direction", "TEXT"),
+            ("negative_prompt", "TEXT"),
+            ("prompt_version", "INTEGER NOT NULL DEFAULT 1"),
+        ):
+            if collection_columns and column_name not in collection_columns:
+                conn.execute(f"ALTER TABLE collections ADD COLUMN {column_name} {column_type}")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS artwork_production (
@@ -134,6 +144,18 @@ def ensure_production_schema():
             )
             """
         )
+        intelligence_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(artwork_intelligence)")
+        }
+        for column_name, column_type in (
+            ("collection_prompt_snapshot", "TEXT"),
+            ("collection_negative_prompt_snapshot", "TEXT"),
+            ("collection_prompt_version", "INTEGER"),
+        ):
+            if column_name not in intelligence_columns:
+                conn.execute(
+                    f"ALTER TABLE artwork_intelligence ADD COLUMN {column_name} {column_type}"
+                )
 
         conn.execute(
             """
@@ -591,7 +613,8 @@ def get_collection(collection_code):
     with get_connection() as conn:
         collection = conn.execute(
             """
-            SELECT code, name, status, target_artwork_count, etsy_section_name
+            SELECT code, name, status, target_artwork_count, etsy_section_name,
+                   creative_direction, negative_prompt, prompt_version
             FROM collections
             WHERE code = ?
             """,
@@ -1127,7 +1150,10 @@ def update_artwork_status(artwork_code, status):
         conn.commit()
 
 
-def create_collection(code, name, target_artwork_count, status, etsy_section_name=None):
+def create_collection(
+    code, name, target_artwork_count, status, etsy_section_name=None,
+    creative_direction="", negative_prompt="",
+):
     code = code.strip().upper()
     name = name.strip()
     normalized_status = status.strip().lower()
@@ -1181,9 +1207,11 @@ def create_collection(code, name, target_artwork_count, status, etsy_section_nam
                 vertical,
                 target_artwork_count,
                 etsy_section_name,
+                creative_direction,
+                negative_prompt,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 brand["id"],
@@ -1193,6 +1221,8 @@ def create_collection(code, name, target_artwork_count, status, etsy_section_nam
                 "general",
                 target_artwork_count,
                 normalized_section,
+                creative_direction.strip() or None,
+                negative_prompt.strip() or None,
                 normalized_status,
             ),
         )
@@ -1207,6 +1237,8 @@ def update_collection(
     target_artwork_count,
     status,
     etsy_section_name=None,
+    creative_direction="",
+    negative_prompt="",
 ):
     code = collection_code.strip().upper()
     name = name.strip()
@@ -1247,6 +1279,11 @@ def update_collection(
                 name = ?,
                 target_artwork_count = ?,
                 etsy_section_name = ?,
+                prompt_version = prompt_version + CASE
+                    WHEN COALESCE(creative_direction, '') != ?
+                      OR COALESCE(negative_prompt, '') != ? THEN 1 ELSE 0 END,
+                creative_direction = ?,
+                negative_prompt = ?,
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE code = ?
@@ -1255,6 +1292,10 @@ def update_collection(
                 name,
                 target_artwork_count,
                 normalized_section,
+                creative_direction.strip(),
+                negative_prompt.strip(),
+                creative_direction.strip() or None,
+                negative_prompt.strip() or None,
                 normalized_status,
                 code,
             ),
@@ -1560,7 +1601,13 @@ def disable_mockup_scene(scene_id):
 def get_artwork_intelligence(artwork_code):
     with get_connection() as conn:
         artwork = conn.execute(
-            "SELECT id, theme FROM artworks WHERE artwork_code = ?",
+            """
+            SELECT a.id, a.theme, c.creative_direction, c.negative_prompt,
+                   c.prompt_version
+            FROM artworks AS a
+            JOIN collections AS c ON c.id = a.collection_id
+            WHERE a.artwork_code = ?
+            """,
             (artwork_code.upper(),),
         ).fetchone()
         if artwork is None:
@@ -1569,17 +1616,67 @@ def get_artwork_intelligence(artwork_code):
             "INSERT OR IGNORE INTO artwork_intelligence (artwork_id, theme) VALUES (?, ?)",
             (artwork["id"], artwork["theme"] or ""),
         )
+        conn.execute(
+            """
+            UPDATE artwork_intelligence
+            SET collection_prompt_snapshot = COALESCE(collection_prompt_snapshot, ?),
+                collection_negative_prompt_snapshot = COALESCE(collection_negative_prompt_snapshot, ?),
+                collection_prompt_version = COALESCE(collection_prompt_version, ?)
+            WHERE artwork_id = ?
+            """,
+            (
+                artwork["creative_direction"] or "",
+                artwork["negative_prompt"] or "",
+                artwork["prompt_version"] or 1,
+                artwork["id"],
+            ),
+        )
         conn.commit()
         return conn.execute(
             """
             SELECT theme, style, mood, primary_colors, suggested_room,
                    target_customer, generation_prompt, negative_prompt,
-                   ai_model, analysis_notes, analyzed_at
+                   ai_model, analysis_notes, analyzed_at,
+                   collection_prompt_snapshot,
+                   collection_negative_prompt_snapshot,
+                   collection_prompt_version
             FROM artwork_intelligence
             WHERE artwork_id = ?
             """,
             (artwork["id"],),
         ).fetchone()
+
+
+def apply_latest_collection_prompt(artwork_code):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE artwork_intelligence
+            SET collection_prompt_snapshot = (
+                    SELECT c.creative_direction FROM artworks AS a
+                    JOIN collections AS c ON c.id = a.collection_id
+                    WHERE a.id = artwork_intelligence.artwork_id
+                ),
+                collection_negative_prompt_snapshot = (
+                    SELECT c.negative_prompt FROM artworks AS a
+                    JOIN collections AS c ON c.id = a.collection_id
+                    WHERE a.id = artwork_intelligence.artwork_id
+                ),
+                collection_prompt_version = (
+                    SELECT c.prompt_version FROM artworks AS a
+                    JOIN collections AS c ON c.id = a.collection_id
+                    WHERE a.id = artwork_intelligence.artwork_id
+                ),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_id = (
+                SELECT id FROM artworks WHERE artwork_code = ?
+            )
+            """,
+            (artwork_code.upper(),),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork Intelligence not found")
+        conn.commit()
 
 
 def update_artwork_intelligence(artwork_code, **values):

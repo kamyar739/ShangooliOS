@@ -68,6 +68,17 @@ Edit {{ collection["name"] }} — ShangooliOS
                         <div class="form-text">ShangooliOS assigns every Etsy listing in this collection to this buyer-facing section.</div>
                     </div>
 
+                    <div class="mb-3">
+                        <label for="creative_direction" class="form-label">Collection creative direction</label>
+                        <textarea id="creative_direction" name="creative_direction" class="form-control" rows="5" placeholder="Shared visual language, palette, mood, composition, subjects, and texture.">{{ collection['creative_direction'] or '' }}</textarea>
+                        <div class="form-text">This becomes the reusable foundation for every artwork prompt in the collection.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="collection_negative_prompt" class="form-label">Collection exclusions</label>
+                        <textarea id="collection_negative_prompt" name="collection_negative_prompt" class="form-control" rows="3" placeholder="Shared elements, styles, or artifacts to avoid.">{{ collection['negative_prompt'] or '' }}</textarea>
+                    </div>
+
                     <div class="mb-4">
                         <label
                             for="collection_status"

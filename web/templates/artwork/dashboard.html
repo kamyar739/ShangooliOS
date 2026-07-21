@@ -169,8 +169,8 @@
         <div class="col-md-6"><label class="form-label">Suggested rooms</label><input class="form-control" name="suggested_room" value="{{ artwork_intelligence['suggested_room'] or '' }}"></div>
         <div class="col-md-6"><label class="form-label">Target customer</label><input class="form-control" name="target_customer" value="{{ artwork_intelligence['target_customer'] or '' }}"></div>
         <div class="col-md-6"><label class="form-label">AI model used</label><input class="form-control" name="ai_model" value="{{ artwork_intelligence['ai_model'] or '' }}" placeholder="Gemini, GPT Image, Midjourney..."></div>
-        <div class="col-12"><label class="form-label">Generation prompt</label><textarea class="form-control" name="generation_prompt" rows="4">{{ artwork_intelligence['generation_prompt'] or '' }}</textarea></div>
-        <div class="col-12"><label class="form-label">Negative prompt / exclusions</label><textarea class="form-control" name="negative_prompt" rows="2">{{ artwork_intelligence['negative_prompt'] or '' }}</textarea></div>
+        <div class="col-12"><label class="form-label">Piece direction</label><textarea class="form-control" name="generation_prompt" rows="4" placeholder="Describe what makes this individual artwork unique.">{{ artwork_intelligence['generation_prompt'] or '' }}</textarea><div class="form-text">Combined with the saved collection direction below.</div></div>
+        <div class="col-12"><label class="form-label">Piece exclusions</label><textarea class="form-control" name="negative_prompt" rows="2" placeholder="Additional things to avoid for this piece.">{{ artwork_intelligence['negative_prompt'] or '' }}</textarea></div>
         <div class="col-12"><label class="form-label">Analysis notes</label><textarea class="form-control" name="analysis_notes" rows="3">{{ artwork_intelligence['analysis_notes'] or '' }}</textarea></div>
       </div>
       <div class="d-flex flex-wrap align-items-center gap-3 mt-4">
@@ -178,8 +178,29 @@
         {% if artwork_intelligence['analyzed_at'] %}<span class="small text-secondary">Last analyzed {{ artwork_intelligence['analyzed_at'] }}</span>{% endif %}
       </div>
     </form>
+
+    <div class="prompt-composer mt-4">
+      <div class="prompt-composer-heading"><div><div class="eyebrow">Prompt composition</div><h3 class="h5 mb-1">Final generation prompt</h3><p class="text-secondary mb-0">Collection direction + this piece’s direction.</p></div><span class="prompt-version">Collection v{{ artwork_intelligence['collection_prompt_version'] }}</span></div>
+      {% if collection_prompt_outdated %}<div class="alert alert-warning py-2 mt-3 mb-0"><div class="d-flex flex-wrap align-items-center justify-content-between gap-2"><span>The collection direction has changed. This artwork still uses its saved version.</span><form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence/apply-collection-prompt"><button class="btn btn-sm btn-warning" type="submit">Apply latest direction</button></form></div></div>{% endif %}
+      {% if request.query_params.get('collection_prompt_applied') %}<div class="alert alert-success py-2 mt-3 mb-0">Latest collection direction applied to this artwork.</div>{% endif %}
+      <div class="prompt-source-grid mt-3">
+        <div><label class="form-label">Saved collection direction</label><div class="prompt-source-box">{{ artwork_intelligence['collection_prompt_snapshot'] or 'No collection direction has been added yet.' }}</div></div>
+        <div><label class="form-label">Final prompt preview</label><textarea class="form-control prompt-final-output" rows="7" readonly data-final-prompt>{{ final_generation_prompt['positive'] }}</textarea></div>
+      </div>
+      {% if final_generation_prompt['negative'] %}<div class="mt-3"><label class="form-label">Combined exclusions</label><div class="prompt-source-box">{{ final_generation_prompt['negative'] }}</div></div>{% endif %}
+      <div class="d-flex justify-content-end mt-3"><button class="btn btn-outline-primary" type="button" data-copy-final-prompt>Copy final prompt</button></div>
+    </div>
   </div>
 </section>
+<script>
+document.querySelector('[data-copy-final-prompt]')?.addEventListener('click', async function () {
+  const output = document.querySelector('[data-final-prompt]');
+  if (!output) return;
+  await navigator.clipboard.writeText(output.value);
+  this.textContent = 'Copied ✓';
+  setTimeout(() => { this.textContent = 'Copy final prompt'; }, 1600);
+});
+</script>
 
 <section id="story-seo-writer" class="card app-card mb-4" data-workflow-stage="listing">
   <div class="card-body p-4">

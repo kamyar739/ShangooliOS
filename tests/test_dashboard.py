@@ -500,6 +500,43 @@ class DashboardTests(unittest.TestCase):
         ]
         self.assertIn("Out of date", stale_workflow)
 
+    def test_collection_prompt_is_versioned_and_applied_explicitly(self):
+        db.update_collection(
+            "CEL", "Celebration", 8, "active",
+            etsy_section_name="Celebration",
+            creative_direction="Shared joyful movement and warm color.",
+            negative_prompt="No text or logos.",
+        )
+        intelligence = db.get_artwork_intelligence("CEL-001")
+        saved_version = intelligence["collection_prompt_version"]
+        self.assertEqual(
+            intelligence["collection_prompt_snapshot"],
+            "Shared joyful movement and warm color.",
+        )
+
+        db.update_collection(
+            "CEL", "Celebration", 8, "active",
+            etsy_section_name="Celebration",
+            creative_direction="Updated collection direction.",
+            negative_prompt="No text, logos, or borders.",
+        )
+        unchanged = db.get_artwork_intelligence("CEL-001")
+        self.assertEqual(unchanged["collection_prompt_version"], saved_version)
+        page = self.client.get("/artworks/CEL-001?step=details")
+        self.assertIn("The collection direction has changed", page.text)
+
+        response = self.client.post(
+            "/artworks/CEL-001/intelligence/apply-collection-prompt",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        refreshed = db.get_artwork_intelligence("CEL-001")
+        self.assertEqual(
+            refreshed["collection_prompt_snapshot"],
+            "Updated collection direction.",
+        )
+        self.assertGreater(refreshed["collection_prompt_version"], saved_version)
+
     def test_collection_order_is_saved_and_used_by_dashboard(self):
         with db.get_connection() as connection:
             brand_id = connection.execute(

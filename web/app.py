@@ -25,6 +25,7 @@ from app.database import (
 from web.db import (
     archive_artwork,
     archive_collection,
+    apply_latest_collection_prompt,
     clear_inactive_etsy_link,
     create_collection,
     create_listing,
@@ -103,6 +104,7 @@ from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
 from web.ai_upscaler import candidate_path, upscale_candidate
 from web.listing_writer import generate_listing_content
+from web.prompt_composer import compose_artwork_prompt
 from web.mockup_generator import (
     GENERATED_SLOTS,
     generate_listing_image,
@@ -257,6 +259,8 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
     )
 
     artwork_listings = get_artwork_listings(artwork_code)
+    artwork_intelligence = get_artwork_intelligence(artwork_code)
+    collection, _, _ = get_collection(artwork["collection_code"])
     auto_update_listing = next((
         item for item in artwork_listings
         if item["status"] == "published"
@@ -270,7 +274,12 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         "file_assignments": assignments,
         "production_summary": production_summary,
         "workflow": production_summary["workflow"],
-        "artwork_intelligence": get_artwork_intelligence(artwork_code),
+        "artwork_intelligence": artwork_intelligence,
+        "final_generation_prompt": compose_artwork_prompt(artwork_intelligence),
+        "collection_prompt_outdated": bool(
+            artwork_intelligence["collection_prompt_version"]
+            < (collection["prompt_version"] or 1)
+        ),
         "listing_content": get_artwork_listing_content(artwork_code),
         "listings": artwork_listings,
         "certification": get_artwork_certification(artwork_code),
@@ -1616,6 +1625,8 @@ def create_collection_post(
     target_artwork_count: int = Form(0),
     collection_status: str = Form("planned"),
     etsy_section_name: str = Form(""),
+    creative_direction: str = Form(""),
+    collection_negative_prompt: str = Form(""),
 ):
     collection_code = create_collection(
         code=code,
@@ -1623,6 +1634,8 @@ def create_collection_post(
         target_artwork_count=target_artwork_count,
         status=collection_status,
         etsy_section_name=etsy_section_name,
+        creative_direction=creative_direction,
+        negative_prompt=collection_negative_prompt,
     )
 
     return RedirectResponse(
@@ -1671,6 +1684,8 @@ def edit_collection_post(
     target_artwork_count: int = Form(0),
     collection_status: str = Form(...),
     etsy_section_name: str = Form(""),
+    creative_direction: str = Form(""),
+    collection_negative_prompt: str = Form(""),
 ):
     update_collection(
         collection_code=collection_code,
@@ -1678,6 +1693,8 @@ def edit_collection_post(
         target_artwork_count=target_artwork_count,
         status=collection_status,
         etsy_section_name=etsy_section_name,
+        creative_direction=creative_direction,
+        negative_prompt=collection_negative_prompt,
     )
 
     return RedirectResponse(
@@ -1764,6 +1781,19 @@ def save_artwork_intelligence_post(
         analysis_notes=analysis_notes.strip(),
     )
     return RedirectResponse(url=f"/artworks/{artwork_code}?step=details", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/artworks/{artwork_code}/intelligence/apply-collection-prompt")
+def apply_collection_prompt_post(artwork_code: str):
+    if get_artwork(artwork_code) is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    # Ensure older artwork has an intelligence record before updating its snapshot.
+    get_artwork_intelligence(artwork_code)
+    apply_latest_collection_prompt(artwork_code)
+    return RedirectResponse(
+        url=f"/artworks/{artwork_code.upper()}?step=details&collection_prompt_applied=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.post("/artworks/{artwork_code}/listing-content/generate")
