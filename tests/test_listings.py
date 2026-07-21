@@ -2,7 +2,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -351,6 +351,34 @@ class ListingReadinessTests(ListingTests):
         page = self.client.get(f"/listings/{listing_id}")
         self.assertIn("Open Etsy listing", page.text)
         self.assertIn("https://www.etsy.com/listing/123456789/unbound", page.text)
+        listing_index = self.client.get("/listings").text
+        self.assertIn("Live on Etsy ↗", listing_index)
+        self.assertNotIn(">Open Etsy</a>", listing_index)
+
+    def test_marketplace_title_sync_updates_printify_etsy_and_local_listing(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster", title="Old title",
+            description="Description", tags="one, two", price_cents=3995, status="published",
+        )
+        db.save_printify_product(
+            listing_id, product_url="https://printify.com/product/abc",
+            product_id="printify-123", provider="Provider", sizes="12x8", base_cost_cents=1000,
+        )
+        db.link_etsy_listing(listing_id, "123456789")
+        api = MagicMock()
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=api),
+            patch("web.app.update_etsy_listing") as update_etsy,
+        ):
+            response = self.client.post(
+                f"/listings/{listing_id}/title/sync",
+                data={"title": "New marketplace title", "confirmed": "true"},
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(db.get_listing(listing_id)["title"], "New marketplace title")
+        api.update_product.assert_called_once_with("printify-123", {"title": "New marketplace title"})
+        self.assertEqual(update_etsy.call_args.kwargs["title"], "New marketplace title")
 
     def test_printify_product_can_be_saved_for_physical_listing(self):
         listing_id = db.create_listing(

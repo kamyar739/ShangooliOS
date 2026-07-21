@@ -1,6 +1,7 @@
 {% if saved %}
 <div class="alert alert-success">Artwork details saved.</div>
 {% endif %}
+{% if request.query_params.get('marketplace_title_synced') %}<div class="alert alert-success">Marketplace title saved and synchronized with Printify and Etsy.</div>{% endif %}
 
 {% if request.query_params.get("production_saved") %}
 <div class="alert alert-success">Production details saved.</div>
@@ -27,7 +28,7 @@
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label">Working Title</label>
+                            <label class="form-label">Working Title <span class="text-muted fw-normal">(internal)</span></label>
                             <input name="working_title" type="text"
                                    class="form-control"
                                    value="{{ artwork['working_title'] or '' }}">
@@ -80,6 +81,16 @@
                         </button>
                     </div>
                 </form>
+                {% for item in listings %}
+                {% if item['printify_product_id'] or item['external_listing_id'] %}
+                <form class="marketplace-title-sync mt-4" method="post" action="/listings/{{ item['id'] }}/title/sync" data-long-operation>
+                    <div><label class="form-label fw-semibold" for="marketplace-title-{{ item['id'] }}">Marketplace title</label><div class="form-text mt-0">Customer-facing title synchronized to{% if item['printify_product_id'] %} Printify{% endif %}{% if item['printify_product_id'] and item['external_listing_id'] %} and{% endif %}{% if item['external_listing_id'] %} Etsy{% endif %}.</div></div>
+                    <input class="form-control" id="marketplace-title-{{ item['id'] }}" name="title" maxlength="140" value="{{ item['title'] }}" required>
+                    <div class="form-check"><input class="form-check-input" id="confirm-title-{{ item['id'] }}" name="confirmed" type="checkbox" value="true" required><label class="form-check-label small" for="confirm-title-{{ item['id'] }}">Approve external title change</label></div>
+                    <button class="btn btn-outline-primary" type="submit">Save and sync title</button>
+                </form>
+                {% endif %}
+                {% endfor %}
             </div>
         </div>
     </div>
@@ -329,6 +340,23 @@
       {% for item in certification['print_capability'] %}<tr><td>{{ item['size'] }}</td><td>{{ item['ppi'] }}</td><td>{% if item['recommended'] %}<span class="badge text-bg-success">{{ item['quality'] }}</span>{% else %}<span class="badge text-bg-warning">{{ item['quality'] }}</span>{% endif %}</td></tr>{% endfor %}
     </tbody></table></div>
     {% for warning in certification['warnings'] %}<div class="alert alert-warning py-2 mb-2">{{ warning }}</div>{% endfor %}
+    {% if certification['score'] < 80 %}
+    <div class="ai-upscale-panel mt-4">
+      <div><div class="eyebrow">Local AI enhancement</div><h3 class="h5 mb-1">Create a 4× print-quality candidate</h3><p class="text-secondary mb-0">Uses Real-ESRGAN locally. Your original remains unchanged until you approve the comparison.</p></div>
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale" data-long-operation><button class="btn btn-primary" type="submit">{% if ai_upscale_candidate %}Regenerate AI upscale{% else %}AI upscale 4×{% endif %}</button></form>
+    </div>
+    {% endif %}
+    {% if ai_upscale_candidate %}
+    {% if auto_update_listing %}<div class="alert alert-warning mt-3 mb-0"><strong>Live update:</strong> Approving this candidate will rebuild all production files and mockups, update the existing Printify product, and synchronize its Etsy listing.</div>{% endif %}
+    <div class="row g-3 mt-2">
+      <div class="col-md-6"><div class="small fw-semibold mb-2">Current original</div><img class="img-fluid rounded border ai-compare-image" src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="Current source artwork"></div>
+      <div class="col-md-6"><div class="small fw-semibold mb-2">AI-upscaled candidate</div><img class="img-fluid rounded border ai-compare-image" src="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/view" alt="AI-upscaled artwork candidate"></div>
+    </div>
+    <form class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3" method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/approve">
+      <div class="form-check"><input class="form-check-input" id="approve-ai-upscale" name="confirmed" value="true" type="checkbox" required><label class="form-check-label" for="approve-ai-upscale">I inspected the details, faces, linework, and colors.</label></div>
+      <button class="btn btn-success" type="submit" {% if auto_update_listing %}onclick="return confirm('Approve this artwork and update the live Printify product and Etsy listing now?')"{% endif %}>{% if auto_update_listing %}Approve and update everywhere{% else %}Approve AI upscale{% endif %}</button>
+    </form>
+    {% endif %}
     {% else %}<div class="alert alert-secondary mb-0">Upload the original artwork or a print-ready file to run certification.</div>{% endif %}
   </div>
 </div>
@@ -595,7 +623,7 @@
                 <summary><strong>Replace artwork everywhere</strong><span>Upload once · update Printify and Etsy</span></summary>
                 <form class="pt-3" method="post" enctype="multipart/form-data" action="/artworks/{{ artwork['artwork_code'] }}/listings/{{ item['id'] }}/update-everywhere" data-long-operation>
                     <label class="form-label fw-semibold" for="replacement-art-{{ item['id'] }}">Replacement artwork</label>
-                    <input class="form-control" id="replacement-art-{{ item['id'] }}" type="file" name="upload" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf" required>
+                    <input class="form-control" id="replacement-art-{{ item['id'] }}" type="file" name="upload" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp,.pdf"><div class="form-text">Leave blank to use the currently approved source, including an approved AI upscale.</div>
                     <div class="form-check mt-3"><input class="form-check-input" id="approve-replacement-{{ item['id'] }}" type="checkbox" name="confirmed" value="true" required><label class="form-check-label" for="approve-replacement-{{ item['id'] }}">I approve this replacement artwork and understand it will update the live product.</label></div>
                     <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary" type="submit" onclick="return confirm('Update the print files, Printify product, and Etsy listing images now?')">Update everywhere</button></div>
                 </form>

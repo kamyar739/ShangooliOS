@@ -39,7 +39,12 @@ class FakePrintifyAPI:
         return {"id": product_id, "variants": [
             {"id": 1, "title": "18 x 12 / Matte", "price": 2800, "is_enabled": True},
             {"id": 2, "title": "20 x 16 / Matte", "price": 3200, "is_enabled": True},
-        ]}
+            {"id": 3, "title": "30 x 20 / Matte", "price": 4800, "is_enabled": False},
+            {"id": 4, "title": "24 x 10 / Matte", "price": 5000, "is_enabled": False},
+        ], "print_areas": [{
+            "variant_ids": [4],
+            "placeholders": [{"position": "front", "images": [{"id": "existing-panoramic"}]}],
+        }]}
 
     def update_product(self, product_id, payload):
         self.updated_product_id = product_id
@@ -261,8 +266,14 @@ class PrintifyAPITests(unittest.TestCase):
             )
         self.assertEqual(count, 2)
         self.assertEqual(api.updated_product_id, "existing-123")
-        self.assertEqual([item["price"] for item in api.payload["variants"]], [2800, 3200])
-        self.assertEqual(len(api.payload["print_areas"]), 2)
+        self.assertEqual([item["price"] for item in api.payload["variants"]], [2800, 3200, 4800, 5000])
+        self.assertEqual(len(api.payload["print_areas"]), 3)
+        self.assertEqual(
+            sorted(variant for area in api.payload["print_areas"] for variant in area["variant_ids"]),
+            [1, 2, 3, 4],
+        )
+        panoramic = next(area for area in api.payload["print_areas"] if 4 in area["variant_ids"])
+        self.assertEqual(panoramic["placeholders"][0]["images"][0]["id"], "existing-panoramic")
 
     def test_publish_product_uses_separate_confirmed_api_operation(self):
         api = PrintifyAPI("secret", "shop-123")

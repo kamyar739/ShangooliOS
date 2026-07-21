@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 
 from fastapi import (
     FastAPI,
@@ -75,6 +76,7 @@ from web.etsy_api import (
     complete_etsy_oauth,
     etsy_config,
     get_etsy_listing,
+    update_etsy_listing,
 )
 from web.etsy_sync import (
     build_etsy_sync_preview,
@@ -85,6 +87,7 @@ from web.etsy_sync import (
 from web.file_intake import save_uploaded_file
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
+from web.ai_upscaler import candidate_path, upscale_candidate
 from web.listing_writer import generate_listing_content
 from web.mockup_generator import GENERATED_SLOTS, generate_listing_image, generate_mockups
 from web.marketplace_export import build_listing_export, inspect_listing_export
@@ -232,6 +235,11 @@ def _artwork_context(artwork_code: str, **extra):
     )
 
     artwork_listings = get_artwork_listings(artwork_code)
+    auto_update_listing = next((
+        item for item in artwork_listings
+        if item["status"] == "published"
+        and item["printify_product_id"] and item["external_listing_id"]
+    ), None)
     context = {
         "artwork": artwork,
         "workspace": inspect_workspace(artwork),
@@ -250,6 +258,8 @@ def _artwork_context(artwork_code: str, **extra):
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
         "print_master_manifest": load_print_master_manifest(artwork),
+        "ai_upscale_candidate": candidate_path(artwork).is_file(),
+        "auto_update_listing": auto_update_listing,
         "workflow_nav": _workflow_navigation(
             artwork,
             production=production,
@@ -331,10 +341,23 @@ def collections_page(
         context["collection_artworks"] = artworks
         context["retired_artworks"] = retired_artworks
         context["show_retired"] = show_retired
-        context["collection_empty_slots"] = max(
-            (collection["target_artwork_count"] or 0) - len(artworks),
-            0,
+        used_numbers = {
+            int(item["artwork_code"].rsplit("-", 1)[-1]) for item in artworks
+        }
+        upper_bound = max(
+            collection["target_artwork_count"] or 0,
+            max(used_numbers, default=0),
         )
+        context["collection_empty_numbers"] = [
+            number for number in range(1, upper_bound + 1) if number not in used_numbers
+        ]
+        artworks_by_number = {
+            int(item["artwork_code"].rsplit("-", 1)[-1]): item for item in artworks
+        }
+        context["collection_sequence"] = [
+            {"number": number, "artwork": artworks_by_number.get(number)}
+            for number in range(1, upper_bound + 1)
+        ]
     return templates.TemplateResponse(
         request=request,
         name="collections_index.html",
@@ -703,6 +726,42 @@ def sync_etsy_listing_post(listing_id: int, confirmed: bool = Form(False)):
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     return RedirectResponse(
         f"/listings/{listing_id}/etsy?synced=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/listings/{listing_id}/title/sync")
+def sync_listing_title(listing_id: int, title: str = Form(...), confirmed: bool = Form(False)):
+    listing = get_listing(listing_id)
+    normalized = title.strip()
+    if listing is None:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if not normalized or len(normalized) > 140:
+        raise HTTPException(status_code=400, detail="Enter a marketplace title up to 140 characters")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the marketplace title sync")
+    try:
+        if listing["printify_product_id"]:
+            api = PrintifyAPI.from_env()
+            if api is None:
+                raise ValueError("Connect Printify before syncing the marketplace title")
+            api.update_product(listing["printify_product_id"], {"title": normalized})
+        if listing["external_listing_id"]:
+            update_etsy_listing(
+                listing["external_listing_id"], title=normalized,
+                description=listing["description"] or "",
+                tags=[tag.strip() for tag in (listing["tags"] or "").split(",") if tag.strip()],
+            )
+            mark_etsy_synced(listing_id, listing["etsy_state"] or "")
+    except (PrintifyAPIError, EtsyAPIError, ValueError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    update_listing(
+        listing_id, marketplace=listing["marketplace"], product=listing["product"],
+        title=normalized, description=listing["description"] or "", tags=listing["tags"] or "",
+        price_cents=listing["price_cents"], status=listing["status"],
+    )
+    return RedirectResponse(
+        f"/artworks/{listing['artwork_code']}?marketplace_title_synced=1#artwork-details",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
@@ -1899,11 +1958,86 @@ def upload_source_file(
     )
 
 
+@app.post("/artworks/{artwork_code}/ai-upscale")
+def generate_ai_upscale(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+    if "source" not in assignments:
+        raise HTTPException(status_code=400, detail="Upload source artwork first")
+    try:
+        source = resolve_assigned_file(artwork, assignments["source"])
+        upscale_candidate(artwork, source)
+    except ValueError as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?ai_upscaled=1#artwork-certification",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/artworks/{artwork_code}/ai-upscale/view")
+def view_ai_upscale(artwork_code: str):
+    artwork = get_artwork(artwork_code)
+    if artwork is None or not candidate_path(artwork).is_file():
+        raise HTTPException(status_code=404, detail="AI upscale not found")
+    return FileResponse(candidate_path(artwork), media_type="image/png")
+
+
+@app.post("/artworks/{artwork_code}/ai-upscale/approve")
+def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    path = candidate_path(artwork)
+    if not confirmed or not path.is_file():
+        raise HTTPException(status_code=400, detail="Review and approve the AI upscale first")
+    workspace = get_artwork_folder(artwork)
+    approved_path = path.with_name(f"{artwork_code.upper()}_ai_upscaled_approved.png")
+    shutil.copy2(path, approved_path)
+    certification = certify_artwork(approved_path).to_dict()
+    upsert_artwork_file(
+        artwork_code=artwork_code, role="source",
+        relative_path=str(approved_path.relative_to(workspace)), stored_filename=approved_path.name,
+        original_filename=approved_path.name,
+    )
+    upsert_artwork_certification(artwork_code, certification)
+    master = build_print_master(artwork, approved_path)
+    upsert_artwork_file(
+        artwork_code=artwork_code, role="print_master", relative_path=master.relative_path,
+        stored_filename=master.master_filename, original_filename=path.name,
+    )
+    upsert_print_master_certification(
+        artwork_code, certify_artwork(workspace / master.relative_path).to_dict()
+    )
+    _generate_required_ratios(artwork, overwrite=True)
+    set_artwork_production_flags(
+        artwork_code, original_approved=True, print_master_ready=True,
+        ratio_exports_ready=False, mockups_ready=False,
+    )
+    path.unlink()
+    live_listing = next((
+        item for item in get_artwork_listings(artwork_code)
+        if item["status"] == "published"
+        and item["printify_product_id"] and item["external_listing_id"]
+    ), None)
+    if live_listing:
+        update_artwork_everywhere(
+            artwork_code, live_listing["id"], upload=None, confirmed=True
+        )
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?ai_upscale_approved=1"
+        f"{'&updated_everywhere=1' if live_listing else ''}#artwork-certification",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/artworks/{artwork_code}/listings/{listing_id}/update-everywhere")
 def update_artwork_everywhere(
     artwork_code: str,
     listing_id: int,
-    upload: UploadFile = File(...),
+    upload: UploadFile | None = File(None),
     confirmed: bool = Form(False),
 ):
     artwork = get_artwork(artwork_code)
@@ -1918,10 +2052,18 @@ def update_artwork_everywhere(
     if api is None:
         raise HTTPException(status_code=400, detail="Connect Printify before updating everywhere")
     try:
-        saved = save_uploaded_file(artwork=artwork, upload=upload, role="source")
-        upsert_artwork_file(artwork_code=artwork_code, **saved)
         workspace = get_artwork_folder(artwork)
-        source_path = workspace / saved["relative_path"]
+        if upload and upload.filename:
+            saved = save_uploaded_file(artwork=artwork, upload=upload, role="source")
+            upsert_artwork_file(artwork_code=artwork_code, **saved)
+            source_path = workspace / saved["relative_path"]
+            original_filename = saved["original_filename"]
+        else:
+            assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+            if "source" not in assignments:
+                raise ValueError("Upload or approve replacement artwork first")
+            source_path = resolve_assigned_file(artwork, assignments["source"])
+            original_filename = assignments["source"]["original_filename"]
         certification = certify_artwork(source_path).to_dict()
         if not certification["valid"]:
             raise ValueError("The replacement artwork did not pass certification")
@@ -1930,7 +2072,7 @@ def update_artwork_everywhere(
         upsert_artwork_file(
             artwork_code=artwork_code, role="print_master",
             relative_path=master.relative_path, stored_filename=master.master_filename,
-            original_filename=saved["original_filename"],
+            original_filename=original_filename,
         )
         master_path = workspace / master.relative_path
         upsert_print_master_certification(artwork_code, certify_artwork(master_path).to_dict())
@@ -1966,7 +2108,8 @@ def update_artwork_everywhere(
     except (ValueError, PrintifyAPIError, EtsyAPIError) as failure:
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     finally:
-        upload.file.close()
+        if upload:
+            upload.file.close()
     return RedirectResponse(
         f"/artworks/{artwork_code.upper()}?updated_everywhere=1#listing-workspace",
         status_code=status.HTTP_303_SEE_OTHER,

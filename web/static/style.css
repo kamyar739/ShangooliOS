@@ -1243,6 +1243,28 @@ body.is-waiting {
     border-radius: 0.85rem;
 }
 
+.collection-gallery {
+    padding: 1rem;
+    border: 1px solid var(--app-border, #e4e1da);
+    border-radius: 1rem;
+    background: #fff;
+}
+
+.collection-gallery-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.9rem; }
+.collection-gallery-controls { display: flex; gap: 0.45rem; }
+.collection-gallery-controls button { width: 36px; height: 36px; border: 1px solid var(--app-border, #e4e1da); border-radius: 50%; background: #fff; color: var(--brand-purple); }
+.collection-gallery-track { display: flex; gap: 0.85rem; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin; padding-bottom: 0.35rem; }
+.collection-gallery-slide { flex: 0 0 clamp(240px, 34vw, 390px); scroll-snap-align: start; color: inherit; text-decoration: none; }
+.collection-gallery-image { display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 0.75rem; background: #eef0f5; color: var(--muted); }
+.collection-gallery-image img { width: 100%; height: 100%; object-fit: cover; transition: transform 180ms ease; }
+.collection-gallery-slide:hover .collection-gallery-image img { transform: scale(1.025); }
+.collection-gallery-caption { display: flex; align-items: center; gap: 0.6rem; padding-top: 0.6rem; }
+.collection-gallery-caption strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.marketplace-title-sync { display: grid; grid-template-columns: minmax(170px, 0.65fr) minmax(260px, 1.5fr) auto auto; align-items: end; gap: 0.8rem; padding: 1rem; border: 1px solid var(--app-border, #e4e1da); border-radius: 0.85rem; background: #f7f5f1; }
+
+@media (max-width: 991.98px) { .marketplace-title-sync { grid-template-columns: 1fr; align-items: start; } }
+
 .dashboard-recent-grid > .col-auto {
     flex: 0 0 145px;
     width: 145px;
@@ -2238,6 +2260,21 @@ body.is-waiting {
     color: #746d63;
     font-size: 0.85rem;
 }
+
+.ai-upscale-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1rem;
+    border: 1px solid rgba(91, 70, 196, 0.22);
+    border-radius: 0.85rem;
+    background: rgba(91, 70, 196, 0.05);
+}
+
+.ai-compare-image { width: 100%; height: 280px; object-fit: contain; background: #f7f5f1; }
+
+@media (max-width: 575.98px) { .ai-upscale-panel { align-items: flex-start; flex-direction: column; } }
 
 .dashboard-queue-progress {
     width: 130px;

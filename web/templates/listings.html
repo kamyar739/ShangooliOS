@@ -62,7 +62,6 @@
   </div>
   <div class="listing-summary-actions">
     {% if item['printify_product_url'] %}<a class="btn btn-sm btn-outline-success" href="{{ item['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Printify</a>{% endif %}
-    {% if item['marketplace_url'] %}<a class="btn btn-sm btn-success" href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy</a>{% endif %}
     <a class="btn btn-sm btn-outline-secondary" href="/artworks/{{ item['artwork_code'] }}">Artwork</a>
     <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/duplicate">
         <button class="btn btn-sm btn-outline-primary" type="submit">Duplicate</button>

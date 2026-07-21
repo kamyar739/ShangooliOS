@@ -114,15 +114,20 @@ def slugify(value: str) -> str:
 
 
 def next_artwork_number(connection, collection_id):
-    row = connection.execute(
+    rows = connection.execute(
         """
-        SELECT COALESCE(MAX(sequence_number), 0) + 1 AS next_number
+        SELECT sequence_number
         FROM artworks
         WHERE collection_id = ?
+        ORDER BY sequence_number
         """,
         (collection_id,),
-    ).fetchone()
-    return int(row["next_number"])
+    ).fetchall()
+    used = {int(row["sequence_number"]) for row in rows}
+    candidate = 1
+    while candidate in used:
+        candidate += 1
+    return candidate
 
 
 def get_artwork_folder(row) -> Path:

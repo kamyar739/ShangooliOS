@@ -385,15 +385,25 @@ def create_printify_product(
 def update_printify_product_artwork(api: PrintifyAPI, *, product_id: str, listing, files_by_role: dict):
     """Replace print-area artwork while preserving the existing product and variants."""
     product = api.get_product(product_id)
-    enabled = [variant for variant in product.get("variants", []) if variant.get("is_enabled")]
-    if not enabled:
+    variants = product.get("variants", [])
+    if not any(variant.get("is_enabled") for variant in variants):
         raise ValueError("The Printify product has no enabled variants")
     selections = []
-    for variant in enabled:
+    preserved = []
+    # Printify validates print_areas against the complete blueprint/provider
+    # variant set, including variants currently disabled for sale.
+    for variant in variants:
         role = ratio_role_for_variant(variant.get("title", ""))
         path = files_by_role.get(role)
         if not path:
-            raise ValueError(f"No matching print file for {variant.get('title', 'a Printify variant')}")
+            existing = next((
+                area for area in product.get("print_areas", [])
+                if variant["id"] in area.get("variant_ids", [])
+            ), None)
+            if not existing or not existing.get("placeholders"):
+                raise ValueError(f"No existing print area for {variant.get('title', 'a Printify variant')}")
+            preserved.append((variant, existing["placeholders"]))
+            continue
         selections.append((variant, path))
     uploaded = {}
     for _, path in selections:
@@ -401,7 +411,14 @@ def update_printify_product_artwork(api: PrintifyAPI, *, product_id: str, listin
             uploaded[path] = api.upload_image(path)["id"]
     areas = {}
     for variant, path in selections:
-        areas.setdefault(uploaded[path], []).append(variant["id"])
+        placeholders = [{"position": "front", "images": [
+            {"id": uploaded[path], "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}
+        ]}]
+        key = json.dumps(placeholders, sort_keys=True)
+        areas.setdefault(key, {"variant_ids": [], "placeholders": placeholders})["variant_ids"].append(variant["id"])
+    for variant, placeholders in preserved:
+        key = json.dumps(placeholders, sort_keys=True)
+        areas.setdefault(key, {"variant_ids": [], "placeholders": placeholders})["variant_ids"].append(variant["id"])
     payload = {
         "title": listing["title"],
         "description": listing["description"] or "",
@@ -409,12 +426,7 @@ def update_printify_product_artwork(api: PrintifyAPI, *, product_id: str, listin
             {"id": item["id"], "price": item["price"], "is_enabled": item.get("is_enabled", False)}
             for item in product.get("variants", [])
         ],
-        "print_areas": [
-            {"variant_ids": ids, "placeholders": [{"position": "front", "images": [
-                {"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}
-            ]}]}
-            for image_id, ids in areas.items()
-        ],
+        "print_areas": list(areas.values()),
     }
     api.update_product(product_id, payload)
     return len(uploaded)

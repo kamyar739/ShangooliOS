@@ -498,7 +498,9 @@ def get_collection(collection_code):
                 SELECT id FROM collections WHERE code = ?
             )
               AND a.status != 'retired'
-            ORDER BY a.sequence_number
+            ORDER BY
+                CAST(SUBSTR(a.artwork_code, INSTR(a.artwork_code, '-') + 1) AS INTEGER),
+                a.artwork_code
             """,
             (collection_code.upper(),),
         ).fetchall()
@@ -531,7 +533,9 @@ def get_collection(collection_code):
                 SELECT id FROM collections WHERE code = ?
             )
               AND a.status = 'retired'
-            ORDER BY a.sequence_number
+            ORDER BY
+                CAST(SUBSTR(a.artwork_code, INSTR(a.artwork_code, '-') + 1) AS INTEGER),
+                a.artwork_code
             """,
             (collection_code.upper(),),
         ).fetchall()

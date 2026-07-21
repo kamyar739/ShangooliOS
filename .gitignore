@@ -27,6 +27,7 @@ __pycache__/
 # Python caches
 # -----------------------------
 .pytest_cache/
+.local-tools/
 .env
 .mypy_cache/
 .ruff_cache/
@@ -63,4 +64,3 @@ data/*backup*.db
 
 .venv-intel-backup/
 .pytest_cache/
-

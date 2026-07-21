@@ -9,6 +9,22 @@
       <div><div class="eyebrow">Catalog</div><h1 class="display-6 fw-bold">Collections</h1><p class="text-muted mb-0">Organize artwork into focused storefront collections.</p></div>
       <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-collection-modal">+ New collection</button>
     </div>
+    {% if selected_collection %}
+    <section class="collection-gallery mb-4" aria-labelledby="collection-gallery-title">
+      <div class="collection-gallery-heading">
+        <div><div class="eyebrow">Selected collection · {{ selected_collection['code'] }}</div><h2 class="h4 mb-1" id="collection-gallery-title">{{ selected_collection['name'] }}</h2></div>
+        <div class="collection-gallery-controls"><button type="button" data-gallery-previous aria-label="Previous artwork">←</button><button type="button" data-gallery-next aria-label="Next artwork">→</button></div>
+      </div>
+      <div class="collection-gallery-track" data-collection-gallery tabindex="0">
+        {% for artwork in collection_artworks %}
+        <a class="collection-gallery-slide" href="/artworks/{{ artwork['artwork_code'] }}">
+          <span class="collection-gallery-image">{% if artwork['has_source_image'] %}<img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="{{ artwork['public_title'] }}" {% if not loop.first %}loading="lazy"{% endif %}>{% else %}<span>No artwork uploaded</span>{% endif %}</span>
+          <span class="collection-gallery-caption"><span class="code-pill">{{ artwork['artwork_code'] }}</span><strong>{{ artwork['public_title'] }}</strong></span>
+        </a>
+        {% else %}<div class="empty-state w-100">No artwork in this collection yet.</div>{% endfor %}
+      </div>
+    </section>
+    {% endif %}
     <div class="row g-4 mb-2 collection-order-grid" data-collection-order>
       {% for collection in collections %}
       <div class="col-md-6 col-xl-4 collection-order-card" draggable="true" data-collection-code="{{ collection['code'] }}">
@@ -39,25 +55,28 @@
       {% endif %}
     </div>
     <div class="row g-3 dashboard-recent-grid">
-      {% for artwork in collection_artworks %}
+      {% for sequence_item in collection_sequence|default([]) %}
+      {% if sequence_item['artwork'] %}
+      {% set artwork = sequence_item['artwork'] %}
       <div class="col-auto">
         {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = false %}
         {% include "components/artwork_card.html" %}
       </div>
-      {% endfor %}
-      {% for slot_number in range(collection_empty_slots|default(0)) %}
+      {% else %}
+      {% set slot_number = sequence_item['number'] %}
       <div class="col-auto">
-        <button class="card app-card artwork-card dashboard-recent-card collection-empty-artwork-card h-100" type="button" data-bs-toggle="modal" data-bs-target="#new-artwork-modal" aria-label="Create artwork for empty slot {{ collection_artworks|length + slot_number + 1 }}">
+        <button class="card app-card artwork-card dashboard-recent-card collection-empty-artwork-card h-100" type="button" data-bs-toggle="modal" data-bs-target="#new-artwork-modal" aria-label="Create artwork {{ selected_collection['code'] }}-{{ '%03d'|format(slot_number) }}">
           <div class="artwork-card-media dashboard-recent-media">
             <div class="artwork-card-placeholder"><span>Empty artwork slot</span></div>
           </div>
           <div class="card-body dashboard-recent-body text-start">
-            <span class="code-pill">Slot {{ collection_artworks|length + slot_number + 1 }}</span>
+            <span class="code-pill">{{ selected_collection['code'] }}-{{ '%03d'|format(slot_number) }}</span>
             <h3 class="h6 mt-2 mb-1 text-dark">Add artwork</h3>
-            <span class="small text-muted">Target placeholder</span>
+            <span class="small text-muted">Open sequence slot</span>
           </div>
         </button>
       </div>
+      {% endif %}
       {% endfor %}
       {% if show_retired %}
       {% for artwork in retired_artworks %}
@@ -122,4 +141,13 @@
   </div>
 </div>
 {% include "components/collection_order_script.html" %}
+<script>
+(() => {
+  const track = document.querySelector('[data-collection-gallery]');
+  if (!track) return;
+  const move = direction => track.scrollBy({left: direction * Math.max(280, track.clientWidth * 0.72), behavior: 'smooth'});
+  document.querySelector('[data-gallery-previous]')?.addEventListener('click', () => move(-1));
+  document.querySelector('[data-gallery-next]')?.addEventListener('click', () => move(1));
+})();
+</script>
 {% endblock %}

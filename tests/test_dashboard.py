@@ -133,6 +133,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Viewing artwork below", response.text)
         self.assertIn("Celebration artwork", response.text)
         self.assertIn("Unbound", response.text)
+        self.assertIn('class="collection-gallery', response.text)
+        self.assertIn('data-collection-gallery', response.text)
+        self.assertIn('data-gallery-next', response.text)
         self.assertIn('data-bs-target="#edit-collection-modal"', response.text)
         self.assertIn('data-bs-target="#new-artwork-modal"', response.text)
         self.assertIn('id="edit-collection-modal"', response.text)
@@ -140,7 +143,9 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("Open collection", response.text)
         self.assertEqual(response.text.count("collection-empty-artwork-card"), 2)
         self.assertIn("Empty artwork slot", response.text)
-        self.assertIn("Slot 3", response.text)
+        self.assertIn("CEL-003", response.text)
+        artwork_grid = response.text[response.text.index('class="row g-3 dashboard-recent-grid"'):]
+        self.assertLess(artwork_grid.index("CEL-001"), artwork_grid.index("CEL-003"))
         self.assertIn('data-artwork-context-menu', response.text)
         self.assertIn("Show retired (1)", response.text)
         self.assertNotIn("Retired Test", response.text)
@@ -154,6 +159,21 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(
             with_retired.text.count("collection-empty-artwork-card"), 2
         )
+
+        with db.get_connection() as connection:
+            collection_id = connection.execute("SELECT id FROM collections WHERE code='CEL'").fetchone()["id"]
+            connection.executemany(
+                "INSERT INTO artworks (artwork_code, collection_id, sequence_number, public_title, status) VALUES (?, ?, ?, ?, 'approved')",
+                [("CEL-010", collection_id, 2, "Ten",), ("CEL-002", collection_id, 10, "Two",)],
+            )
+            connection.execute(
+                "INSERT INTO artwork_production (artwork_id) SELECT id FROM artworks WHERE artwork_code IN ('CEL-002', 'CEL-010')"
+            )
+            connection.commit()
+        ordered = self.client.get("/collections?collection=CEL").text
+        gallery = ordered[ordered.index('data-collection-gallery'):ordered.index('</section>', ordered.index('data-collection-gallery'))]
+        self.assertLess(gallery.index("CEL-001"), gallery.index("CEL-002"))
+        self.assertLess(gallery.index("CEL-002"), gallery.index("CEL-010"))
 
         status_change = self.client.post(
             "/artworks/CEL-001/status",
