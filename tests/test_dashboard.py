@@ -119,6 +119,8 @@ class DashboardTests(unittest.TestCase):
                     "orientation": "horizontal", "placement_x": "25",
                     "placement_y": "15", "placement_width": "50",
                     "placement_height": "45",
+                    "source_url": "https://www.pexels.com/photo/example/",
+                    "creator": "Example Artist", "license_name": "Pexels License",
                 },
                 files={"upload": ("living-room.png", image_bytes.getvalue(), "image/png")},
                 follow_redirects=False,
@@ -126,6 +128,7 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(response.status_code, 303)
             scene = db.list_mockup_scenes()[0]
             self.assertEqual(scene["name"], "Bright sofa wall")
+            self.assertEqual(scene["creator"], "Example Artist")
             self.assertTrue((scenes_folder / scene["image_path"]).is_file())
             image_response = self.client.get(
                 f"/mockup-studio/scenes/{scene['id']}/image"
@@ -135,8 +138,31 @@ class DashboardTests(unittest.TestCase):
         studio = self.client.get("/mockup-studio")
         self.assertIn("Mockup Studio", studio.text)
         self.assertIn("Bright sofa wall", studio.text)
+        self.assertIn("Example Artist", studio.text)
+        self.assertIn("Pexels License", studio.text)
         artwork = self.client.get("/artworks/CEL-001")
         self.assertIn("Living room · Bright sofa wall", artwork.text)
+
+        scene_id = db.list_mockup_scenes()[0]["id"]
+        response = self.client.post(
+            f"/mockup-studio/scenes/{scene_id}/placement",
+            data={
+                "placement_x": "10", "placement_y": "12",
+                "placement_width": "60", "placement_height": "55",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        scene = db.get_mockup_scene(scene_id)
+        self.assertEqual(scene["placement_x"], 10)
+        self.assertEqual(scene["placement_width"], 60)
+
+        response = self.client.post(
+            f"/mockup-studio/scenes/{scene_id}/disable", follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertFalse(db.get_mockup_scene(scene_id)["active"])
+        self.assertIn("No room scenes yet", self.client.get("/mockup-studio").text)
 
     def test_collections_filter_keeps_collection_cards_and_updates_artwork_panel(self):
         with db.get_connection() as connection:

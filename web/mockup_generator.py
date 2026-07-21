@@ -451,14 +451,19 @@ def generate_scene_mockup(
     artwork_image = _load_artwork(source_path)
     try:
         with Image.open(scene_path) as opened_scene:
-            canvas = _cover(ImageOps.exif_transpose(opened_scene).convert("RGB"), CANVAS_SIZE)
+            scene_image = ImageOps.exif_transpose(opened_scene).convert("RGB")
     except OSError as error:
         raise ValueError("The saved room scene could not be opened") from error
+    canvas = _cover(scene_image, CANVAS_SIZE).filter(ImageFilter.GaussianBlur(28))
+    foreground = _fit(scene_image, CANVAS_SIZE)
+    scene_left = (CANVAS_SIZE[0] - foreground.width) // 2
+    scene_top = (CANVAS_SIZE[1] - foreground.height) // 2
+    canvas.paste(foreground, (scene_left, scene_top))
 
-    left = round(CANVAS_SIZE[0] * float(scene["placement_x"]) / 100)
-    top = round(CANVAS_SIZE[1] * float(scene["placement_y"]) / 100)
-    width = round(CANVAS_SIZE[0] * float(scene["placement_width"]) / 100)
-    height = round(CANVAS_SIZE[1] * float(scene["placement_height"]) / 100)
+    left = scene_left + round(foreground.width * float(scene["placement_x"]) / 100)
+    top = scene_top + round(foreground.height * float(scene["placement_y"]) / 100)
+    width = round(foreground.width * float(scene["placement_width"]) / 100)
+    height = round(foreground.height * float(scene["placement_height"]) / 100)
     frame = 20
     art = _fit(artwork_image, (max(1, width - frame * 2), max(1, height - frame * 2)))
     frame_width, frame_height = art.width + frame * 2, art.height + frame * 2

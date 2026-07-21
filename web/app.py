@@ -30,6 +30,7 @@ from web.db import (
     create_mockup_scene,
     duplicate_listing,
     delete_listing,
+    disable_mockup_scene,
     get_artwork,
     get_artwork_file_assignments,
     get_artwork_certification,
@@ -70,6 +71,7 @@ from web.db import (
     update_artwork_production,
     update_collection,
     update_listing,
+    update_mockup_scene_placement,
     upsert_artwork_file,
     upsert_artwork_certification,
     upsert_print_master_certification,
@@ -396,6 +398,8 @@ def create_mockup_scene_post(
     orientation: str = Form("any"), upload: UploadFile = File(...),
     placement_x: float = Form(25), placement_y: float = Form(15),
     placement_width: float = Form(50), placement_height: float = Form(50),
+    source_url: str = Form(""), creator: str = Form(""),
+    license_name: str = Form(""),
 ):
     normalized_orientation = orientation.strip().lower()
     if normalized_orientation not in {"horizontal", "vertical", "square", "any"}:
@@ -415,6 +419,7 @@ def create_mockup_scene_post(
             image_path=destination.name, placement_x=placement_x,
             placement_y=placement_y, placement_width=placement_width,
             placement_height=placement_height,
+            source_url=source_url, creator=creator, license_name=license_name,
         )
     except (ValueError, UnidentifiedImageError, OSError) as error:
         destination.unlink(missing_ok=True)
@@ -435,6 +440,34 @@ def view_mockup_scene(scene_id: int):
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Mockup scene image not found")
     return FileResponse(path)
+
+
+@app.post("/mockup-studio/scenes/{scene_id}/placement")
+def update_mockup_scene_placement_post(
+    scene_id: int, placement_x: float = Form(...), placement_y: float = Form(...),
+    placement_width: float = Form(...), placement_height: float = Form(...),
+):
+    try:
+        update_mockup_scene_placement(
+            scene_id, placement_x=placement_x, placement_y=placement_y,
+            placement_width=placement_width, placement_height=placement_height,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        "/mockup-studio?scene_updated=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/mockup-studio/scenes/{scene_id}/disable")
+def disable_mockup_scene_post(scene_id: int):
+    try:
+        disable_mockup_scene(scene_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse(
+        "/mockup-studio?scene_disabled=1", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @app.get("/recent")
@@ -2153,6 +2186,17 @@ def update_artwork_everywhere(
         master_path = workspace / master.relative_path
         upsert_print_master_certification(artwork_code, certify_artwork(master_path).to_dict())
         _generate_required_ratios(artwork, overwrite=True)
+        saved_templates = {
+            row["slot_key"]: row["template_key"]
+            for row in get_artwork_mockup_templates(artwork_code)
+        }
+        saved_scene_key = saved_templates.get("room", "")
+        saved_scene = None
+        saved_scene_id = saved_scene_key.removeprefix("scene:")
+        if saved_scene_key.startswith("scene:") and saved_scene_id.isdigit():
+            saved_scene = get_mockup_scene(int(saved_scene_id))
+            if saved_scene is not None and not saved_scene["active"]:
+                saved_scene = None
         mockups = generate_mockups(
             artwork=dict(artwork), source_path=master_path,
             output_folder=workspace / "03 Mockups", template_key=DEFAULT_TEMPLATE_PACK,
@@ -2163,8 +2207,25 @@ def update_artwork_everywhere(
                 relative_path=str(result["path"].relative_to(workspace)),
                 stored_filename=result["stored_filename"], original_filename=result["original_filename"],
             )
+        if saved_scene is not None:
+            scene_result = generate_scene_mockup(
+                artwork=dict(artwork), source_path=master_path,
+                scene_path=MOCKUP_SCENES_DIR / saved_scene["image_path"],
+                scene=dict(saved_scene), output_folder=workspace / "03 Mockups",
+            )
+            upsert_artwork_file(
+                artwork_code=artwork_code, role=scene_result["role"],
+                relative_path=str(scene_result["path"].relative_to(workspace)),
+                stored_filename=scene_result["stored_filename"],
+                original_filename=scene_result["original_filename"],
+            )
+        template_assignments = {
+            slot: DEFAULT_TEMPLATE_PACK for slot in GENERATED_SLOTS
+        }
+        if saved_scene is not None:
+            template_assignments["room"] = saved_scene_key
         save_artwork_mockup_templates(
-            artwork_code, {slot: DEFAULT_TEMPLATE_PACK for slot in GENERATED_SLOTS}
+            artwork_code, template_assignments
         )
         assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
         files_by_role = {
@@ -2499,6 +2560,7 @@ def generate_scene_mockup_post(artwork_code: str, scene_id: int = Form(...)):
             stored_filename=result["stored_filename"],
             original_filename=result["original_filename"],
         )
+        save_artwork_mockup_template(artwork_code, "room", f"scene:{scene_id}")
         set_artwork_production_flags(artwork_code, mockups_ready=False)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

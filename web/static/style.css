@@ -142,12 +142,25 @@ body {
 }
 
 .mockup-scene-card { overflow: hidden; }
-.mockup-scene-card > img {
-    aspect-ratio: 4 / 3;
+.mockup-scene-preview { position: relative; }
+.mockup-scene-preview > img {
     background: #eef0f5;
-    object-fit: cover;
+    display: block;
+    height: auto;
     width: 100%;
 }
+.mockup-scene-placement {
+    align-items: center;
+    background: rgba(90, 79, 207, 0.13);
+    border: 2px dashed #5a4fcf;
+    color: #453bb3;
+    display: flex;
+    font-size: 0.7rem;
+    font-weight: 750;
+    justify-content: center;
+    position: absolute;
+}
+.mockup-scene-placement span { background: rgba(255,255,255,.84); padding: .15rem .3rem; }
 
 .metric-action {
     color: #686f80;
