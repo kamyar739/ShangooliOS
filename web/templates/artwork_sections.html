@@ -477,6 +477,25 @@
         {% if request.query_params.get('mockup_settings_saved') %}
         <div class="alert alert-success">Listing-image order and review status saved.</div>
         {% endif %}
+        {% if request.query_params.get('scene_mockup_generated') %}
+        <div class="alert alert-success">The Room listing image was generated from your reusable Mockup Studio scene.</div>
+        {% endif %}
+
+        <div class="mockup-review-panel mb-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div><strong>Mockup Studio scene</strong><div class="small text-muted">Replace the Room image using one of your reusable scenes.</div></div>
+                {% if mockup_scenes %}
+                <form class="d-flex flex-wrap gap-2" method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/scene" data-long-operation>
+                    <select class="form-select" name="scene_id" aria-label="Reusable room scene">
+                        {% for scene in mockup_scenes %}<option value="{{ scene['id'] }}">{{ scene['room_type'] }} · {{ scene['name'] }}</option>{% endfor %}
+                    </select>
+                    <button class="btn btn-primary" type="submit">Generate room mockup</button>
+                </form>
+                {% else %}
+                <a class="btn btn-outline-primary" href="/mockup-studio">Add scenes in Mockup Studio</a>
+                {% endif %}
+            </div>
+        </div>
 
         <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/settings">
             <div class="row g-4 mb-4">

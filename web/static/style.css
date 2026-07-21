@@ -141,6 +141,14 @@ body {
     text-underline-offset: 0.18em;
 }
 
+.mockup-scene-card { overflow: hidden; }
+.mockup-scene-card > img {
+    aspect-ratio: 4 / 3;
+    background: #eef0f5;
+    object-fit: cover;
+    width: 100%;
+}
+
 .metric-action {
     color: #686f80;
     font-size: 0.76rem;
@@ -464,6 +472,7 @@ body {
     .production-checklist {
         grid-template-columns: 1fr;
     }
+
 }
 
 /* Desktop collection → artwork → publishing workflow */
@@ -1106,6 +1115,16 @@ body.is-waiting {
 @media (max-width: 1100px) {
     .workflow-shell {
         grid-template-columns: 220px minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .workflow-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .workflow-sidebar {
+        position: static;
     }
 }
 

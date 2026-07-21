@@ -441,3 +441,55 @@ def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, o
         "stored_filename": filename,
         "original_filename": filename,
     }
+
+
+def generate_scene_mockup(
+    *, artwork: dict, source_path: Path, scene_path: Path, scene: dict,
+    output_folder: Path,
+) -> dict:
+    """Composite approved artwork into a reusable room scene placement."""
+    artwork_image = _load_artwork(source_path)
+    try:
+        with Image.open(scene_path) as opened_scene:
+            canvas = _cover(ImageOps.exif_transpose(opened_scene).convert("RGB"), CANVAS_SIZE)
+    except OSError as error:
+        raise ValueError("The saved room scene could not be opened") from error
+
+    left = round(CANVAS_SIZE[0] * float(scene["placement_x"]) / 100)
+    top = round(CANVAS_SIZE[1] * float(scene["placement_y"]) / 100)
+    width = round(CANVAS_SIZE[0] * float(scene["placement_width"]) / 100)
+    height = round(CANVAS_SIZE[1] * float(scene["placement_height"]) / 100)
+    frame = 20
+    art = _fit(artwork_image, (max(1, width - frame * 2), max(1, height - frame * 2)))
+    frame_width, frame_height = art.width + frame * 2, art.height + frame * 2
+    frame_left = left + (width - frame_width) // 2
+    frame_top = top + (height - frame_height) // 2
+    shadow = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rectangle(
+        (frame_left + 18, frame_top + 22, frame_left + frame_width + 18, frame_top + frame_height + 22),
+        fill=(0, 0, 0, 75),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(18))
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), shadow).convert("RGB")
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle(
+        (frame_left, frame_top, frame_left + frame_width, frame_top + frame_height),
+        fill="#2d2b29",
+    )
+    canvas.paste(art, (frame_left + frame, frame_top + frame))
+
+    safe_scene_name = "".join(
+        character.lower() if character.isalnum() else "-"
+        for character in scene["name"]
+    ).strip("-") or "scene"
+    filename = f"{artwork['artwork_code']}_listing_room_{safe_scene_name}.jpg"
+    destination = output_folder / filename
+    _save(canvas, destination)
+    return {
+        "slot_key": "room",
+        "role": "mockup:room",
+        "path": destination,
+        "stored_filename": filename,
+        "original_filename": filename,
+    }

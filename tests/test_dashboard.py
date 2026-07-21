@@ -1,9 +1,12 @@
 import sqlite3
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app import database
 from web import db
@@ -103,6 +106,37 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Unbound Poster", focused.text)
         self.assertIn('href="/?view=attention"', focused.text)
         self.assertIn("Back to dashboard", focused.text)
+
+    def test_mockup_studio_saves_and_offers_reusable_room_scene(self):
+        image_bytes = BytesIO()
+        Image.new("RGB", (800, 600), "#ddd6cb").save(image_bytes, "PNG")
+        scenes_folder = Path(self.temp_dir.name) / "mockup-scenes"
+        with patch("web.app.MOCKUP_SCENES_DIR", scenes_folder):
+            response = self.client.post(
+                "/mockup-studio/scenes",
+                data={
+                    "name": "Bright sofa wall", "room_type": "Living room",
+                    "orientation": "horizontal", "placement_x": "25",
+                    "placement_y": "15", "placement_width": "50",
+                    "placement_height": "45",
+                },
+                files={"upload": ("living-room.png", image_bytes.getvalue(), "image/png")},
+                follow_redirects=False,
+            )
+            self.assertEqual(response.status_code, 303)
+            scene = db.list_mockup_scenes()[0]
+            self.assertEqual(scene["name"], "Bright sofa wall")
+            self.assertTrue((scenes_folder / scene["image_path"]).is_file())
+            image_response = self.client.get(
+                f"/mockup-studio/scenes/{scene['id']}/image"
+            )
+            self.assertEqual(image_response.status_code, 200)
+
+        studio = self.client.get("/mockup-studio")
+        self.assertIn("Mockup Studio", studio.text)
+        self.assertIn("Bright sofa wall", studio.text)
+        artwork = self.client.get("/artworks/CEL-001")
+        self.assertIn("Living room · Bright sofa wall", artwork.text)
 
     def test_collections_filter_keeps_collection_cards_and_updates_artwork_panel(self):
         with db.get_connection() as connection:
