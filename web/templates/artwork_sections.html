@@ -509,6 +509,23 @@
         {% if request.query_params.get('scene_mockup_generated') %}
         <div class="alert alert-success">The Room listing image was generated from your reusable Mockup Studio scene.</div>
         {% endif %}
+        {% if request.query_params.get('set_generated') %}<div class="alert alert-warning"><strong>Marketplace set generated.</strong> Review the lead-image crops below, then approve the set before Etsy synchronization.</div>{% endif %}
+        {% if request.query_params.get('set_approved') %}<div class="alert alert-success"><strong>Marketplace set approved.</strong> Etsy synchronization may now use these images.</div>{% endif %}
+
+        <section class="marketplace-set-workflow mb-4">
+          <div class="marketplace-set-heading"><div><div class="eyebrow">Curated marketplace set</div><h3 class="h5 mb-1">Generate, inspect, and approve as one unit</h3><p class="small text-muted mb-0">The saved set controls image style, room scene, lead image, and Etsy order.</p></div>{% if mockup_set_state %}<span class="mockup-status {% if mockup_set_state['approved_at'] %}is-ready{% else %}is-missing{% endif %}">{% if mockup_set_state['approved_at'] %}✓ Approved{% else %}Review required{% endif %}</span>{% endif %}</div>
+          <div class="marketplace-set-choices">
+            {% for set in mockup_sets %}<form method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/sets/{{ set['id'] }}/generate" data-long-operation><div><strong>{{ set['name'] }}</strong><span>{{ set['item_count'] }} images · Lead {{ set['lead_slot']|replace('_',' ')|title }}</span></div><button class="btn btn-sm {% if mockup_set_state and mockup_set_state['set_id']==set['id'] %}btn-primary{% else %}btn-outline-primary{% endif %}" type="submit">{% if mockup_set_state and mockup_set_state['set_id']==set['id'] %}Regenerate set{% else %}Generate set{% endif %}</button></form>{% endfor %}
+          </div>
+          {% if mockup_set_state and production_summary['assignment_map'].get('mockup:' ~ mockup_set_state['lead_slot']) %}
+          <div class="etsy-cover-review">
+            <div><div class="etsy-crop-label">Full lead image</div><div class="etsy-crop-preview is-full"><img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ mockup_set_state['lead_slot'] }}" alt="Full lead image"></div></div>
+            <div><div class="etsy-crop-label">Etsy square search crop</div><div class="etsy-crop-preview is-square"><img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ mockup_set_state['lead_slot'] }}" alt="Square Etsy crop preview"></div></div>
+            <div><div class="etsy-crop-label">Etsy 4:3 browse crop</div><div class="etsy-crop-preview is-four-three"><img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ mockup_set_state['lead_slot'] }}" alt="Four by three Etsy crop preview"></div></div>
+          </div>
+          <form class="marketplace-set-approval" method="post" action="/artworks/{{ artwork['artwork_code'] }}/mockups/sets/{{ mockup_set_state['set_id'] }}/approve"><label class="form-check"><input class="form-check-input" type="checkbox" name="crop_reviewed" value="true" required {% if mockup_set_state['approved_at'] %}checked{% endif %}><span class="form-check-label">I reviewed the lead image in full, square, and 4:3 crops.</span></label><button class="btn btn-success" type="submit">Approve complete set</button></form>
+          {% endif %}
+        </section>
 
         <div class="mockup-review-panel mb-4">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">

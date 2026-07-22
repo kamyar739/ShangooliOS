@@ -1,6 +1,7 @@
 from pathlib import Path
 import secrets
 import shutil
+import sqlite3
 from urllib.parse import urlencode
 
 from fastapi import (
@@ -30,6 +31,7 @@ from web.db import (
     create_collection,
     create_listing,
     create_mockup_scene,
+    create_mockup_set,
     duplicate_listing,
     delete_listing,
     disable_mockup_scene,
@@ -50,16 +52,21 @@ from web.db import (
     get_listing_status_counts,
     get_artwork_listings,
     get_mockup_scene,
+    get_mockup_set,
+    get_artwork_mockup_set_state,
     invalidate_artwork_after_source_change,
+    invalidate_artwork_mockup_set_approval,
     restore_artwork,
     list_listings,
     list_mockup_scenes,
+    list_mockup_sets,
     link_etsy_listing,
     mark_etsy_synced,
     record_etsy_state,
     record_etsy_inventory_quantity,
     record_etsy_paused,
     record_ai_enhancement,
+    record_artwork_mockup_set_generated,
     record_publishing_recovery,
     publish_listing,
     save_printify_product,
@@ -79,6 +86,8 @@ from web.db import (
     update_collection,
     update_listing,
     update_mockup_scene_placement,
+    update_mockup_set,
+    approve_artwork_mockup_set,
     upsert_artwork_file,
     upsert_artwork_certification,
     upsert_print_master_certification,
@@ -289,6 +298,8 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         "mockup_scenes": list_mockup_scenes(
             orientation=production["orientation"] if production else None
         ),
+        "mockup_sets": list_mockup_sets(),
+        "mockup_set_state": get_artwork_mockup_set_state(artwork_code),
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
         "print_master_manifest": load_print_master_manifest(artwork),
@@ -471,6 +482,10 @@ def collections_page(
 
 @app.get("/mockup-studio")
 def mockup_studio_page(request: Request):
+    mockup_sets = []
+    for summary in list_mockup_sets():
+        mockup_set, items = get_mockup_set(summary["id"])
+        mockup_sets.append({**dict(mockup_set), "items": [dict(item) for item in items]})
     return templates.TemplateResponse(
         request=request,
         name="mockup_studio.html",
@@ -480,8 +495,46 @@ def mockup_studio_page(request: Request):
                 artwork for artwork in search_artworks("")
                 if artwork["has_source_image"]
             ],
+            "mockup_sets": mockup_sets,
+            "template_packs": template_pack_options(),
         },
     )
+
+
+@app.post("/mockup-studio/sets")
+def create_mockup_set_post(
+    name: str = Form(...), description: str = Form(""),
+    template_key: str = Form(DEFAULT_TEMPLATE_PACK), scene_id: int | None = Form(None),
+):
+    try:
+        create_mockup_set(name, description, template_key, scene_id)
+    except (ValueError, sqlite3.IntegrityError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse("/mockup-studio?set_saved=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/mockup-studio/sets/{set_id}")
+async def update_mockup_set_post(set_id: int, request: Request):
+    form = await request.form()
+    ordered_slots = [
+        slot for slot, _ in sorted(
+            ((slot, int(form[f"position_{slot}"])) for slot in GENERATED_SLOTS),
+            key=lambda item: item[1],
+        )
+    ]
+    scene_value = str(form.get("scene_id") or "").strip()
+    try:
+        update_mockup_set(
+            set_id, name=str(form.get("name") or ""),
+            description=str(form.get("description") or ""),
+            template_key=str(form.get("template_key") or DEFAULT_TEMPLATE_PACK),
+            ordered_slots=ordered_slots,
+            lead_slot=str(form.get("lead_slot") or "hero"),
+            scene_id=int(scene_value) if scene_value.isdigit() else None,
+        )
+    except (KeyError, ValueError, sqlite3.IntegrityError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse("/mockup-studio?set_updated=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/mockup-studio/scenes")
@@ -2481,9 +2534,12 @@ def update_artwork_everywhere(
             listing_id, "update_printify_ready",
             "The new artwork is saved in Printify and is ready to publish.",
         )
+        set_state = get_artwork_mockup_set_state(artwork_code)
+        if set_state is not None:
+            record_artwork_mockup_set_generated(artwork_code, set_state["set_id"])
         set_artwork_production_flags(
             artwork_code, print_master_ready=True, ratio_exports_ready=True,
-            mockups_ready=True, original_approved=True,
+            mockups_ready=set_state is None, original_approved=True,
         )
         api.publish_product(listing["printify_product_id"], include_images=False)
         mark_printify_publish_requested(listing_id)
@@ -2762,11 +2818,92 @@ def generate_mockups_post(artwork_code: str, template_key: str = Form(DEFAULT_TE
             {slot_key: template_key for slot_key in GENERATED_SLOTS},
         )
         set_artwork_production_flags(artwork_code, mockups_ready=False)
+        invalidate_artwork_mockup_set_approval(artwork_code)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     return RedirectResponse(
         url=f"/artworks/{artwork_code.upper()}?step=mockups&mockups_generated=8&template_pack={template_key}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/mockups/sets/{set_id}/generate")
+def generate_mockup_set_post(artwork_code: str, set_id: int):
+    artwork = get_artwork(artwork_code)
+    mockup_set, items = get_mockup_set(set_id)
+    if artwork is None or mockup_set is None:
+        raise HTTPException(status_code=404, detail="Artwork or mockup set not found")
+    assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+    source_assignment = assignments.get("print_master") or assignments.get("source")
+    if source_assignment is None:
+        raise HTTPException(status_code=400, detail="Upload artwork before generating a set")
+    try:
+        workspace = get_artwork_folder(artwork)
+        source_path = resolve_assigned_file(artwork, source_assignment)
+        results = generate_mockups(
+            artwork=dict(artwork), source_path=source_path,
+            output_folder=workspace / "03 Mockups",
+            template_key=mockup_set["template_key"],
+        )
+        for result in results:
+            upsert_artwork_file(
+                artwork_code=artwork_code, role=result["role"],
+                relative_path=str(result["path"].relative_to(workspace)),
+                stored_filename=result["stored_filename"],
+                original_filename=result["original_filename"],
+            )
+        room_item = next((item for item in items if item["slot_key"] == "room"), None)
+        if room_item and room_item["scene_id"]:
+            scene = get_mockup_scene(room_item["scene_id"])
+            if scene is None or not scene["active"]:
+                raise ValueError("The set's reusable room scene is unavailable")
+            scene_result = generate_scene_mockup(
+                artwork=dict(artwork), source_path=source_path,
+                scene_path=MOCKUP_SCENES_DIR / scene["image_path"],
+                scene=dict(scene), output_folder=workspace / "03 Mockups",
+            )
+            upsert_artwork_file(
+                artwork_code=artwork_code, role=scene_result["role"],
+                relative_path=str(scene_result["path"].relative_to(workspace)),
+                stored_filename=scene_result["stored_filename"],
+                original_filename=scene_result["original_filename"],
+            )
+        save_artwork_mockup_order(artwork_code, [item["slot_key"] for item in items])
+        save_artwork_mockup_templates(
+            artwork_code,
+            {
+                item["slot_key"]: (
+                    f"scene:{item['scene_id']}" if item["scene_id"]
+                    else mockup_set["template_key"]
+                )
+                for item in items
+            },
+        )
+        record_artwork_mockup_set_generated(artwork_code, set_id)
+        set_artwork_production_flags(artwork_code, mockups_ready=False)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?step=mockups&set_generated=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/mockups/sets/{set_id}/approve")
+def approve_mockup_set_post(artwork_code: str, set_id: int, crop_reviewed: bool = Form(False)):
+    if not crop_reviewed:
+        raise HTTPException(status_code=400, detail="Review the Etsy cover crops before approval")
+    context = _artwork_context(artwork_code)
+    if context["production_summary"]["missing_mockups"]:
+        raise HTTPException(status_code=400, detail="Generate all eight images before approval")
+    try:
+        approve_artwork_mockup_set(artwork_code, set_id)
+        set_artwork_production_flags(artwork_code, mockups_ready=True)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}?step=mockups&set_approved=1",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2804,6 +2941,7 @@ def generate_scene_mockup_post(artwork_code: str, scene_id: int = Form(...)):
         )
         save_artwork_mockup_template(artwork_code, "room", f"scene:{scene_id}")
         set_artwork_production_flags(artwork_code, mockups_ready=False)
+        invalidate_artwork_mockup_set_approval(artwork_code)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse(
@@ -2834,6 +2972,7 @@ def upload_mockup_file(
         )
         upsert_artwork_file(artwork_code=artwork_code, **saved)
         set_artwork_production_flags(artwork_code, mockups_ready=False)
+        invalidate_artwork_mockup_set_approval(artwork_code)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     finally:
@@ -2886,6 +3025,7 @@ async def generate_one_listing_image_post(artwork_code: str, slot_key: str, requ
         )
         save_artwork_mockup_template(artwork_code, slot_key, template_key)
         set_artwork_production_flags(artwork_code, mockups_ready=False)
+        invalidate_artwork_mockup_set_approval(artwork_code)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

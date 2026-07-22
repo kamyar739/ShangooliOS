@@ -171,6 +171,64 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(db.get_mockup_scene(scene_id)["active"])
         self.assertIn("No room scenes yet", self.client.get("/mockup-studio").text)
 
+    def test_mockup_studio_manages_ordered_marketplace_sets(self):
+        studio = self.client.get("/mockup-studio")
+        self.assertIn("Marketplace sets", studio.text)
+        self.assertIn("Etsy Standard", studio.text)
+
+        set_id = db.create_mockup_set(
+            "Dental Office Etsy", "Reception-focused set", "warm_contemporary"
+        )
+        mockup_set, items = db.get_mockup_set(set_id)
+        self.assertEqual(mockup_set["template_key"], "warm_contemporary")
+        self.assertEqual(len(items), 8)
+        self.assertEqual(items[0]["slot_key"], "hero")
+        self.assertTrue(items[0]["is_lead"])
+
+        reversed_slots = list(reversed(db.MOCKUP_SET_SLOTS))
+        db.update_mockup_set(
+            set_id, name="Dental Office Etsy", description="Updated",
+            template_key="modern_minimal", ordered_slots=reversed_slots,
+            lead_slot="room",
+        )
+        _, updated_items = db.get_mockup_set(set_id)
+        self.assertEqual(updated_items[0]["slot_key"], "collection")
+        self.assertTrue(next(item for item in updated_items if item["slot_key"] == "room")["is_lead"])
+
+    def test_mockup_set_approval_is_invalidated_by_source_change(self):
+        set_id = db.list_mockup_sets()[0]["id"]
+        db.record_artwork_mockup_set_generated("CEL-001", set_id)
+        db.approve_artwork_mockup_set("CEL-001", set_id)
+        self.assertIsNotNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
+
+        db.invalidate_artwork_after_source_change("CEL-001")
+
+        self.assertIsNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
+
+    def test_mockup_set_requires_crop_review_before_approval(self):
+        set_id = db.list_mockup_sets()[0]["id"]
+        db.record_artwork_mockup_set_generated("CEL-001", set_id)
+
+        response = self.client.post(
+            f"/artworks/CEL-001/mockups/sets/{set_id}/approve",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
+
+        with patch(
+            "web.app._artwork_context",
+            return_value={"production_summary": {"missing_mockups": []}},
+        ):
+            response = self.client.post(
+                f"/artworks/CEL-001/mockups/sets/{set_id}/approve",
+                data={"crop_reviewed": "true"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIsNotNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
+
     def test_collections_filter_keeps_collection_cards_and_updates_artwork_panel(self):
         with db.get_connection() as connection:
             connection.execute(

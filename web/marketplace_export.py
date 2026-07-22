@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.database import get_artwork_folder
 from web.production import MOCKUP_SLOTS
+from web.db import get_artwork_file_assignments, get_artwork_mockup_order
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -64,9 +65,29 @@ def _ordered_listing_images(mockup_folder: Path) -> list[Path]:
     return sorted(selected, key=sort_key)
 
 
+def ordered_listing_images_for_artwork(artwork) -> list[Path]:
+    """Resolve the eight active assignments in the artwork's saved Etsy order."""
+    workspace = get_artwork_folder(artwork)
+    assignments = {
+        row["role"]: row for row in get_artwork_file_assignments(artwork["artwork_code"])
+    }
+    saved_order = [row["slot_key"] for row in get_artwork_mockup_order(artwork["artwork_code"])]
+    default_order = [slot for slot, _, _ in MOCKUP_SLOTS]
+    ordered_slots = saved_order or default_order
+    images = []
+    for slot in ordered_slots:
+        assignment = assignments.get(f"mockup:{slot}")
+        if assignment is None:
+            continue
+        path = workspace / assignment["relative_path"]
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+            images.append(path)
+    return images or _ordered_listing_images(workspace / "03 Mockups")
+
+
 def inspect_listing_export(listing, readiness: dict) -> dict:
     workspace = get_artwork_folder(listing)
-    images = _ordered_listing_images(workspace / "03 Mockups")
+    images = ordered_listing_images_for_artwork(listing)
     blockers = [
         item.get("detail") or item["label"]
         for item in readiness["items"]

@@ -12,6 +12,24 @@
     {% if request.query_params.get('scene_saved') %}<div class="alert alert-success">Scene saved and ready to use from an artwork page.</div>{% endif %}
     {% if request.query_params.get('scene_updated') %}<div class="alert alert-success">Scene placement updated.</div>{% endif %}
     {% if request.query_params.get('scene_disabled') %}<div class="alert alert-success">Scene removed from the active library.</div>{% endif %}
+    {% if request.query_params.get('set_saved') %}<div class="alert alert-success">Marketplace set created.</div>{% endif %}
+    {% if request.query_params.get('set_updated') %}<div class="alert alert-success">Marketplace set updated.</div>{% endif %}
+    <section class="studio-set-library mb-5">
+      <div class="studio-section-heading"><div><div class="eyebrow">Phase 2</div><h2 class="h4 mb-1">Marketplace sets</h2><p class="text-muted mb-0">Define the eight images, Etsy order, lead image, and reusable room scene once.</p></div><button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-set-modal">+ New set</button></div>
+      <div class="row g-3 mt-1">
+        {% for set in mockup_sets %}
+        <div class="col-12"><article class="studio-set-card">
+          <div class="studio-set-summary"><div><span class="code-pill">{{ set['item_count'] if set['item_count'] is defined else set['items']|length }} images</span><h3 class="h5 mt-2 mb-1">{{ set['name'] }}</h3><p class="small text-muted mb-0">{{ set['description'] or 'Curated marketplace image set' }}</p></div><span class="status-pill collection-status-ready">Lead · {{ set['items']|selectattr('is_lead')|map(attribute='slot_key')|first|replace('_',' ')|title }}</span></div>
+          <div class="studio-set-strip">{% for item in set['items'] %}<span class="{% if item['is_lead'] %}is-lead{% endif %}"><strong>{{ item['position'] }}</strong>{{ item['slot_key']|replace('_',' ')|title }}</span>{% endfor %}</div>
+          <details class="studio-set-editor"><summary>Edit set</summary><form method="post" action="/mockup-studio/sets/{{ set['id'] }}" class="studio-set-form">
+            <div class="row g-2"><div class="col-md-7"><label class="form-label">Set name</label><input class="form-control" name="name" value="{{ set['name'] }}" required></div><div class="col-md-5"><label class="form-label">Template style</label><select class="form-select" name="template_key">{% for pack in template_packs %}<option value="{{ pack['key'] }}" {% if pack['key']==set['template_key'] %}selected{% endif %}>{{ pack['label'] }}</option>{% endfor %}</select></div><div class="col-12"><label class="form-label">Description</label><input class="form-control" name="description" value="{{ set['description'] or '' }}"></div><div class="col-md-6"><label class="form-label">Lead image</label><select class="form-select" name="lead_slot">{% for item in set['items'] %}<option value="{{ item['slot_key'] }}" {% if item['is_lead'] %}selected{% endif %}>{{ item['slot_key']|replace('_',' ')|title }}</option>{% endfor %}</select></div><div class="col-md-6"><label class="form-label">Room scene</label><select class="form-select" name="scene_id"><option value="">Generated room</option>{% for scene in scenes %}<option value="{{ scene['id'] }}" {% if set['items']|selectattr('slot_key','equalto','room')|map(attribute='scene_id')|first == scene['id'] %}selected{% endif %}>{{ scene['room_type'] }} · {{ scene['name'] }}</option>{% endfor %}</select></div></div>
+            <div class="studio-set-order">{% for item in set['items'] %}<label><span>{{ item['slot_key']|replace('_',' ')|title }}</span><select class="form-select form-select-sm" name="position_{{ item['slot_key'] }}">{% for position in range(1,9) %}<option value="{{ position }}" {% if item['position']==position %}selected{% endif %}>{{ position }}</option>{% endfor %}</select></label>{% endfor %}</div>
+            <button class="btn btn-primary" type="submit">Save marketplace set</button>
+          </form></details>
+        </article></div>
+        {% endfor %}
+      </div>
+    </section>
     {% if scenes %}
       <section class="studio-toolbar mb-4">
         <div><div class="eyebrow">Live preview</div><h2 class="h5 mb-1">Choose artwork to test every scene</h2><p class="small text-muted mb-0">The selection is for preview only. Placement and presentation settings belong to the scene.</p></div>
@@ -99,6 +117,8 @@
     <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Save scene</button></div>
   </form></div></div>
 </div>
+
+<div class="modal fade" id="new-set-modal" tabindex="-1" aria-labelledby="new-set-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" action="/mockup-studio/sets"><div class="modal-header"><div><div class="eyebrow">Marketplace set</div><h2 class="modal-title h4" id="new-set-title">New image set</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="row g-3"><div class="col-12"><label class="form-label">Set name</label><input class="form-control" name="name" placeholder="Dental Office Etsy" required></div><div class="col-12"><label class="form-label">Description</label><input class="form-control" name="description" placeholder="Reception and office-focused marketplace set"></div><div class="col-md-6"><label class="form-label">Template style</label><select class="form-select" name="template_key">{% for pack in template_packs %}<option value="{{ pack['key'] }}">{{ pack['label'] }}</option>{% endfor %}</select></div><div class="col-md-6"><label class="form-label">Room scene</label><select class="form-select" name="scene_id"><option value="">Generated room</option>{% for scene in scenes %}<option value="{{ scene['id'] }}">{{ scene['room_type'] }} · {{ scene['name'] }}</option>{% endfor %}</select></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Create set</button></div></form></div></div></div>
 <script>
 (() => {
   const artworkSelect = document.querySelector('[data-studio-artwork]');

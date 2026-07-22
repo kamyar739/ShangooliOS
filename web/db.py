@@ -96,6 +96,47 @@ def ensure_production_schema():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS mockup_sets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                template_key TEXT NOT NULL DEFAULT 'modern_minimal',
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mockup_set_items (
+                set_id INTEGER NOT NULL,
+                slot_key TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                scene_id INTEGER,
+                is_lead INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (set_id) REFERENCES mockup_sets(id) ON DELETE CASCADE,
+                FOREIGN KEY (scene_id) REFERENCES mockup_scenes(id),
+                PRIMARY KEY (set_id, slot_key),
+                UNIQUE (set_id, position)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS artwork_mockup_sets (
+                artwork_id INTEGER PRIMARY KEY,
+                set_id INTEGER NOT NULL,
+                generated_at TEXT,
+                approved_at TEXT,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id),
+                FOREIGN KEY (set_id) REFERENCES mockup_sets(id)
+            )
+            """
+        )
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS mockup_scenes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -133,6 +174,21 @@ def ensure_production_schema():
                 conn.execute(
                     f"ALTER TABLE mockup_scenes ADD COLUMN {column_name} {declaration}"
                 )
+
+        default_set = conn.execute(
+            "SELECT id FROM mockup_sets WHERE name = 'Etsy Standard'"
+        ).fetchone()
+        if default_set is None:
+            cursor = conn.execute(
+                "INSERT INTO mockup_sets (name, description) VALUES (?, ?)",
+                ("Etsy Standard", "Eight-image curated Etsy listing set"),
+            )
+            default_set_id = cursor.lastrowid
+            slots = ("hero", "room", "bedroom", "office", "detail", "sizes", "how_it_works", "collection")
+            conn.executemany(
+                "INSERT INTO mockup_set_items (set_id, slot_key, position, is_lead) VALUES (?, ?, ?, ?)",
+                [(default_set_id, slot, position, int(slot == "hero")) for position, slot in enumerate(slots, 1)],
+            )
 
 
         conn.execute(
@@ -989,6 +1045,11 @@ def invalidate_artwork_after_source_change(artwork_code):
         )
         if cursor.rowcount == 0:
             raise ValueError("Artwork production record not found")
+        conn.execute(
+            """UPDATE artwork_mockup_sets SET approved_at=NULL
+               WHERE artwork_id=(SELECT id FROM artworks WHERE artwork_code=?)""",
+            (artwork_code.upper(),),
+        )
         conn.commit()
 
 
@@ -1423,6 +1484,146 @@ def get_artwork_mockup_templates(artwork_code):
             """,
             (artwork_code.upper(),),
         ).fetchall()
+
+
+MOCKUP_SET_SLOTS = (
+    "hero", "room", "bedroom", "office", "detail", "sizes",
+    "how_it_works", "collection",
+)
+
+
+def list_mockup_sets():
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT ms.*, COUNT(msi.slot_key) AS item_count,
+                   MAX(CASE WHEN msi.is_lead = 1 THEN msi.slot_key END) AS lead_slot
+            FROM mockup_sets AS ms
+            LEFT JOIN mockup_set_items AS msi ON msi.set_id = ms.id
+            WHERE ms.active = 1
+            GROUP BY ms.id
+            ORDER BY ms.name
+            """
+        ).fetchall()
+
+
+def get_mockup_set(set_id):
+    with get_connection() as conn:
+        mockup_set = conn.execute(
+            "SELECT * FROM mockup_sets WHERE id = ? AND active = 1", (set_id,)
+        ).fetchone()
+        if mockup_set is None:
+            return None, []
+        items = conn.execute(
+            """
+            SELECT msi.*, ms.name AS scene_name, ms.room_type
+            FROM mockup_set_items AS msi
+            LEFT JOIN mockup_scenes AS ms ON ms.id = msi.scene_id
+            WHERE msi.set_id = ?
+            ORDER BY msi.position
+            """,
+            (set_id,),
+        ).fetchall()
+        return mockup_set, items
+
+
+def create_mockup_set(name, description="", template_key="modern_minimal", scene_id=None):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO mockup_sets (name, description, template_key) VALUES (?, ?, ?)",
+            (name.strip(), description.strip(), template_key.strip()),
+        )
+        set_id = cursor.lastrowid
+        conn.executemany(
+            """
+            INSERT INTO mockup_set_items (set_id, slot_key, position, scene_id, is_lead)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (set_id, slot, position, scene_id if slot == "room" else None, int(slot == "hero"))
+                for position, slot in enumerate(MOCKUP_SET_SLOTS, 1)
+            ],
+        )
+        conn.commit()
+        return set_id
+
+
+def update_mockup_set(set_id, *, name, description, template_key, ordered_slots, lead_slot, scene_id=None):
+    ordered_slots = [str(slot).strip() for slot in ordered_slots]
+    if set(ordered_slots) != set(MOCKUP_SET_SLOTS) or len(ordered_slots) != len(MOCKUP_SET_SLOTS):
+        raise ValueError("A mockup set must contain every listing-image slot exactly once")
+    if lead_slot not in MOCKUP_SET_SLOTS:
+        raise ValueError("Choose a valid lead image")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """UPDATE mockup_sets SET name=?, description=?, template_key=?,
+               updated_at=CURRENT_TIMESTAMP WHERE id=? AND active=1""",
+            (name.strip(), description.strip(), template_key.strip(), set_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Mockup set not found")
+        conn.execute("DELETE FROM mockup_set_items WHERE set_id = ?", (set_id,))
+        conn.executemany(
+            """INSERT INTO mockup_set_items
+               (set_id, slot_key, position, scene_id, is_lead)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                (set_id, slot, position, scene_id if slot == "room" else None, int(slot == lead_slot))
+                for position, slot in enumerate(ordered_slots, 1)
+            ],
+        )
+        conn.commit()
+
+
+def record_artwork_mockup_set_generated(artwork_code, set_id):
+    with get_connection() as conn:
+        artwork = conn.execute("SELECT id FROM artworks WHERE artwork_code=?", (artwork_code.upper(),)).fetchone()
+        if artwork is None:
+            raise ValueError("Artwork not found")
+        conn.execute(
+            """INSERT INTO artwork_mockup_sets (artwork_id, set_id, generated_at, approved_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP, NULL)
+               ON CONFLICT(artwork_id) DO UPDATE SET set_id=excluded.set_id,
+               generated_at=CURRENT_TIMESTAMP, approved_at=NULL""",
+            (artwork["id"], set_id),
+        )
+        conn.commit()
+
+
+def approve_artwork_mockup_set(artwork_code, set_id):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """UPDATE artwork_mockup_sets SET approved_at=CURRENT_TIMESTAMP
+               WHERE artwork_id=(SELECT id FROM artworks WHERE artwork_code=?)
+                 AND set_id=? AND generated_at IS NOT NULL""",
+            (artwork_code.upper(), set_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Generate this mockup set before approving it")
+        conn.commit()
+
+
+def get_artwork_mockup_set_state(artwork_code):
+    with get_connection() as conn:
+        return conn.execute(
+            """SELECT ams.*, ms.name, ms.template_key,
+               (SELECT slot_key FROM mockup_set_items WHERE set_id=ms.id AND is_lead=1) AS lead_slot
+               FROM artwork_mockup_sets AS ams
+               JOIN artworks AS a ON a.id=ams.artwork_id
+               JOIN mockup_sets AS ms ON ms.id=ams.set_id
+               WHERE a.artwork_code=?""",
+            (artwork_code.upper(),),
+        ).fetchone()
+
+
+def invalidate_artwork_mockup_set_approval(artwork_code):
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE artwork_mockup_sets SET approved_at=NULL
+               WHERE artwork_id=(SELECT id FROM artworks WHERE artwork_code=?)""",
+            (artwork_code.upper(),),
+        )
+        conn.commit()
 
 
 def save_artwork_mockup_template(artwork_code, slot_key, template_key):

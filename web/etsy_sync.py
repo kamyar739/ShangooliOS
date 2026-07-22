@@ -1,7 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timezone
 
-from app.database import get_artwork_folder
 from web.etsy_api import (
     create_etsy_shop_section,
     delete_etsy_listing_image,
@@ -15,8 +14,9 @@ from web.etsy_api import (
     update_etsy_listing_section,
     upload_etsy_listing_image,
 )
-from web.marketplace_export import _ordered_listing_images
+from web.marketplace_export import ordered_listing_images_for_artwork
 from web.listing_writer import customer_etsy_description
+from web.db import get_artwork_mockup_set_state
 
 
 def listing_tags(listing) -> list[str]:
@@ -46,8 +46,7 @@ def build_etsy_sync_preview(listing) -> dict:
     remote = get_etsy_listing(external_id)
     remote_tags = remote.get("tags") or []
     local_tags = listing_tags(listing)
-    workspace = get_artwork_folder(listing)
-    images = _ordered_listing_images(workspace / "03 Mockups")[:10]
+    images = ordered_listing_images_for_artwork(listing)[:10]
     remote_images = get_etsy_listing_images(external_id)
     inventory = get_etsy_listing_inventory(external_id)
     sections = list_etsy_shop_sections()
@@ -96,6 +95,11 @@ def build_etsy_sync_preview(listing) -> dict:
 
 
 def sync_etsy_listing(listing) -> dict:
+    set_state = get_artwork_mockup_set_state(listing["artwork_code"])
+    if set_state is not None and not set_state["approved_at"]:
+        raise ValueError(
+            f"Review and approve the {set_state['name']} mockup set before Etsy synchronization"
+        )
     preview = build_etsy_sync_preview(listing)
     if not preview["linked"]:
         raise ValueError("Link the Printify-created Etsy listing first")

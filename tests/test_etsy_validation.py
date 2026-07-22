@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import patch
 
 from web.etsy_validation import validate_etsy_listing
+from web.etsy_sync import sync_etsy_listing
 
 
 class EtsyValidationTests(unittest.TestCase):
@@ -44,6 +46,14 @@ class EtsyValidationTests(unittest.TestCase):
         results = validate_etsy_listing(self._listing(description="", price_cents=0))
         failures = {item["key"] for item in results if not item["passed"]}
         self.assertEqual(failures, {"description", "price"})
+
+    @patch("web.etsy_sync.get_artwork_mockup_set_state")
+    def test_unapproved_marketplace_set_blocks_etsy_image_sync(self, set_state):
+        set_state.return_value = {
+            "name": "Etsy Standard", "approved_at": None,
+        }
+        with self.assertRaisesRegex(ValueError, "Review and approve"):
+            sync_etsy_listing({"artwork_code": "CEL-001"})
 
 
 if __name__ == "__main__":
