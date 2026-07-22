@@ -149,6 +149,9 @@ class DashboardTests(unittest.TestCase):
             data={
                 "placement_x": "10", "placement_y": "12",
                 "placement_width": "60", "placement_height": "55",
+                "frame_color": "#123456", "frame_width": "3.5",
+                "mat_color": "#f0eadc", "mat_width": "2.5",
+                "shadow_strength": "55",
             },
             follow_redirects=False,
         )
@@ -156,6 +159,10 @@ class DashboardTests(unittest.TestCase):
         scene = db.get_mockup_scene(scene_id)
         self.assertEqual(scene["placement_x"], 10)
         self.assertEqual(scene["placement_width"], 60)
+        self.assertEqual(scene["frame_color"], "#123456")
+        self.assertEqual(scene["frame_width"], 3.5)
+        self.assertEqual(scene["mat_color"], "#f0eadc")
+        self.assertEqual(scene["shadow_strength"], 55)
 
         response = self.client.post(
             f"/mockup-studio/scenes/{scene_id}/disable", follow_redirects=False,
@@ -179,8 +186,7 @@ class DashboardTests(unittest.TestCase):
             connection.commit()
 
         default_response = self.client.get("/collections")
-        self.assertIn('href="/collections?collection=CEL"', default_response.text)
-        self.assertIn('aria-current="true"', default_response.text)
+        self.assertIn('<option value="CEL" selected>', default_response.text)
         self.assertIn("Celebration artwork", default_response.text)
         self.assertNotIn("Your latest active artwork across all collections", default_response.text)
         self.assertIn('data-bs-target="#new-collection-modal"', default_response.text)
@@ -188,9 +194,8 @@ class DashboardTests(unittest.TestCase):
 
         response = self.client.get("/collections?collection=CEL")
         self.assertEqual(response.status_code, 200)
-        self.assertIn('href="/collections?collection=CEL"', response.text)
-        self.assertIn('aria-current="true"', response.text)
-        self.assertIn("Viewing artwork below", response.text)
+        self.assertIn('<option value="CEL" selected>', response.text)
+        self.assertIn('id="collection-select"', response.text)
         self.assertIn("Celebration artwork", response.text)
         self.assertIn(
             'class="collection-heading-link" href="/collections/CEL"',

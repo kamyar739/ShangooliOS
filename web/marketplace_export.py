@@ -27,14 +27,41 @@ def _ordered_listing_images(mockup_folder: Path) -> list[Path]:
     ]
     slot_positions = {slot: position for position, (slot, _, _) in enumerate(MOCKUP_SLOTS)}
 
-    def sort_key(path: Path):
-        slot = next(
-            (slot for slot in slot_positions if f"_listing_{slot}_" in path.name.lower()),
+    def image_slot(path: Path) -> str | None:
+        stem = path.stem.lower()
+        return next(
+            (
+                slot for slot in slot_positions
+                if f"_listing_{slot}_" in stem or stem.endswith(f"_listing_{slot}")
+            ),
             None,
         )
+
+    def sort_key(path: Path):
+        slot = image_slot(path)
         return (slot_positions.get(slot, len(slot_positions)), path.name.lower())
 
-    return sorted(images, key=sort_key)
+    # Old template variants can remain on disk after a style is changed. Keep
+    # only the newest file for each listing slot so obsolete duplicates do not
+    # accumulate on Etsy.
+    selected_by_slot: dict[str, Path] = {}
+    unassigned: list[Path] = []
+    for path in images:
+        slot = image_slot(path)
+        if slot is None:
+            unassigned.append(path)
+            continue
+        current = selected_by_slot.get(slot)
+        if current is None or (path.stat().st_mtime, path.name.lower()) > (
+            current.stat().st_mtime,
+            current.name.lower(),
+        ):
+            selected_by_slot[slot] = path
+
+    # Once slot-based listing images exist, loose legacy mockups are archival
+    # workspace files rather than customer-facing Etsy images.
+    selected = list(selected_by_slot.values()) if selected_by_slot else unassigned
+    return sorted(selected, key=sort_key)
 
 
 def inspect_listing_export(listing, readiness: dict) -> dict:

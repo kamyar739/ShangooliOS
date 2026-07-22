@@ -287,6 +287,13 @@ class PrintifyAPITests(unittest.TestCase):
         self.assertTrue(payload["images"])
         self.assertTrue(payload["variants"])
 
+    def test_publish_product_can_preserve_curated_etsy_images(self):
+        api = PrintifyAPI("secret", "shop-123")
+        with patch.object(api, "_request", return_value={}) as request:
+            api.publish_product("product-456", include_images=False)
+        payload = request.call_args.args[2]
+        self.assertFalse(payload["images"])
+
     def test_wait_for_product_unlock_checks_until_printify_finishes(self):
         api = MagicMock()
         api.get_product.side_effect = [

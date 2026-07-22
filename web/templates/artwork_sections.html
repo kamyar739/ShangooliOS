@@ -531,15 +531,16 @@
                 {% for item in production_summary['mockup_status'] %}
                 <div class="col-md-6 col-xl-4">
                     <div class="mockup-slot h-100 {% if item['exists'] %}is-ready{% endif %}">
-                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                        <div class="mockup-slot-header">
                             <div>
+                                <div class="mockup-slot-kicker">Listing image {{ item['position'] }}</div>
                                 <h3 class="h6 mb-1">{{ item['label'] }}</h3>
-                                <div class="small text-secondary">{{ item['description'] }}</div>
+                                <div class="mockup-slot-description">{{ item['description'] }}</div>
                             </div>
                             {% if item['exists'] %}
-                            <span class="badge text-bg-success">Ready</span>
+                            <span class="mockup-status is-ready"><span aria-hidden="true">✓</span> Ready</span>
                             {% else %}
-                            <span class="badge text-bg-light border">Missing</span>
+                            <span class="mockup-status is-missing">Missing</span>
                             {% endif %}
                         </div>
 
@@ -553,9 +554,9 @@
                         <div class="mockup-preview mockup-preview-empty mb-3">No image uploaded</div>
                         {% endif %}
 
-                        <div class="row g-2 align-items-end">
-                            <div class="col-5">
-                                <label class="form-label small">Etsy order</label>
+                        <div class="mockup-slot-controls">
+                            <div class="mockup-field mockup-order-field">
+                                <label class="form-label">Etsy position</label>
                                 <select name="{{ item['slot_key'] }}_position" class="form-select form-select-sm">
                                     {% for position in range(1, 9) %}
                                     <option value="{{ position }}" {% if item['position'] == position %}selected{% endif %}>
@@ -564,8 +565,8 @@
                                     {% endfor %}
                                 </select>
                             </div>
-                            <div class="col-7 d-grid gap-2">
-                                <label class="form-label small mb-0">Template</label>
+                            <div class="mockup-field mockup-template-field">
+                                <label class="form-label">Template style</label>
                                 <select name="{{ item['slot_key'] }}_template_key" class="form-select form-select-sm">
                                     {% for pack in template_packs %}
                                     <option value="{{ pack['key'] }}" {% if pack['key'] == item['template_key'] %}selected{% endif %}>
@@ -573,14 +574,16 @@
                                     </option>
                                     {% endfor %}
                                 </select>
+                            </div>
+                            <div class="mockup-slot-actions">
                                 <button type="submit" class="btn btn-sm btn-outline-primary"
                                         formaction="/artworks/{{ artwork['artwork_code'] }}/mockups/{{ item['slot_key'] }}/generate"
                                         formmethod="post">
-                                    {% if item['exists'] %}Regenerate selected{% else %}Generate selected{% endif %}
+                                    {% if item['exists'] %}Regenerate{% else %}Generate{% endif %}
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"
                                         onclick="document.getElementById('mockup-upload-{{ item['slot_key'] }}').click()">
-                                    {% if item['exists'] %}Upload replacement{% else %}Upload custom{% endif %}
+                                    {% if item['exists'] %}Replace image{% else %}Upload image{% endif %}
                                 </button>
                             </div>
                         </div>

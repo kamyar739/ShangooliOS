@@ -464,25 +464,39 @@ def generate_scene_mockup(
     top = scene_top + round(foreground.height * float(scene["placement_y"]) / 100)
     width = round(foreground.width * float(scene["placement_width"]) / 100)
     height = round(foreground.height * float(scene["placement_height"]) / 100)
-    frame = 20
-    art = _fit(artwork_image, (max(1, width - frame * 2), max(1, height - frame * 2)))
-    frame_width, frame_height = art.width + frame * 2, art.height + frame * 2
-    frame_left = left + (width - frame_width) // 2
-    frame_top = top + (height - frame_height) // 2
+    frame = max(0, round(min(width, height) * float(scene.get("frame_width", 2)) / 100))
+    mat = max(0, round(min(width, height) * float(scene.get("mat_width", 1.2)) / 100))
+    surround = frame + mat
+    art = _fit(artwork_image, (max(1, width - surround * 2), max(1, height - surround * 2)))
+    frame_width, frame_height = width, height
+    frame_left, frame_top = left, top
     shadow = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow)
     shadow_draw.rectangle(
         (frame_left + 18, frame_top + 22, frame_left + frame_width + 18, frame_top + frame_height + 22),
-        fill=(0, 0, 0, 75),
+        fill=(0, 0, 0, round(110 * float(scene.get("shadow_strength", 35)) / 100)),
     )
     shadow = shadow.filter(ImageFilter.GaussianBlur(18))
     canvas = Image.alpha_composite(canvas.convert("RGBA"), shadow).convert("RGB")
     draw = ImageDraw.Draw(canvas)
     draw.rectangle(
         (frame_left, frame_top, frame_left + frame_width, frame_top + frame_height),
-        fill="#2d2b29",
+        fill=scene.get("frame_color") or "#2d2b29",
     )
-    canvas.paste(art, (frame_left + frame, frame_top + frame))
+    if mat:
+        draw.rectangle(
+            (
+                frame_left + frame, frame_top + frame,
+                frame_left + frame_width - frame,
+                frame_top + frame_height - frame,
+            ),
+            fill=scene.get("mat_color") or "#faf8f3",
+        )
+    interior_width = max(1, frame_width - surround * 2)
+    interior_height = max(1, frame_height - surround * 2)
+    art_left = frame_left + surround + (interior_width - art.width) // 2
+    art_top = frame_top + surround + (interior_height - art.height) // 2
+    canvas.paste(art, (art_left, art_top))
 
     safe_scene_name = "".join(
         character.lower() if character.isalnum() else "-"

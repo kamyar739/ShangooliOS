@@ -448,7 +448,14 @@ def collections_page(
         collection, artworks, retired_artworks = get_collection(normalized_code)
         if collection is None or collection["status"] == "archived":
             raise HTTPException(status_code=404, detail="Collection not found")
-        context["selected_collection"] = collection
+        summary = next(
+            (
+                item for item in context["collections"]
+                if item["code"] == normalized_code
+            ),
+            {},
+        )
+        context["selected_collection"] = {**dict(collection), **summary}
         context["collection_artworks"] = artworks
         context["retired_artworks"] = retired_artworks
         context["show_retired"] = show_retired
@@ -467,7 +474,13 @@ def mockup_studio_page(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="mockup_studio.html",
-        context={"scenes": list_mockup_scenes()},
+        context={
+            "scenes": list_mockup_scenes(),
+            "preview_artworks": [
+                artwork for artwork in search_artworks("")
+                if artwork["has_source_image"]
+            ],
+        },
     )
 
 
@@ -478,7 +491,9 @@ def create_mockup_scene_post(
     placement_x: float = Form(25), placement_y: float = Form(15),
     placement_width: float = Form(50), placement_height: float = Form(50),
     source_url: str = Form(""), creator: str = Form(""),
-    license_name: str = Form(""),
+    license_name: str = Form(""), frame_color: str = Form("#2d2b29"),
+    frame_width: float = Form(2), mat_color: str = Form("#faf8f3"),
+    mat_width: float = Form(1.2), shadow_strength: float = Form(35),
 ):
     normalized_orientation = orientation.strip().lower()
     if normalized_orientation not in {"horizontal", "vertical", "square", "any"}:
@@ -499,6 +514,9 @@ def create_mockup_scene_post(
             placement_y=placement_y, placement_width=placement_width,
             placement_height=placement_height,
             source_url=source_url, creator=creator, license_name=license_name,
+            frame_color=frame_color, frame_width=frame_width,
+            mat_color=mat_color, mat_width=mat_width,
+            shadow_strength=shadow_strength,
         )
     except (ValueError, UnidentifiedImageError, OSError) as error:
         destination.unlink(missing_ok=True)
@@ -525,11 +543,17 @@ def view_mockup_scene(scene_id: int):
 def update_mockup_scene_placement_post(
     scene_id: int, placement_x: float = Form(...), placement_y: float = Form(...),
     placement_width: float = Form(...), placement_height: float = Form(...),
+    frame_color: str = Form("#2d2b29"), frame_width: float = Form(2),
+    mat_color: str = Form("#faf8f3"), mat_width: float = Form(1.2),
+    shadow_strength: float = Form(35),
 ):
     try:
         update_mockup_scene_placement(
             scene_id, placement_x=placement_x, placement_y=placement_y,
             placement_width=placement_width, placement_height=placement_height,
+            frame_color=frame_color, frame_width=frame_width,
+            mat_color=mat_color, mat_width=mat_width,
+            shadow_strength=shadow_strength,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -2461,7 +2485,7 @@ def update_artwork_everywhere(
             artwork_code, print_master_ready=True, ratio_exports_ready=True,
             mockups_ready=True, original_approved=True,
         )
-        api.publish_product(listing["printify_product_id"])
+        api.publish_product(listing["printify_product_id"], include_images=False)
         mark_printify_publish_requested(listing_id)
         record_publishing_recovery(
             listing_id, "update_waiting_for_printify",
@@ -2519,7 +2543,7 @@ def recover_artwork_update_everywhere(artwork_code: str, listing_id: int):
     stage = listing["publishing_recovery_stage"] or ""
     try:
         if stage == "update_printify_ready":
-            api.publish_product(listing["printify_product_id"])
+            api.publish_product(listing["printify_product_id"], include_images=False)
             mark_printify_publish_requested(listing_id)
             record_publishing_recovery(
                 listing_id, "update_waiting_for_printify",

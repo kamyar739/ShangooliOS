@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app import database
 from web import db
 from web.app import app
-from web.marketplace_export import build_listing_export
+from web.marketplace_export import _ordered_listing_images, build_listing_export
 
 
 class MarketplaceExportTests(unittest.TestCase):
@@ -96,6 +96,47 @@ class MarketplaceExportTests(unittest.TestCase):
             manifest = json.loads(archive.read("listing.json"))
             self.assertEqual(manifest["listing"]["price_usd"], "42.00")
             self.assertEqual(manifest["listing"]["tags"], ["abstract art", "joyful art"])
+
+    def test_ordered_images_keep_only_newest_template_variant_per_slot(self):
+        mockups = self.workspace / "03 Mockups"
+        old_hero = mockups / "CEL-001_listing_hero_warm.jpg"
+        new_hero = mockups / "CEL-001_listing_hero_modern.jpg"
+        old_hero.write_bytes(b"old")
+        new_hero.write_bytes(b"new")
+        old_hero.touch()
+        new_hero.touch()
+
+        ordered = _ordered_listing_images(mockups)
+
+        self.assertEqual(
+            [path.name for path in ordered],
+            [new_hero.name, "CEL-001_listing_room_style.jpg"],
+        )
+
+    def test_ordered_images_treat_legacy_slot_name_as_a_variant(self):
+        mockups = self.workspace / "03 Mockups"
+        legacy = mockups / "CEL-001_listing_hero.jpg"
+        current = mockups / "CEL-001_listing_hero_modern.jpg"
+        legacy.write_bytes(b"legacy")
+        current.write_bytes(b"current")
+
+        ordered = _ordered_listing_images(mockups)
+
+        self.assertEqual(
+            [path.name for path in ordered],
+            [current.name, "CEL-001_listing_room_style.jpg"],
+        )
+
+    def test_ordered_images_ignore_loose_legacy_mockups_when_slots_exist(self):
+        mockups = self.workspace / "03 Mockups"
+        (mockups / "CEL-001_mockup_room.jpg").write_bytes(b"legacy")
+
+        ordered = _ordered_listing_images(mockups)
+
+        self.assertEqual(
+            [path.name for path in ordered],
+            ["CEL-001_listing_hero_style.jpg", "CEL-001_listing_room_style.jpg"],
+        )
 
     @patch("web.marketplace_export.get_artwork_folder")
     def test_export_route_downloads_zip(self, folder):

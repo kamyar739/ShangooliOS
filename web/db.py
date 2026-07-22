@@ -121,6 +121,18 @@ def ensure_production_schema():
         for column_name in ("source_url", "creator", "license_name"):
             if column_name not in scene_columns:
                 conn.execute(f"ALTER TABLE mockup_scenes ADD COLUMN {column_name} TEXT")
+        scene_presentation_columns = {
+            "frame_color": "TEXT NOT NULL DEFAULT '#2d2b29'",
+            "frame_width": "REAL NOT NULL DEFAULT 2",
+            "mat_color": "TEXT NOT NULL DEFAULT '#faf8f3'",
+            "mat_width": "REAL NOT NULL DEFAULT 1.2",
+            "shadow_strength": "REAL NOT NULL DEFAULT 35",
+        }
+        for column_name, declaration in scene_presentation_columns.items():
+            if column_name not in scene_columns:
+                conn.execute(
+                    f"ALTER TABLE mockup_scenes ADD COLUMN {column_name} {declaration}"
+                )
 
 
         conn.execute(
@@ -1534,26 +1546,34 @@ def get_mockup_scene(scene_id):
 def create_mockup_scene(
     *, name, room_type, orientation, image_path,
     placement_x, placement_y, placement_width, placement_height,
-    source_url="", creator="", license_name="",
+    source_url="", creator="", license_name="", frame_color="#2d2b29",
+    frame_width=2, mat_color="#faf8f3", mat_width=1.2, shadow_strength=35,
 ):
     values = [placement_x, placement_y, placement_width, placement_height]
     if any(value < 0 or value > 100 for value in values):
         raise ValueError("Scene placement values must be between 0 and 100")
     if placement_x + placement_width > 100 or placement_y + placement_height > 100:
         raise ValueError("The artwork placement must fit inside the scene")
+    if frame_width < 0 or frame_width > 12 or mat_width < 0 or mat_width > 12:
+        raise ValueError("Frame and mat widths must be between 0 and 12")
+    if shadow_strength < 0 or shadow_strength > 100:
+        raise ValueError("Shadow strength must be between 0 and 100")
     with get_connection() as conn:
         cursor = conn.execute(
             """
             INSERT INTO mockup_scenes (
                 name, room_type, orientation, image_path,
                 placement_x, placement_y, placement_width, placement_height,
-                source_url, creator, license_name
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_url, creator, license_name, frame_color, frame_width,
+                mat_color, mat_width, shadow_strength
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name.strip(), room_type.strip(), orientation.strip(), image_path,
                 placement_x, placement_y, placement_width, placement_height,
                 source_url.strip(), creator.strip(), license_name.strip(),
+                frame_color.strip(), frame_width, mat_color.strip(), mat_width,
+                shadow_strength,
             ),
         )
         conn.commit()
@@ -1562,21 +1582,31 @@ def create_mockup_scene(
 
 def update_mockup_scene_placement(
     scene_id, *, placement_x, placement_y, placement_width, placement_height,
+    frame_color="#2d2b29", frame_width=2, mat_color="#faf8f3",
+    mat_width=1.2, shadow_strength=35,
 ):
     values = [placement_x, placement_y, placement_width, placement_height]
     if any(value < 0 or value > 100 for value in values):
         raise ValueError("Scene placement values must be between 0 and 100")
     if placement_x + placement_width > 100 or placement_y + placement_height > 100:
         raise ValueError("The artwork placement must fit inside the scene")
+    if frame_width < 0 or frame_width > 12 or mat_width < 0 or mat_width > 12:
+        raise ValueError("Frame and mat widths must be between 0 and 12")
+    if shadow_strength < 0 or shadow_strength > 100:
+        raise ValueError("Shadow strength must be between 0 and 100")
     with get_connection() as conn:
         cursor = conn.execute(
             """
             UPDATE mockup_scenes
             SET placement_x = ?, placement_y = ?, placement_width = ?,
-                placement_height = ?, updated_at = CURRENT_TIMESTAMP
+                placement_height = ?, frame_color = ?, frame_width = ?,
+                mat_color = ?, mat_width = ?, shadow_strength = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (placement_x, placement_y, placement_width, placement_height, scene_id),
+            (placement_x, placement_y, placement_width, placement_height,
+             frame_color, frame_width, mat_color, mat_width, shadow_strength,
+             scene_id),
         )
         if cursor.rowcount == 0:
             raise ValueError("Mockup scene not found")

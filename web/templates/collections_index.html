@@ -10,6 +10,36 @@
       <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-collection-modal">+ New collection</button>
     </div>
     {% if selected_collection %}
+    <section class="collection-switcher-shell mb-4" aria-label="Collection selector">
+      <form class="collection-select-form" method="get" action="/collections">
+        <label for="collection-select">Collection</label>
+        <select class="form-select" id="collection-select" name="collection" onchange="this.form.submit()">
+          {% for collection in collections %}
+          <option value="{{ collection['code'] }}" {% if selected_collection['code'] == collection['code'] %}selected{% endif %}>{{ collection['code'] }} — {{ collection['name'] }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <div class="collection-switcher-meta" aria-label="Selected collection summary">
+        <span class="collection-meta-item"><strong>{{ selected_collection['artwork_count'] or 0 }}</strong> artwork{% if selected_collection['artwork_count'] != 1 %}s{% endif %}</span>
+        <span class="collection-meta-item"><strong>{{ selected_collection['target_artwork_count'] or 0 }}</strong> target</span>
+        <span class="status-pill collection-status-{{ selected_collection['display_status_class'] }}">{% if selected_collection['live_etsy_count'] %}{{ selected_collection['live_etsy_count'] }} live on Etsy{% else %}{{ selected_collection['display_status'] }}{% endif %}</span>
+      </div>
+      <div class="collection-switcher-actions">
+        <button class="btn btn-sm btn-outline-secondary collection-order-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#collection-order-panel" aria-expanded="false" aria-controls="collection-order-panel">Manage order</button>
+      </div>
+      <div class="collapse" id="collection-order-panel">
+        <div class="collection-order-panel" data-collection-order>
+          {% for collection in collections %}
+          <div class="collection-order-row" draggable="true" data-collection-code="{{ collection['code'] }}">
+            <span class="collection-order-grip" aria-hidden="true">⋮⋮</span><span class="code-pill">{{ collection['code'] }}</span><strong>{{ collection['name'] }}</strong><span class="text-muted">{{ collection['artwork_count'] or 0 }} artworks</span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="collection-order-status" data-collection-order-status aria-live="polite">Drag collections to reorder</div>
+      </div>
+    </section>
+    {% endif %}
+    {% if selected_collection %}
     <section class="collection-gallery mb-4" aria-labelledby="collection-gallery-title">
       <div class="collection-gallery-heading">
         <div><div class="eyebrow">Selected collection · {{ selected_collection['code'] }}</div><h2 class="h4 mb-1" id="collection-gallery-title">{{ selected_collection['name'] }}</h2></div>
@@ -25,23 +55,6 @@
       </div>
     </section>
     {% endif %}
-    <div class="row g-4 mb-2 collection-order-grid" data-collection-order>
-      {% for collection in collections %}
-      <div class="col-md-6 col-xl-4 collection-order-card" draggable="true" data-collection-code="{{ collection['code'] }}">
-        <button class="collection-card-drag-handle" type="button" aria-label="Move {{ collection['name'] }}" title="Drag to reorder">⋮⋮</button>
-        <a href="/collections?collection={{ collection['code'] }}" class="card-link collection-filter-link{% if selected_collection and selected_collection['code'] == collection['code'] %} is-selected{% endif %}"{% if selected_collection and selected_collection['code'] == collection['code'] %} aria-current="true"{% endif %}>
-          <div class="card app-card collection-card h-100"><div class="card-body">
-            <div class="d-flex justify-content-between mb-4"><span class="code-pill">{{ collection['code'] }}</span><span class="status-pill collection-status-{{ collection['display_status_class'] }}">{{ collection['display_status'] }}</span></div>
-            <h2 class="h5 text-dark mb-2">{{ collection['name'] }}</h2>
-            <p class="text-muted mb-4">Target: {{ collection['target_artwork_count'] or 0 }}</p>
-            <div class="collection-count">{{ collection['artwork_count'] or 0 }} artwork{% if collection['artwork_count'] != 1 %}s{% endif %}{% if collection['live_etsy_count'] %}<span> · {{ collection['live_etsy_count'] }} live on Etsy</span>{% endif %}</div>
-            {% if selected_collection and selected_collection['code'] == collection['code'] %}<div class="collection-viewing-label">Viewing artwork below</div>{% endif %}
-          </div></div>
-        </a>
-      </div>
-      {% endfor %}
-    </div>
-    <div class="collection-order-status mb-5" data-collection-order-status aria-live="polite">Drag collections to reorder</div>
     <div class="dashboard-workspace-heading mb-3">
       {% if selected_collection %}
       <div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="h4 mb-1"><a class="collection-heading-link" href="/collections/{{ selected_collection['code'] }}">{{ selected_collection['name'] }} artwork</a></h2><p class="text-muted mb-0">Artwork belonging to the selected collection.</p></div>

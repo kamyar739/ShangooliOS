@@ -863,7 +863,7 @@ class ListingReadinessTests(ListingTests):
                 follow_redirects=False,
             )
         self.assertEqual(response.status_code, 303)
-        api.publish_product.assert_called_once_with("printify-123")
+        api.publish_product.assert_called_once_with("printify-123", include_images=False)
         self.assertIsNotNone(
             db.get_listing(listing_id)["printify_publish_requested_at"]
         )

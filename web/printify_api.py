@@ -266,14 +266,14 @@ class PrintifyAPI:
             "PUT", f"/shops/{self.shop_id}/products/{product_id}.json", payload
         )
 
-    def publish_product(self, product_id: str):
+    def publish_product(self, product_id: str, *, include_images: bool = True):
         return self._request(
             "POST",
             f"/shops/{self.shop_id}/products/{product_id}/publish.json",
             {
                 "title": True,
                 "description": True,
-                "images": True,
+                "images": include_images,
                 "variants": True,
                 "tags": True,
                 "keyFeatures": True,
