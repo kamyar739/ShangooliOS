@@ -11,47 +11,64 @@
     </div>
     {% if request.query_params.get('scene_saved') %}<div class="alert alert-success">Scene saved and ready to use from an artwork page.</div>{% endif %}
     {% if request.query_params.get('scene_updated') %}<div class="alert alert-success">Scene placement updated.</div>{% endif %}
+    {% if request.query_params.get('background_replaced') %}<div class="alert alert-warning"><strong>Scene background replaced.</strong> Review and save the artwork placement before regenerating listing images. Previous approvals that used this scene were reset.</div>{% endif %}
     {% if request.query_params.get('scene_disabled') %}<div class="alert alert-success">Scene removed from the active library.</div>{% endif %}
     {% if request.query_params.get('set_saved') %}<div class="alert alert-success">Marketplace set created.</div>{% endif %}
     {% if request.query_params.get('set_updated') %}<div class="alert alert-success">Marketplace set updated.</div>{% endif %}
-    <section class="studio-set-library mb-5">
-      <div class="studio-section-heading"><div><div class="eyebrow">Phase 2</div><h2 class="h4 mb-1">Marketplace sets</h2><p class="text-muted mb-0">Define the eight images, Etsy order, lead image, and reusable room scene once.</p></div><button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-set-modal">+ New set</button></div>
+    <section class="studio-set-library mb-5" data-marketplace-library>
+      {% set primary_set = mockup_sets|first %}
+      <details class="studio-recipe">
+      <summary><div><div class="eyebrow">Listing automation</div><h2 class="h4 mb-1">Etsy listing recipe</h2><p class="text-muted mb-0">The saved image order ShangooliOS uses when generating a complete Etsy gallery.</p></div>{% if primary_set %}<span class="studio-recipe-summary"><strong>{{ primary_set['items']|length }} images</strong><small>Cover · {{ primary_set['items']|selectattr('is_lead')|map(attribute='label')|first }}</small></span>{% endif %}<span class="studio-recipe-action">Configure</span></summary>
+      <div class="studio-recipe-body">
       <div class="row g-3 mt-1">
         {% for set in mockup_sets %}
         <div class="col-12"><article class="studio-set-card">
           <div class="studio-set-summary"><div><span class="code-pill">{{ set['item_count'] if set['item_count'] is defined else set['items']|length }} images</span><h3 class="h5 mt-2 mb-1">{{ set['name'] }}</h3><p class="small text-muted mb-0">{{ set['description'] or 'Curated marketplace image set' }}</p></div><span class="status-pill collection-status-ready">Lead · {{ set['items']|selectattr('is_lead')|map(attribute='slot_key')|first|replace('_',' ')|title }}</span></div>
-          <div class="studio-set-strip">{% for item in set['items'] %}<span class="{% if item['is_lead'] %}is-lead{% endif %}"><strong>{{ item['position'] }}</strong>{{ item['slot_key']|replace('_',' ')|title }}</span>{% endfor %}</div>
+          <div class="studio-set-strip">{% for item in set['items'] %}<span class="{% if item['is_lead'] %}is-lead{% endif %}"><strong>{{ item['position'] }}</strong>{{ item['label'] or item['slot_key']|replace('_',' ')|title }}</span>{% endfor %}</div>
           <details class="studio-set-editor"><summary>Edit set</summary><form method="post" action="/mockup-studio/sets/{{ set['id'] }}" class="studio-set-form">
-            <div class="row g-2"><div class="col-md-7"><label class="form-label">Set name</label><input class="form-control" name="name" value="{{ set['name'] }}" required></div><div class="col-md-5"><label class="form-label">Template style</label><select class="form-select" name="template_key">{% for pack in template_packs %}<option value="{{ pack['key'] }}" {% if pack['key']==set['template_key'] %}selected{% endif %}>{{ pack['label'] }}</option>{% endfor %}</select></div><div class="col-12"><label class="form-label">Description</label><input class="form-control" name="description" value="{{ set['description'] or '' }}"></div><div class="col-md-6"><label class="form-label">Lead image</label><select class="form-select" name="lead_slot">{% for item in set['items'] %}<option value="{{ item['slot_key'] }}" {% if item['is_lead'] %}selected{% endif %}>{{ item['slot_key']|replace('_',' ')|title }}</option>{% endfor %}</select></div><div class="col-md-6"><label class="form-label">Room scene</label><select class="form-select" name="scene_id"><option value="">Generated room</option>{% for scene in scenes %}<option value="{{ scene['id'] }}" {% if set['items']|selectattr('slot_key','equalto','room')|map(attribute='scene_id')|first == scene['id'] %}selected{% endif %}>{{ scene['room_type'] }} · {{ scene['name'] }}</option>{% endfor %}</select></div></div>
-            <div class="studio-set-order">{% for item in set['items'] %}<label><span>{{ item['slot_key']|replace('_',' ')|title }}</span><select class="form-select form-select-sm" name="position_{{ item['slot_key'] }}">{% for position in range(1,9) %}<option value="{{ position }}" {% if item['position']==position %}selected{% endif %}>{{ position }}</option>{% endfor %}</select></label>{% endfor %}</div>
-            <button class="btn btn-primary" type="submit">Save marketplace set</button>
+            <div class="row g-2"><div class="col-md-7"><label class="form-label">Set name</label><input class="form-control" name="name" value="{{ set['name'] }}" required></div><div class="col-md-5"><label class="form-label">Generated-image style</label><select class="form-select" name="template_key">{% for pack in template_packs %}<option value="{{ pack['key'] }}" {% if pack['key']==set['template_key'] %}selected{% endif %}>{{ pack['label'] }}</option>{% endfor %}</select></div><div class="col-12"><label class="form-label">Description</label><input class="form-control" name="description" value="{{ set['description'] or '' }}"></div><div class="col-md-6"><label class="form-label">Cover image</label><select class="form-select" name="lead_slot">{% for item in set['items'] %}<option value="{{ item['slot_key'] }}" {% if item['is_lead'] %}selected{% endif %}>{{ item['label'] or item['slot_key']|replace('_',' ')|title }}</option>{% endfor %}</select></div></div>
+            <div class="studio-set-flex-list">
+              {% for item in set['items'] %}<div class="studio-set-flex-row">
+                <label><span>Position</span><select class="form-select" name="position_{{ item['slot_key'] }}">{% for position in range(1, set['items']|length + 1) %}<option value="{{ position }}" {% if item['position']==position %}selected{% endif %}>{{ position }}</option>{% endfor %}</select></label>
+                <label><span>Label</span><input class="form-control" name="label_{{ item['slot_key'] }}" value="{{ item['label'] or item['slot_key']|replace('_',' ')|title }}"></label>
+                <label class="studio-set-source"><span>Image source</span><select class="form-select" name="source_{{ item['slot_key'] }}"><optgroup label="Generated images">{% for slot in ['hero','room','bedroom','office','detail','sizes','how_it_works','collection'] %}<option value="template:{{ slot }}" {% if item['source_kind']=='template' and item['template_slot']==slot %}selected{% endif %}>{{ slot|replace('_',' ')|title }}</option>{% endfor %}</optgroup>{% if scenes %}<optgroup label="Reusable scenes">{% for scene in scenes %}<option value="scene:{{ scene['id'] }}" {% if item['source_kind']=='scene' and item['scene_id']==scene['id'] %}selected{% endif %}>{{ scene['room_type'] }} · {{ scene['name'] }} · {{ scene['orientation']|title }}</option>{% endfor %}</optgroup>{% endif %}</select></label>
+                {% if not item['is_lead'] %}<button class="btn btn-sm btn-link text-danger" type="submit" formaction="/mockup-studio/sets/{{ set['id'] }}/items/{{ item['slot_key'] }}/remove" formmethod="post">Remove</button>{% endif %}
+              </div>{% endfor %}
+            </div>
+            <div class="d-flex gap-2"><button class="btn btn-primary" type="submit">Save marketplace set</button><button class="btn btn-outline-primary" type="submit" formaction="/mockup-studio/sets/{{ set['id'] }}/items" formmethod="post">+ Add image at end</button></div>
           </form></details>
         </article></div>
         {% endfor %}
       </div>
+      </div>
+      </details>
     </section>
     {% if scenes %}
-      <section class="studio-toolbar mb-4">
-        <div><div class="eyebrow">Live preview</div><h2 class="h5 mb-1">Choose artwork to test every scene</h2><p class="small text-muted mb-0">The selection is for preview only. Placement and presentation settings belong to the scene.</p></div>
+      <section class="studio-toolbar mb-4" data-scene-library-toolbar>
+        <div><div class="eyebrow">Scene library preview</div><h2 class="h5 mb-1">Preview an artwork in every saved scene</h2><p class="small text-muted mb-0">Choose an artwork here, then use the scene cards below to drag, resize, and save its placement.</p></div>
         <div class="studio-preview-select">
-          <label for="studio-artwork-preview">Preview artwork</label>
+          <label for="studio-artwork-preview">Artwork to preview</label>
           <select class="form-select" id="studio-artwork-preview" data-studio-artwork>
             <option value="">Placement area only</option>
             {% for artwork in preview_artworks %}<option value="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source">{{ artwork['artwork_code'] }} — {{ artwork['public_title'] }}</option>{% endfor %}
           </select>
+          <label for="studio-scene-select" class="mt-2">Scene to edit</label>
+          <select class="form-select" id="studio-scene-select" data-studio-scene>
+            {% for room_group in scenes|groupby('room_type') %}<optgroup label="{{ room_group.grouper }}">{% for scene in room_group.list %}<option value="{{ scene['id'] }}" {% if request.query_params.get('scene')|int == scene['id'] %}selected{% endif %}>{{ scene['name'] }} · {{ scene['orientation']|title }}</option>{% endfor %}</optgroup>{% endfor %}
+          </select>
         </div>
       </section>
       {% for room_group in scenes|groupby('room_type') %}
-      <section class="mb-5">
+      <section class="mb-5" data-scene-group>
         <div class="studio-group-heading"><h2 class="h4 mb-1">{{ room_group.grouper }}</h2><span>{{ room_group.list|length }} reusable scene{% if room_group.list|length != 1 %}s{% endif %}</span></div>
         <div class="row g-4">
           {% for scene in room_group.list %}
           <div class="col-12">
-            <article class="card app-card mockup-scene-card studio-scene" data-scene-editor>
+            <article class="card app-card mockup-scene-card studio-scene" data-scene-editor data-scene-id="{{ scene['id'] }}" data-scene-orientation="{{ scene['orientation'] }}">
               <div class="studio-scene-layout">
                 <div class="studio-scene-canvas" data-scene-canvas>
                   <img class="studio-scene-background" src="/mockup-studio/scenes/{{ scene['id'] }}/image" alt="{{ scene['name'] }} room scene" loading="lazy">
-                  <div class="studio-artwork-frame" data-placement style="left:{{ scene['placement_x'] }}%;top:{{ scene['placement_y'] }}%;width:{{ scene['placement_width'] }}%;height:{{ scene['placement_height'] }}%;--studio-frame:{{ scene['frame_color'] or '#2d2b29' }};--studio-frame-width:{{ scene['frame_width'] or 2 }}%;--studio-mat:{{ scene['mat_color'] or '#faf8f3' }};--studio-mat-width:{{ scene['mat_width'] or 1.2 }}%;--studio-shadow:{{ scene['shadow_strength'] or 35 }}%">
+                  <div class="studio-artwork-frame" data-placement style="left:{{ scene['placement_x'] }}%;top:{{ scene['placement_y'] }}%;width:{{ scene['placement_width'] }}%;height:{{ scene['placement_height'] }}%;--studio-frame:{{ scene['frame_color'] or '#2d2b29' }};--studio-frame-width:{{ (scene['frame_width'] or 2) * 2 }}px;--studio-mat:{{ scene['mat_color'] or '#faf8f3' }};--studio-mat-width:{{ scene['mat_width'] or 1.2 }}%;--studio-shadow:{{ scene['shadow_strength'] or 35 }}%">
                     <span class="studio-placement-label">Drag to position</span>
                     <img data-artwork-preview alt="Artwork preview">
                     <button class="studio-resize-handle" type="button" data-resize-handle aria-label="Resize artwork area"></button>
@@ -59,13 +76,14 @@
                 </div>
                 <div class="studio-scene-panel">
                   <div class="studio-scene-title"><div><div class="eyebrow">{{ scene['room_type'] }}</div><h3 class="h5 mb-1">{{ scene['name'] }}</h3></div><span class="badge text-bg-light border">{{ scene['orientation']|title }}</span></div>
-                  <p class="small text-muted">Drag the framed artwork, then resize from its lower-right handle. Fine-tune values below when needed.</p>
+                  <p class="small text-muted">Drag the framed artwork, then resize from its lower-right handle. Artwork proportions stay locked by default.</p>
                   <form class="studio-settings-form" method="post" action="/mockup-studio/scenes/{{ scene['id'] }}/placement" data-scene-form>
+                    <label class="studio-ratio-lock"><input class="form-check-input" type="checkbox" data-ratio-lock checked><span><strong>Keep the correct artwork shape</strong><small>Width and height stay locked to the selected artwork’s proportions.</small></span></label>
                     <div class="studio-placement-fields">
                       <label>Left %<input class="form-control form-control-sm" data-field="x" type="number" step="0.1" min="0" max="100" name="placement_x" value="{{ scene['placement_x'] }}"></label>
                       <label>Top %<input class="form-control form-control-sm" data-field="y" type="number" step="0.1" min="0" max="100" name="placement_y" value="{{ scene['placement_y'] }}"></label>
                       <label>Width %<input class="form-control form-control-sm" data-field="width" type="number" step="0.1" min="1" max="100" name="placement_width" value="{{ scene['placement_width'] }}"></label>
-                      <label>Height %<input class="form-control form-control-sm" data-field="height" type="number" step="0.1" min="1" max="100" name="placement_height" value="{{ scene['placement_height'] }}"></label>
+                      <label>Height %<small class="d-block fw-normal">Automatic while shape is locked</small><input class="form-control form-control-sm" data-field="height" type="number" step="0.1" min="1" max="100" name="placement_height" value="{{ scene['placement_height'] }}"></label>
                     </div>
                     <div class="studio-presentation-fields">
                       <label>Frame<input type="color" name="frame_color" value="{{ scene['frame_color'] or '#2d2b29' }}" data-style-field="frame"></label>
@@ -76,6 +94,16 @@
                     </div>
                     <div class="studio-scene-actions"><button class="btn btn-primary" type="submit">Save scene settings</button><span class="small text-muted" data-unsaved-status>Saved placement</span></div>
                   </form>
+                  <details class="studio-background-replace">
+                    <summary>Replace background photograph</summary>
+                    <form method="post" action="/mockup-studio/scenes/{{ scene['id'] }}/background" enctype="multipart/form-data">
+                      <p class="small text-muted mb-2">The scene name and styling stay the same. You must review placement again, and affected listing-image approvals will reset.</p>
+                      <label>New room photograph<input class="form-control form-control-sm" type="file" name="upload" accept=".jpg,.jpeg,.png,.webp" required></label>
+                      <div class="row g-2"><label class="col-12">Source URL<input class="form-control form-control-sm" type="url" name="source_url" value="{{ scene['source_url'] or '' }}"></label><label class="col-6">Creator<input class="form-control form-control-sm" name="creator" value="{{ scene['creator'] or '' }}"></label><label class="col-6">License<input class="form-control form-control-sm" name="license_name" value="{{ scene['license_name'] or '' }}"></label></div>
+                      <label class="form-check"><input class="form-check-input" type="checkbox" name="confirmed" value="true" required><span class="form-check-label">I understand this resets affected mockup approvals.</span></label>
+                      <button class="btn btn-sm btn-outline-primary" type="submit">Upload replacement</button>
+                    </form>
+                  </details>
                   <div class="studio-scene-footer">{% if scene['source_url'] %}<a class="small" href="{{ scene['source_url'] }}" target="_blank" rel="noopener noreferrer">{{ scene['creator'] or 'Scene source' }}{% if scene['license_name'] %} · {{ scene['license_name'] }}{% endif %} ↗</a>{% else %}<span></span>{% endif %}<form method="post" action="/mockup-studio/scenes/{{ scene['id'] }}/disable" onsubmit="return confirm('Remove this scene from the active library?')"><button class="btn btn-sm btn-link text-danger" type="submit">Disable scene</button></form></div>
                 </div>
               </div>
@@ -122,12 +150,33 @@
 <script>
 (() => {
   const artworkSelect = document.querySelector('[data-studio-artwork]');
+  const sceneSelect = document.querySelector('[data-studio-scene]');
   const editors = [...document.querySelectorAll('[data-scene-editor]')];
+  const sceneGroups = [...document.querySelectorAll('[data-scene-group]')];
+  const marketplaceLibrary = document.querySelector('[data-marketplace-library]');
+  const sceneToolbar = document.querySelector('[data-scene-library-toolbar]');
+  if (marketplaceLibrary && sceneToolbar) {
+    marketplaceLibrary.before(sceneToolbar);
+    sceneGroups.forEach(group => marketplaceLibrary.before(group));
+  }
+  const showScene = () => {
+    const selected = sceneSelect?.value;
+    editors.forEach(editor => editor.closest('.col-12').hidden = editor.dataset.sceneId !== selected);
+    sceneGroups.forEach(group => group.hidden = !group.querySelector(`[data-scene-id="${selected}"]`));
+  };
+  const requestedScene = new URLSearchParams(window.location.search).get('scene');
+  if (requestedScene && sceneSelect?.querySelector(`option[value="${requestedScene}"]`)) sceneSelect.value = requestedScene;
+  sceneSelect?.addEventListener('change', showScene);
+  showScene();
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const applyArtwork = () => editors.forEach(editor => {
     const image = editor.querySelector('[data-artwork-preview]');
     const label = editor.querySelector('.studio-placement-label');
     const source = artworkSelect?.value || '';
+    image.onload = () => {
+      image.dataset.ratio = image.naturalWidth / image.naturalHeight;
+      editor.dispatchEvent(new CustomEvent('artwork-ratio-ready'));
+    };
     image.src = source;
     image.hidden = !source;
     label.hidden = !!source;
@@ -140,10 +189,27 @@
     const placement = editor.querySelector('[data-placement]');
     const form = editor.querySelector('[data-scene-form]');
     const status = editor.querySelector('[data-unsaved-status]');
+    const ratioLock = form.querySelector('[data-ratio-lock]');
+    const artworkImage = editor.querySelector('[data-artwork-preview]');
     const fields = Object.fromEntries([...form.querySelectorAll('[data-field]')].map(input => [input.dataset.field, input]));
-    const updateBox = (values, mark = true) => {
+    const ratioHeight = width => {
+      const ratio = +artworkImage.dataset.ratio;
+      if (!ratio || !canvas.clientWidth || !canvas.clientHeight) return null;
+      placement.style.width = `${width}%`;
+      const style = getComputedStyle(placement);
+      const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+        + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+      const verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+        + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+      const outerWidth = width * canvas.clientWidth / 100;
+      const outerHeight = Math.max(1, outerWidth - horizontalPadding) / ratio + verticalPadding;
+      return outerHeight / canvas.clientHeight * 100;
+    };
+    const updateBox = (values, mark = true, preserveRatio = false) => {
       const x = clamp(values.x, 0, 99), y = clamp(values.y, 0, 99);
-      const width = clamp(values.width, 1, 100 - x), height = clamp(values.height, 1, 100 - y);
+      const width = clamp(values.width, 1, 100 - x);
+      const lockedHeight = preserveRatio && ratioLock.checked ? ratioHeight(width) : null;
+      const height = clamp(lockedHeight || values.height, 1, 100 - y);
       placement.style.left = `${x}%`; placement.style.top = `${y}%`;
       placement.style.width = `${width}%`; placement.style.height = `${height}%`;
       fields.x.value = x.toFixed(1); fields.y.value = y.toFixed(1);
@@ -151,14 +217,20 @@
       if (mark) { status.textContent = 'Unsaved changes'; status.classList.add('text-warning'); }
     };
     const current = () => ({x:+fields.x.value, y:+fields.y.value, width:+fields.width.value, height:+fields.height.value});
-    Object.values(fields).forEach(input => input.addEventListener('input', () => updateBox(current())));
+    Object.entries(fields).forEach(([key, input]) => input.addEventListener('input', () => updateBox(current(), true, key === 'width')));
+    ratioLock.addEventListener('change', () => {
+      fields.height.readOnly = ratioLock.checked;
+      if (ratioLock.checked) updateBox(current(), true, true);
+    });
+    fields.height.readOnly = true;
+    editor.addEventListener('artwork-ratio-ready', () => { if (ratioLock.checked) updateBox(current(), true, true); });
     const begin = (event, resizing) => {
       event.preventDefault();
       const start = current(), box = canvas.getBoundingClientRect(), startX = event.clientX, startY = event.clientY;
       const move = moveEvent => {
         const dx = (moveEvent.clientX - startX) / box.width * 100;
         const dy = (moveEvent.clientY - startY) / box.height * 100;
-        updateBox(resizing ? {...start, width:start.width + dx, height:start.height + dy} : {...start, x:start.x + dx, y:start.y + dy});
+        updateBox(resizing ? {...start, width:start.width + dx, height:start.height + dy} : {...start, x:start.x + dx, y:start.y + dy}, true, resizing);
       };
       const end = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); };
       window.addEventListener('pointermove', move); window.addEventListener('pointerup', end, {once:true});
@@ -168,7 +240,13 @@
     form.querySelectorAll('[data-style-field]').forEach(input => input.addEventListener('input', () => {
       const key = input.dataset.styleField;
       const property = {'frame':'--studio-frame','frame-width':'--studio-frame-width','mat':'--studio-mat','mat-width':'--studio-mat-width','shadow':'--studio-shadow'}[key];
-      placement.style.setProperty(property, input.value + (key.includes('width') || key === 'shadow' ? '%' : ''));
+      const displayValue = key === 'frame-width'
+        ? `${Number(input.value) * 2}px`
+        : input.value + (key === 'mat-width' || key === 'shadow' ? '%' : '');
+      placement.style.setProperty(property, displayValue);
+      if (ratioLock.checked && (key === 'frame-width' || key === 'mat-width')) {
+        updateBox(current(), false, true);
+      }
       status.textContent = 'Unsaved changes'; status.classList.add('text-warning');
     }));
   });

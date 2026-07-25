@@ -160,6 +160,7 @@ def main() -> None:
                 working_title = ask(None, "Working title", row["working_title"] or "")
                 theme = ask(None, "Theme", row["theme"] or "")
                 story = ask(None, "Story", row["story"] or "")
+                prompt = ask(None, "Prompt", row["prompt"] or "")
                 status = ask(None, "Status", row["status"])
 
                 update_artwork(
@@ -168,6 +169,7 @@ def main() -> None:
                     working_title=working_title or None,
                     theme=theme or None,
                     story=story or None,
+                    prompt=prompt or None,
                     status=status,
                 )
                 print(f"Artwork updated: {args.artwork_code.upper()}")

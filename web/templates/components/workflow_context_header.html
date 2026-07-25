@@ -17,6 +17,16 @@
     </div>
   </div>
   <div class="d-flex align-items-center gap-2 flex-wrap">
+    {% if listing and (previous_listing_artwork or next_listing_artwork) %}
+    <nav class="listing-sibling-nav" aria-label="Artwork listings in this collection">
+      {% if previous_listing_artwork %}
+      <a class="context-nav-link context-nav-link-secondary" href="{{ previous_listing_artwork['href'] }}" title="Previous artwork in {{ workflow_nav['collection']['name'] }}">← {{ previous_listing_artwork['title'] }}</a>
+      {% endif %}
+      {% if next_listing_artwork %}
+      <a class="context-nav-link context-nav-link-secondary" href="{{ next_listing_artwork['href'] }}" title="Next artwork in {{ workflow_nav['collection']['name'] }}">{{ next_listing_artwork['title'] }} →</a>
+      {% endif %}
+    </nav>
+    {% endif %}
     <a class="context-nav-link context-nav-link-secondary" href="/artworks/{{ workflow_nav['artwork']['code'] }}">Open artwork</a>
     {% if listing and listing['etsy_paused_at'] and listing['marketplace_url'] %}<a class="status-pill status-pill-link marketplace-status-paused" href="{{ listing['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Paused on Etsy ↗</a>{% elif listing and listing['status'] == 'published' and listing['marketplace_url'] %}<a class="status-pill status-pill-link marketplace-status-live" href="{{ listing['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Live on Etsy ↗</a>{% elif listing %}<span class="status-pill listing-status-{{ listing['status'] }}">{{ listing['status']|title }}</span>{% endif %}
   </div>

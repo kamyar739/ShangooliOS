@@ -4,9 +4,12 @@ import math
 import os
 import re
 import time
+from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from PIL import Image
 
 
 class PrintifyAPIError(RuntimeError):
@@ -233,12 +236,28 @@ class PrintifyAPI:
         return data.get("variants", data if isinstance(data, list) else [])
 
     def upload_image(self, path: Path):
+        file_name = path.name
+        contents = path.read_bytes()
+        if len(contents) > 18 * 1024 * 1024:
+            with Image.open(path) as opened:
+                image = opened.convert("RGB")
+                output = BytesIO()
+                image.save(
+                    output,
+                    "JPEG",
+                    quality=95,
+                    optimize=True,
+                    progressive=True,
+                    icc_profile=opened.info.get("icc_profile"),
+                )
+                contents = output.getvalue()
+                file_name = f"{path.stem}.jpg"
         result = self._request(
             "POST",
             "/uploads/images.json",
             {
-                "file_name": path.name,
-                "contents": base64.b64encode(path.read_bytes()).decode("ascii"),
+                "file_name": file_name,
+                "contents": base64.b64encode(contents).decode("ascii"),
             },
         )
         if not result.get("id"):

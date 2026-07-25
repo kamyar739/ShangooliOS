@@ -22,12 +22,17 @@ def ensure_production_schema():
             row["name"] for row in conn.execute("PRAGMA table_info(collections)")
         }
         for column_name, column_type in (
-            ("creative_direction", "TEXT"),
-            ("negative_prompt", "TEXT"),
-            ("prompt_version", "INTEGER NOT NULL DEFAULT 1"),
+            ("prompt", "TEXT"),
+            ("cover_image_path", "TEXT"),
+            ("cover_approved", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if collection_columns and column_name not in collection_columns:
                 conn.execute(f"ALTER TABLE collections ADD COLUMN {column_name} {column_type}")
+        artwork_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(artworks)")
+        }
+        if artwork_columns and "prompt" not in artwork_columns:
+            conn.execute("ALTER TABLE artworks ADD COLUMN prompt TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS artwork_production (
@@ -112,6 +117,9 @@ def ensure_production_schema():
             CREATE TABLE IF NOT EXISTS mockup_set_items (
                 set_id INTEGER NOT NULL,
                 slot_key TEXT NOT NULL,
+                label TEXT,
+                source_kind TEXT NOT NULL DEFAULT 'template',
+                template_slot TEXT,
                 position INTEGER NOT NULL,
                 scene_id INTEGER,
                 is_lead INTEGER NOT NULL DEFAULT 0,
@@ -122,6 +130,34 @@ def ensure_production_schema():
             )
             """
         )
+        set_item_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mockup_set_items)")
+        }
+        for column_name, declaration in {
+            "label": "TEXT",
+            "source_kind": "TEXT NOT NULL DEFAULT 'template'",
+            "template_slot": "TEXT",
+        }.items():
+            if column_name not in set_item_columns:
+                conn.execute(
+                    f"ALTER TABLE mockup_set_items ADD COLUMN {column_name} {declaration}"
+                )
+        conn.execute(
+            """UPDATE mockup_set_items
+               SET label=COALESCE(label, replace(slot_key, '_', ' ')),
+                   template_slot=COALESCE(template_slot, slot_key),
+                   source_kind=CASE WHEN scene_id IS NOT NULL THEN 'scene' ELSE source_kind END"""
+        )
+        for slot, label in {
+            "hero": "Hero", "room": "Lifestyle Scene", "bedroom": "Bedroom",
+            "office": "Office", "detail": "Detail", "sizes": "Sizes",
+            "how_it_works": "How It Works", "collection": "Collection",
+        }.items():
+            conn.execute(
+                """UPDATE mockup_set_items SET label=?
+                   WHERE slot_key=? AND (label IS NULL OR lower(label)=replace(?, '_', ' '))""",
+                (label, slot, slot),
+            )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS artwork_mockup_sets (
@@ -186,8 +222,11 @@ def ensure_production_schema():
             default_set_id = cursor.lastrowid
             slots = ("hero", "room", "bedroom", "office", "detail", "sizes", "how_it_works", "collection")
             conn.executemany(
-                "INSERT INTO mockup_set_items (set_id, slot_key, position, is_lead) VALUES (?, ?, ?, ?)",
-                [(default_set_id, slot, position, int(slot == "hero")) for position, slot in enumerate(slots, 1)],
+                """INSERT INTO mockup_set_items
+                   (set_id, slot_key, label, source_kind, template_slot, position, is_lead)
+                   VALUES (?, ?, ?, 'template', ?, ?, ?)""",
+                [(default_set_id, slot, slot.replace("_", " ").title(), slot,
+                  position, int(slot == "hero")) for position, slot in enumerate(slots, 1)],
             )
 
 
@@ -201,8 +240,6 @@ def ensure_production_schema():
                 primary_colors TEXT,
                 suggested_room TEXT,
                 target_customer TEXT,
-                generation_prompt TEXT,
-                negative_prompt TEXT,
                 ai_model TEXT,
                 analysis_notes TEXT,
                 analyzed_at TEXT,
@@ -212,18 +249,24 @@ def ensure_production_schema():
             )
             """
         )
+        if "creative_direction" in collection_columns:
+            conn.execute(
+                "UPDATE collections SET prompt = COALESCE(prompt, creative_direction)"
+            )
         intelligence_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(artwork_intelligence)")
         }
-        for column_name, column_type in (
-            ("collection_prompt_snapshot", "TEXT"),
-            ("collection_negative_prompt_snapshot", "TEXT"),
-            ("collection_prompt_version", "INTEGER"),
-        ):
-            if column_name not in intelligence_columns:
-                conn.execute(
-                    f"ALTER TABLE artwork_intelligence ADD COLUMN {column_name} {column_type}"
+        if "generation_prompt" in intelligence_columns:
+            conn.execute(
+                """
+                UPDATE artworks
+                SET prompt = COALESCE(
+                    prompt,
+                    (SELECT generation_prompt FROM artwork_intelligence
+                     WHERE artwork_intelligence.artwork_id = artworks.id)
                 )
+                """
+            )
 
         conn.execute(
             """
@@ -470,6 +513,21 @@ def get_collections():
                 c.name,
                 c.status,
                 c.target_artwork_count,
+                c.cover_image_path,
+                c.cover_approved,
+                (
+                    SELECT cover_artwork.artwork_code
+                    FROM artworks AS cover_artwork
+                    WHERE cover_artwork.collection_id = c.id
+                      AND cover_artwork.status != 'retired'
+                      AND EXISTS (
+                        SELECT 1 FROM artwork_files AS cover_file
+                        WHERE cover_file.artwork_id = cover_artwork.id
+                          AND cover_file.role = 'source'
+                      )
+                    ORDER BY cover_artwork.sequence_number, cover_artwork.id
+                    LIMIT 1
+                ) AS representative_artwork_code,
                 COUNT(DISTINCT CASE WHEN a.status != 'retired' THEN a.id END)
                     AS artwork_count,
                 COUNT(DISTINCT CASE WHEN l.etsy_state = 'active' THEN l.id END)
@@ -682,7 +740,10 @@ def get_collection(collection_code):
         collection = conn.execute(
             """
             SELECT code, name, status, target_artwork_count, etsy_section_name,
-                   creative_direction, negative_prompt, prompt_version
+                   cover_image_path, cover_approved,
+                   notes AS description, prompt,
+                   (SELECT COUNT(*) FROM artworks
+                    WHERE collection_id = collections.id) AS artwork_count
             FROM collections
             WHERE code = ?
             """,
@@ -700,6 +761,8 @@ def get_collection(collection_code):
                 a.public_title,
                 a.working_title,
                 a.theme,
+                a.story AS description,
+                a.prompt,
                 a.status,
                 p.orientation,
                 p.master_ratio,
@@ -755,6 +818,8 @@ def get_collection(collection_code):
                 a.public_title,
                 a.working_title,
                 a.theme,
+                a.story AS description,
+                a.prompt,
                 a.status,
                 p.orientation,
                 p.master_ratio,
@@ -839,9 +904,11 @@ def get_artwork(artwork_code):
                 a.working_title,
                 a.theme,
                 a.story,
+                a.prompt,
                 a.status,
                 c.code AS collection_code,
-                c.name AS collection_name
+                c.name AS collection_name,
+                c.notes AS collection_description
             FROM artworks AS a
             JOIN collections AS c
                 ON c.id = a.collection_id
@@ -1142,6 +1209,7 @@ def update_artwork(
     working_title,
     theme,
     story,
+    prompt,
     status,
 ):
     normalized_status = status.strip().lower()
@@ -1169,6 +1237,7 @@ def update_artwork(
                 working_title = ?,
                 theme = ?,
                 story = ?,
+                prompt = ?,
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE artwork_code = ?
@@ -1178,6 +1247,7 @@ def update_artwork(
                 working_title.strip() or None,
                 theme.strip() or None,
                 story.strip() or None,
+                prompt.strip() or None,
                 normalized_status,
                 artwork_code.upper(),
             ),
@@ -1225,7 +1295,7 @@ def update_artwork_status(artwork_code, status):
 
 def create_collection(
     code, name, target_artwork_count, status, etsy_section_name=None,
-    creative_direction="", negative_prompt="",
+    description="", prompt="",
 ):
     code = code.strip().upper()
     name = name.strip()
@@ -1280,8 +1350,8 @@ def create_collection(
                 vertical,
                 target_artwork_count,
                 etsy_section_name,
-                creative_direction,
-                negative_prompt,
+                notes,
+                prompt,
                 status
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1294,8 +1364,8 @@ def create_collection(
                 "general",
                 target_artwork_count,
                 normalized_section,
-                creative_direction.strip() or None,
-                negative_prompt.strip() or None,
+                description.strip() or None,
+                prompt.strip() or None,
                 normalized_status,
             ),
         )
@@ -1310,16 +1380,22 @@ def update_collection(
     target_artwork_count,
     status,
     etsy_section_name=None,
-    creative_direction="",
-    negative_prompt="",
+    description="",
+    prompt="",
+    new_code=None,
 ):
     code = collection_code.strip().upper()
+    requested_code = (new_code or code).strip().upper()
     name = name.strip()
     normalized_status = status.strip().lower()
     normalized_section = (etsy_section_name or name.removeprefix("The ")).strip()
 
     if not name:
         raise ValueError("Collection name is required")
+    if not requested_code:
+        raise ValueError("Collection code is required")
+    if len(requested_code) > 10:
+        raise ValueError("Collection code must be 10 characters or fewer")
     if target_artwork_count < 0:
         raise ValueError("Target artwork count cannot be negative")
     if not normalized_section or len(normalized_section) > 24:
@@ -1331,13 +1407,29 @@ def update_collection(
         raise ValueError("Invalid collection status")
 
     with get_connection() as conn:
+        collection = conn.execute(
+            """
+            SELECT c.id, COUNT(a.id) AS artwork_count
+            FROM collections AS c
+            LEFT JOIN artworks AS a ON a.collection_id = c.id
+            WHERE c.code = ?
+            GROUP BY c.id
+            """,
+            (code,),
+        ).fetchone()
+        if collection is None:
+            raise ValueError("Collection not found")
+        if requested_code != code and collection["artwork_count"]:
+            raise ValueError(
+                "Collection code cannot change after artwork has been created"
+            )
         duplicate = conn.execute(
             """
             SELECT 1
             FROM collections
-            WHERE name = ? AND code != ?
+            WHERE (name = ? OR code = ?) AND code != ?
             """,
-            (name, code),
+            (name, requested_code, code),
         ).fetchone()
 
         if duplicate is not None:
@@ -1349,26 +1441,23 @@ def update_collection(
             """
             UPDATE collections
             SET
+                code = ?,
                 name = ?,
                 target_artwork_count = ?,
                 etsy_section_name = ?,
-                prompt_version = prompt_version + CASE
-                    WHEN COALESCE(creative_direction, '') != ?
-                      OR COALESCE(negative_prompt, '') != ? THEN 1 ELSE 0 END,
-                creative_direction = ?,
-                negative_prompt = ?,
+                notes = ?,
+                prompt = ?,
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE code = ?
             """,
             (
+                requested_code,
                 name,
                 target_artwork_count,
                 normalized_section,
-                creative_direction.strip(),
-                negative_prompt.strip(),
-                creative_direction.strip() or None,
-                negative_prompt.strip() or None,
+                description.strip() or None,
+                prompt.strip() or None,
                 normalized_status,
                 code,
             ),
@@ -1377,6 +1466,37 @@ def update_collection(
         if cursor.rowcount == 0:
             raise ValueError("Collection not found")
 
+        conn.commit()
+    return requested_code
+
+
+def set_collection_cover(collection_code, relative_path, approved=False):
+    with get_connection() as conn:
+        result = conn.execute(
+            """
+            UPDATE collections
+            SET cover_image_path = ?, cover_approved = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE code = ?
+            """,
+            (relative_path, int(bool(approved)), collection_code.upper()),
+        )
+        if not result.rowcount:
+            raise ValueError("Collection not found")
+        conn.commit()
+
+
+def approve_collection_cover(collection_code):
+    with get_connection() as conn:
+        result = conn.execute(
+            """
+            UPDATE collections
+            SET cover_approved = 1, updated_at = CURRENT_TIMESTAMP
+            WHERE code = ? AND cover_image_path IS NOT NULL
+            """,
+            (collection_code.upper(),),
+        )
+        if not result.rowcount:
+            raise ValueError("Upload a collection cover first")
         conn.commit()
 
 
@@ -1536,11 +1656,14 @@ def create_mockup_set(name, description="", template_key="modern_minimal", scene
         set_id = cursor.lastrowid
         conn.executemany(
             """
-            INSERT INTO mockup_set_items (set_id, slot_key, position, scene_id, is_lead)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO mockup_set_items
+            (set_id, slot_key, label, source_kind, template_slot, position, scene_id, is_lead)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                (set_id, slot, position, scene_id if slot == "room" else None, int(slot == "hero"))
+                (set_id, slot, slot.replace("_", " ").title(),
+                 "scene" if slot == "room" and scene_id else "template", slot,
+                 position, scene_id if slot == "room" else None, int(slot == "hero"))
                 for position, slot in enumerate(MOCKUP_SET_SLOTS, 1)
             ],
         )
@@ -1548,12 +1671,27 @@ def create_mockup_set(name, description="", template_key="modern_minimal", scene
         return set_id
 
 
-def update_mockup_set(set_id, *, name, description, template_key, ordered_slots, lead_slot, scene_id=None):
+def update_mockup_set(set_id, *, name, description, template_key, ordered_slots=None,
+                      lead_slot="hero", scene_id=None, items=None):
+    if items is not None:
+        ordered_slots = [item["slot_key"] for item in sorted(items, key=lambda item: item["position"])]
+        if len(ordered_slots) != len(set(ordered_slots)) or not ordered_slots:
+            raise ValueError("Every marketplace image needs a unique slot")
+        if lead_slot not in ordered_slots:
+            raise ValueError("Choose a valid cover image")
+    else:
+        items = [
+            {
+                "slot_key": slot, "label": slot.replace("_", " ").title(),
+                "source_kind": "scene" if slot == "room" and scene_id else "template",
+                "template_slot": slot, "scene_id": scene_id if slot == "room" else None,
+                "position": position,
+            }
+            for position, slot in enumerate(ordered_slots or (), 1)
+        ]
     ordered_slots = [str(slot).strip() for slot in ordered_slots]
-    if set(ordered_slots) != set(MOCKUP_SET_SLOTS) or len(ordered_slots) != len(MOCKUP_SET_SLOTS):
-        raise ValueError("A mockup set must contain every listing-image slot exactly once")
-    if lead_slot not in MOCKUP_SET_SLOTS:
-        raise ValueError("Choose a valid lead image")
+    if items is None or not ordered_slots:
+        raise ValueError("Add at least one marketplace image")
     with get_connection() as conn:
         cursor = conn.execute(
             """UPDATE mockup_sets SET name=?, description=?, template_key=?,
@@ -1565,13 +1703,65 @@ def update_mockup_set(set_id, *, name, description, template_key, ordered_slots,
         conn.execute("DELETE FROM mockup_set_items WHERE set_id = ?", (set_id,))
         conn.executemany(
             """INSERT INTO mockup_set_items
-               (set_id, slot_key, position, scene_id, is_lead)
-               VALUES (?, ?, ?, ?, ?)""",
+               (set_id, slot_key, label, source_kind, template_slot,
+                position, scene_id, is_lead)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                (set_id, slot, position, scene_id if slot == "room" else None, int(slot == lead_slot))
-                for position, slot in enumerate(ordered_slots, 1)
+                (set_id, item["slot_key"], item.get("label") or "Listing image",
+                 item.get("source_kind") or "template", item.get("template_slot"),
+                 position, item.get("scene_id"), int(item["slot_key"] == lead_slot))
+                for position, item in enumerate(sorted(items, key=lambda item: item["position"]), 1)
             ],
         )
+        conn.commit()
+
+
+def add_mockup_set_item(set_id):
+    with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT slot_key, position FROM mockup_set_items WHERE set_id=? ORDER BY position",
+            (set_id,),
+        ).fetchall()
+        used = {row["slot_key"] for row in existing}
+        number = 1
+        while f"extra_{number}" in used:
+            number += 1
+        scene = conn.execute(
+            "SELECT id, name FROM mockup_scenes WHERE active=1 ORDER BY room_type, name LIMIT 1"
+        ).fetchone()
+        slot_key = f"extra_{number}"
+        conn.execute(
+            """INSERT INTO mockup_set_items
+               (set_id, slot_key, label, source_kind, template_slot, position, scene_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (set_id, slot_key, f"Additional image {number}",
+             "scene" if scene else "template", None if scene else "hero",
+             len(existing) + 1, scene["id"] if scene else None),
+        )
+        conn.commit()
+
+
+def remove_mockup_set_item(set_id, slot_key):
+    with get_connection() as conn:
+        item = conn.execute(
+            "SELECT is_lead FROM mockup_set_items WHERE set_id=? AND slot_key=?",
+            (set_id, slot_key),
+        ).fetchone()
+        if item is None:
+            raise ValueError("Marketplace image not found")
+        if item["is_lead"]:
+            raise ValueError("Choose another cover image before removing this one")
+        conn.execute(
+            "DELETE FROM mockup_set_items WHERE set_id=? AND slot_key=?", (set_id, slot_key)
+        )
+        remaining = conn.execute(
+            "SELECT slot_key FROM mockup_set_items WHERE set_id=? ORDER BY position", (set_id,)
+        ).fetchall()
+        for position, row in enumerate(remaining, 1):
+            conn.execute(
+                "UPDATE mockup_set_items SET position=? WHERE set_id=? AND slot_key=?",
+                (position, set_id, row["slot_key"]),
+            )
         conn.commit()
 
 
@@ -1814,6 +2004,43 @@ def update_mockup_scene_placement(
         conn.commit()
 
 
+def update_mockup_scene_background(
+    scene_id, *, image_path, source_url="", creator="", license_name="",
+):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """UPDATE mockup_scenes
+               SET image_path=?, source_url=?, creator=?, license_name=?,
+                   updated_at=CURRENT_TIMESTAMP
+               WHERE id=? AND active=1""",
+            (
+                image_path, source_url.strip(), creator.strip(),
+                license_name.strip(), scene_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Reusable scene not found")
+        scene_key = f"scene:{scene_id}"
+        conn.execute(
+            """UPDATE artwork_mockup_sets SET approved_at=NULL
+               WHERE artwork_id IN (
+                   SELECT artwork_id FROM artwork_mockup_templates
+                   WHERE template_key=?
+               )""",
+            (scene_key,),
+        )
+        conn.execute(
+            """UPDATE artwork_production SET mockups_ready=0,
+                   updated_at=CURRENT_TIMESTAMP
+               WHERE artwork_id IN (
+                   SELECT artwork_id FROM artwork_mockup_templates
+                   WHERE template_key=?
+               )""",
+            (scene_key,),
+        )
+        conn.commit()
+
+
 def disable_mockup_scene(scene_id):
     with get_connection() as conn:
         cursor = conn.execute(
@@ -1832,13 +2059,7 @@ def disable_mockup_scene(scene_id):
 def get_artwork_intelligence(artwork_code):
     with get_connection() as conn:
         artwork = conn.execute(
-            """
-            SELECT a.id, a.theme, c.creative_direction, c.negative_prompt,
-                   c.prompt_version
-            FROM artworks AS a
-            JOIN collections AS c ON c.id = a.collection_id
-            WHERE a.artwork_code = ?
-            """,
+            "SELECT id, theme FROM artworks WHERE artwork_code = ?",
             (artwork_code.upper(),),
         ).fetchone()
         if artwork is None:
@@ -1847,30 +2068,11 @@ def get_artwork_intelligence(artwork_code):
             "INSERT OR IGNORE INTO artwork_intelligence (artwork_id, theme) VALUES (?, ?)",
             (artwork["id"], artwork["theme"] or ""),
         )
-        conn.execute(
-            """
-            UPDATE artwork_intelligence
-            SET collection_prompt_snapshot = COALESCE(collection_prompt_snapshot, ?),
-                collection_negative_prompt_snapshot = COALESCE(collection_negative_prompt_snapshot, ?),
-                collection_prompt_version = COALESCE(collection_prompt_version, ?)
-            WHERE artwork_id = ?
-            """,
-            (
-                artwork["creative_direction"] or "",
-                artwork["negative_prompt"] or "",
-                artwork["prompt_version"] or 1,
-                artwork["id"],
-            ),
-        )
         conn.commit()
         return conn.execute(
             """
             SELECT theme, style, mood, primary_colors, suggested_room,
-                   target_customer, generation_prompt, negative_prompt,
-                   ai_model, analysis_notes, analyzed_at,
-                   collection_prompt_snapshot,
-                   collection_negative_prompt_snapshot,
-                   collection_prompt_version
+                   target_customer, ai_model, analysis_notes, analyzed_at
             FROM artwork_intelligence
             WHERE artwork_id = ?
             """,
@@ -1878,43 +2080,10 @@ def get_artwork_intelligence(artwork_code):
         ).fetchone()
 
 
-def apply_latest_collection_prompt(artwork_code):
-    with get_connection() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE artwork_intelligence
-            SET collection_prompt_snapshot = (
-                    SELECT c.creative_direction FROM artworks AS a
-                    JOIN collections AS c ON c.id = a.collection_id
-                    WHERE a.id = artwork_intelligence.artwork_id
-                ),
-                collection_negative_prompt_snapshot = (
-                    SELECT c.negative_prompt FROM artworks AS a
-                    JOIN collections AS c ON c.id = a.collection_id
-                    WHERE a.id = artwork_intelligence.artwork_id
-                ),
-                collection_prompt_version = (
-                    SELECT c.prompt_version FROM artworks AS a
-                    JOIN collections AS c ON c.id = a.collection_id
-                    WHERE a.id = artwork_intelligence.artwork_id
-                ),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE artwork_id = (
-                SELECT id FROM artworks WHERE artwork_code = ?
-            )
-            """,
-            (artwork_code.upper(),),
-        )
-        if cursor.rowcount == 0:
-            raise ValueError("Artwork Intelligence not found")
-        conn.commit()
-
-
 def update_artwork_intelligence(artwork_code, **values):
     allowed = {
         "theme", "style", "mood", "primary_colors", "suggested_room",
-        "target_customer", "generation_prompt", "negative_prompt",
-        "ai_model", "analysis_notes", "analyzed_at",
+        "target_customer", "ai_model", "analysis_notes", "analyzed_at",
     }
     fields = [(key, values[key]) for key in values if key in allowed]
     if not fields:

@@ -30,6 +30,22 @@ Edit {{ collection["name"] }} — ShangooliOS
                     action="/collections/{{ collection['code'] }}/edit"
                 >
                     <div class="mb-3">
+                        <label for="code" class="form-label">Collection Code</label>
+                        <input id="code" name="code" type="text"
+                               class="form-control" maxlength="10"
+                               value="{{ collection['code'] }}"
+                               {% if collection['artwork_count'] %}readonly{% endif %}
+                               required>
+                        <div class="form-text">
+                            {% if collection['artwork_count'] %}
+                            Locked because this collection contains artwork.
+                            {% else %}
+                            Used as the prefix for new artwork filenames.
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
                         <label for="name" class="form-label">
                             Collection Name
                         </label>
@@ -41,6 +57,16 @@ Edit {{ collection["name"] }} — ShangooliOS
                             value="{{ collection['name'] }}"
                             required
                         >
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea id="description" name="description" class="form-control" rows="4">{{ collection['description'] or '' }}</textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="prompt" class="form-label">Prompt</label>
+                        <textarea id="prompt" name="prompt" class="form-control" rows="7" placeholder="Shared prompt used for every artwork in this collection.">{{ collection['prompt'] or '' }}</textarea>
                     </div>
 
                     <div class="mb-3">
@@ -66,17 +92,6 @@ Edit {{ collection["name"] }} — ShangooliOS
                                class="form-control" maxlength="24"
                                value="{{ collection['etsy_section_name'] or '' }}" required>
                         <div class="form-text">ShangooliOS assigns every Etsy listing in this collection to this buyer-facing section.</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="creative_direction" class="form-label">Collection creative direction</label>
-                        <textarea id="creative_direction" name="creative_direction" class="form-control" rows="5" placeholder="Shared visual language, palette, mood, composition, subjects, and texture.">{{ collection['creative_direction'] or '' }}</textarea>
-                        <div class="form-text">This becomes the reusable foundation for every artwork prompt in the collection.</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="collection_negative_prompt" class="form-label">Collection exclusions</label>
-                        <textarea id="collection_negative_prompt" name="collection_negative_prompt" class="form-control" rows="3" placeholder="Shared elements, styles, or artifacts to avoid.">{{ collection['negative_prompt'] or '' }}</textarea>
                     </div>
 
                     <div class="mb-4">

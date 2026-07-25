@@ -1,8 +1,13 @@
 <div class="artwork-back-row">
     <a href="/collections/{{ artwork['collection_code'] }}" class="context-nav-link"><span aria-hidden="true">←</span> {{ artwork["collection_name"] }}</a>
+    <span class="artwork-sibling-nav">
+      {% if previous_artwork %}<a href="/artworks/{{ previous_artwork['artwork_code'] }}?step={{ workflow_nav.active_stage }}" class="context-nav-link">← {{ previous_artwork['public_title'] }}</a>{% endif %}
+      {% if next_artwork %}<a href="/artworks/{{ next_artwork['artwork_code'] }}?step={{ workflow_nav.active_stage }}" class="context-nav-link">{{ next_artwork['public_title'] }} →</a>{% endif %}
+    </span>
 </div>
 {% if request.query_params.get('prepared') %}<div class="alert alert-success">Artwork prepared successfully. Review the ready listing before continuing to Printify.</div>{% endif %}
-{% set automatic_preparation_complete = production['print_master_ready'] and production['ratio_exports_ready'] and production['mockups_ready'] and production['listing_content_ready'] and listings %}
+{% set production_preparation_complete = production['print_master_ready'] and production['ratio_exports_ready'] and production['mockups_ready'] and production['listing_content_ready'] %}
+{% set automatic_preparation_complete = production_preparation_complete and listings %}
 {% set next_listing = namespace(id=none) %}
 {% for artwork_listing in listings %}{% if next_listing.id is none and artwork_listing['status'] in ['draft', 'ready'] %}{% set next_listing.id = artwork_listing['id'] %}{% endif %}{% endfor %}
 
@@ -33,15 +38,15 @@
 </div>
 
 <div class="modal fade" id="prepare-artwork-modal" tabindex="-1" aria-labelledby="prepare-artwork-title" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered"><div class="modal-content collection-create-modal">
-    <div class="modal-header"><div><div class="eyebrow">Safe automation</div><h2 class="modal-title h4" id="prepare-artwork-title">{% if automatic_preparation_complete %}Refresh{% else %}Prepare{% endif %} {{ artwork['public_title'] }}</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-    <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/prepare" data-long-operation>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content collection-create-modal">
+    <div class="modal-header"><div><div class="eyebrow">Safe automation</div><h2 class="modal-title h4" id="prepare-artwork-title">{% if automatic_preparation_complete %}Refresh {{ artwork['public_title'] }}{% elif production_preparation_complete %}Create listing automatically{% else %}Prepare {{ artwork['public_title'] }}{% endif %}</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/prepare" data-long-operation data-wait-stages="Building print files|Creating listing images|Preparing story and SEO|Finishing artwork">
       <div class="modal-body">
-        {% if automatic_preparation_complete %}<div class="automation-complete-note"><strong>Preparation is complete.</strong><span>Run it again only to restore missing files or refresh generated production content. Customized listing text and the existing story remain intact.</span></div>{% else %}<p>This builds the print-ready file, required ratios, eight listing images, story and SEO content, then stops at Ready for Printify.</p>{% endif %}
+        {% if automatic_preparation_complete %}<div class="automation-complete-note"><strong>Preparation is complete.</strong><span>Run it again only to restore missing files. Existing text, metadata, prices, and replacement images remain intact.</span></div>{% elif production_preparation_complete %}<p>Production files and listing content are ready. This creates the ready Etsy poster listing and stops before Printify. Existing text and replacement images remain intact.</p>{% else %}<p>This fills only missing print files, listing images, story, and SEO content, then stops at Ready for Printify. Anything you already edited or replaced remains intact.</p>{% endif %}
         <div class="mb-3"><label class="form-label" for="prepare-price">Retail price</label><div class="input-group"><span class="input-group-text">$</span><input class="form-control" id="prepare-price" name="price" type="number" min="0.01" step="0.01" value="{% if listings %}{{ '%.2f'|format(listings[0]['price_cents'] / 100) }}{% endif %}" required></div></div>
         <div class="form-check"><input class="form-check-input" id="prepare-confirmed" name="confirmed" type="checkbox" value="true" required><label class="form-check-label" for="prepare-confirmed">I reviewed the orientation and retail price. Do not publish to Printify or Etsy.</label></div>
       </div>
-      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">{% if automatic_preparation_complete %}Refresh preparation{% else %}Prepare artwork{% endif %}</button></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">{% if automatic_preparation_complete %}Refresh preparation{% elif production_preparation_complete %}Create ready listing{% else %}Prepare artwork{% endif %}</button></div>
     </form>
   </div></div>
 </div>

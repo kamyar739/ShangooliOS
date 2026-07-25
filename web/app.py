@@ -26,12 +26,12 @@ from app.database import (
 from web.db import (
     archive_artwork,
     archive_collection,
-    apply_latest_collection_prompt,
     clear_inactive_etsy_link,
     create_collection,
     create_listing,
     create_mockup_scene,
     create_mockup_set,
+    add_mockup_set_item,
     duplicate_listing,
     delete_listing,
     disable_mockup_scene,
@@ -57,6 +57,7 @@ from web.db import (
     invalidate_artwork_after_source_change,
     invalidate_artwork_mockup_set_approval,
     restore_artwork,
+    remove_mockup_set_item,
     list_listings,
     list_mockup_scenes,
     list_mockup_sets,
@@ -76,6 +77,8 @@ from web.db import (
     save_artwork_mockup_template,
     save_artwork_mockup_templates,
     save_collection_order,
+    set_collection_cover,
+    approve_collection_cover,
     search_artworks,
     set_artwork_production_flags,
     update_artwork,
@@ -86,6 +89,7 @@ from web.db import (
     update_collection,
     update_listing,
     update_mockup_scene_placement,
+    update_mockup_scene_background,
     update_mockup_set,
     approve_artwork_mockup_set,
     upsert_artwork_file,
@@ -231,6 +235,71 @@ def _generate_required_ratios(artwork, *, overwrite: bool) -> list[dict]:
     return results
 
 
+AUTO_SCENE_GROUPS = {
+    "room": "Living room",
+    "bedroom": "Bedroom",
+    "office": "Office",
+}
+
+
+def _scene_candidates_for_item(item, orientation):
+    compatible = [dict(scene) for scene in list_mockup_scenes(orientation=orientation)]
+    if item["source_kind"] == "scene" and item["scene_id"]:
+        selected = get_mockup_scene(item["scene_id"])
+        room_type = selected["room_type"] if selected else None
+    else:
+        room_type = AUTO_SCENE_GROUPS.get(item["template_slot"])
+    if not room_type:
+        return []
+    return [scene for scene in compatible if scene["room_type"] == room_type]
+
+
+def _mockup_sets_for_artwork(orientation):
+    resolved = []
+    for summary in list_mockup_sets():
+        mockup_set, rows = get_mockup_set(summary["id"])
+        items = []
+        for row in rows:
+            item = dict(row)
+            candidates = _scene_candidates_for_item(item, orientation)
+            selected_id = item["scene_id"] if any(
+                scene["id"] == item["scene_id"] for scene in candidates
+            ) else (candidates[0]["id"] if candidates else None)
+            item["scene_candidates"] = candidates
+            item["selected_scene_id"] = selected_id
+            item["selected_scene_name"] = next(
+                (scene["name"] for scene in candidates if scene["id"] == selected_id), None
+            )
+            item["uses_scene"] = selected_id is not None
+            items.append(item)
+        resolved.append({**dict(mockup_set), "items": items})
+    return resolved
+
+
+def _mockup_artwork_payload(artwork) -> dict:
+    payload = dict(artwork)
+    _, collection_artworks, _ = get_collection(artwork["collection_code"])
+    thumbnail_paths = []
+    thumbnail_titles = []
+    for item in collection_artworks:
+        item_artwork = get_artwork(item["artwork_code"])
+        assignments = {
+            row["role"]: row
+            for row in get_artwork_file_assignments(item["artwork_code"])
+        }
+        if assignments.get("source"):
+            try:
+                thumbnail_paths.append(
+                    resolve_assigned_file(item_artwork, assignments["source"])
+                )
+                thumbnail_titles.append(item["public_title"])
+            except ValueError:
+                pass
+    payload["collection_thumbnail_paths"] = thumbnail_paths
+    payload["collection_thumbnail_titles"] = thumbnail_titles
+    return payload
+
+
 def _artwork_context(artwork_code: str, active_stage="details", **extra):
     artwork = get_artwork(artwork_code)
 
@@ -266,17 +335,46 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
     production_summary["mockup_status"].sort(
         key=lambda item: item["position"]
     )
+    for item in production_summary["mockup_status"]:
+        if item["slot_key"] in AUTO_SCENE_GROUPS:
+            scene_item = {
+                "source_kind": "template", "scene_id": None,
+                "template_slot": item["slot_key"],
+            }
+            candidates = _scene_candidates_for_item(
+                scene_item, production["orientation"] if production else "any"
+            )
+            item["scene_candidates"] = candidates
+            item["selected_scene_id"] = candidates[0]["id"] if candidates else None
 
     artwork_listings = get_artwork_listings(artwork_code)
     artwork_intelligence = get_artwork_intelligence(artwork_code)
-    collection, _, _ = get_collection(artwork["collection_code"])
+    collection, collection_artworks, _ = get_collection(artwork["collection_code"])
+    artwork_position = next(
+        (index for index, item in enumerate(collection_artworks)
+         if item["artwork_code"] == artwork["artwork_code"]),
+        None,
+    )
+    previous_artwork = (
+        collection_artworks[artwork_position - 1]
+        if artwork_position is not None and artwork_position > 0 else None
+    )
+    next_artwork = (
+        collection_artworks[artwork_position + 1]
+        if artwork_position is not None and artwork_position + 1 < len(collection_artworks)
+        else None
+    )
     auto_update_listing = next((
         item for item in artwork_listings
         if item["status"] == "published"
         and item["printify_product_id"] and item["external_listing_id"]
     ), None)
+    printify_profile = _printify_profile_for_orientation(
+        production["orientation"] if production else ""
+    )
     context = {
         "artwork": artwork,
+        "collection": collection,
         "workspace": inspect_workspace(artwork),
         "production": production,
         "workspace_files": files,
@@ -284,10 +382,8 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         "production_summary": production_summary,
         "workflow": production_summary["workflow"],
         "artwork_intelligence": artwork_intelligence,
-        "final_generation_prompt": compose_artwork_prompt(artwork_intelligence),
-        "collection_prompt_outdated": bool(
-            artwork_intelligence["collection_prompt_version"]
-            < (collection["prompt_version"] or 1)
+        "final_generation_prompt": compose_artwork_prompt(
+            collection["prompt"], artwork["prompt"]
         ),
         "listing_content": get_artwork_listing_content(artwork_code),
         "listings": artwork_listings,
@@ -298,13 +394,18 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         "mockup_scenes": list_mockup_scenes(
             orientation=production["orientation"] if production else None
         ),
-        "mockup_sets": list_mockup_sets(),
+        "mockup_sets": _mockup_sets_for_artwork(
+            production["orientation"] if production else "any"
+        ),
         "mockup_set_state": get_artwork_mockup_set_state(artwork_code),
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
         "print_master_manifest": load_print_master_manifest(artwork),
         "ai_upscale_candidate": candidate_path(artwork).is_file(),
         "auto_update_listing": auto_update_listing,
+        "printify_profile": printify_profile,
+        "previous_artwork": previous_artwork,
+        "next_artwork": next_artwork,
         "workflow_nav": _workflow_navigation(
             artwork,
             production=production,
@@ -334,6 +435,19 @@ def _workflow_navigation(
     _, collection_artworks, _ = get_collection(artwork["collection_code"])
     artwork_url = f"/artworks/{artwork['artwork_code']}"
     certification = get_artwork_certification(artwork["artwork_code"])
+    intelligence = get_artwork_intelligence(artwork["artwork_code"])
+    mockup_set_state = get_artwork_mockup_set_state(artwork["artwork_code"])
+    mockup_set_approved = bool(
+        mockup_set_state and mockup_set_state["approved_at"]
+    )
+    intelligence_complete = bool(
+        intelligence
+        and (
+            intelligence["analyzed_at"]
+            or intelligence["theme"]
+            or intelligence["style"]
+        )
+    )
     has_source = "source" in roles
     has_print_files = "print_master" in roles or any(role.startswith("ratio:") for role in roles)
     required_ratio_roles = {
@@ -347,7 +461,8 @@ def _workflow_navigation(
     print_complete = bool(production["print_master_ready"] and production["ratio_exports_ready"])
     all_current = bool(
         has_source and production["original_approved"] and print_complete
-        and production["mockups_ready"] and production["listing_content_ready"]
+        and production["mockups_ready"] and mockup_set_approved
+        and production["listing_content_ready"]
     )
     live_listing = next(
         (item for item in listings if item["status"] == "published" and item["external_listing_id"]),
@@ -376,6 +491,12 @@ def _workflow_navigation(
             bool(certification and production["original_approved"]),
         ),
         stage(
+            "intelligence", "Intelligence",
+            "complete" if intelligence_complete
+            else "needs_review" if has_source else "not_started",
+            intelligence_complete,
+        ),
+        stage(
             "print", "Print files",
             "complete" if print_complete
             else "out_of_date" if has_print_files and not production["print_master_ready"]
@@ -386,13 +507,27 @@ def _workflow_navigation(
         ),
         stage(
             "mockups", "Mockups",
-            "complete" if production["mockups_ready"] else "out_of_date" if has_mockups else "not_started",
-            bool(production["mockups_ready"]),
+            "complete" if production["mockups_ready"] and mockup_set_approved
+            else "needs_review" if has_mockups
+            else "not_started",
+            bool(production["mockups_ready"] and mockup_set_approved),
+        ),
+        stage(
+            "story", "Story & SEO",
+            "complete" if production["listing_content_ready"] else "out_of_date" if has_listing_work else "not_started",
+            bool(production["listing_content_ready"]),
         ),
         stage(
             "listing", "Listing",
-            "complete" if production["listing_content_ready"] and listing else "out_of_date" if has_listing_work else "not_started",
-            bool(production["listing_content_ready"] and listing),
+            "complete" if listing else "not_started",
+            bool(listing),
+        ),
+        stage(
+            "printify", "Printify",
+            "complete" if listing and listing["printify_product_id"]
+            else "in_progress" if listing
+            else "not_started",
+            bool(listing and listing["printify_product_id"]),
         ),
         stage(
             "publish", "Publish",
@@ -403,9 +538,7 @@ def _workflow_navigation(
             bool(live_listing and all_current and live_listing["etsy_last_synced_at"]),
         ),
     ]
-    normalized_active = {
-        "printify": "publish", "etsy": "publish"
-    }.get(active_stage, active_stage)
+    normalized_active = {"etsy": "publish"}.get(active_stage, active_stage)
     return {
         "collection": {"code": artwork["collection_code"], "name": artwork["collection_name"]},
         "artwork": {"code": artwork["artwork_code"], "title": artwork["public_title"]},
@@ -450,6 +583,13 @@ def collections_page(
     show_retired: bool = Query(False),
 ):
     context = get_dashboard()
+    context["collections"] = sorted(
+        context["collections"],
+        key=lambda item: (
+            item["status"] == "paused",
+            item.get("display_order") or 0,
+        ),
+    )
     normalized_code = collection_code.strip().upper()
     if not normalized_code and context["collections"]:
         normalized_code = context["collections"][0]["code"]
@@ -473,10 +613,92 @@ def collections_page(
         context["collection_sequence"] = build_collection_sequence(
             collection, artworks
         )
+        collection_listings = [
+            listing
+            for artwork in [*artworks, *retired_artworks]
+            for listing in get_artwork_listings(artwork["artwork_code"])
+            if listing["external_listing_id"]
+        ]
+        context["selected_collection"]["etsy_live_listing_count"] = sum(
+            1
+            for listing in collection_listings
+            if listing["etsy_state"] == "active" and not listing["etsy_paused_at"]
+        )
+        context["selected_collection"]["etsy_paused_listing_count"] = sum(
+            1 for listing in collection_listings if listing["etsy_paused_at"]
+        )
     return templates.TemplateResponse(
         request=request,
         name="collections_index.html",
         context=context,
+    )
+
+
+@app.post("/collections/{collection_code}/etsy/pause")
+def pause_collection_on_etsy(
+    collection_code: str,
+    confirmed: bool = Form(False),
+):
+    collection, artworks, retired_artworks = get_collection(collection_code)
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm pausing this collection")
+    targets = [
+        listing
+        for artwork in [*artworks, *retired_artworks]
+        for listing in get_artwork_listings(artwork["artwork_code"])
+        if listing["external_listing_id"]
+        and listing["etsy_state"] == "active"
+        and not listing["etsy_paused_at"]
+    ]
+    changed = 0
+    failures = []
+    for listing in targets:
+        try:
+            update_etsy_listing_state(str(listing["external_listing_id"]), "inactive")
+            record_etsy_paused(listing["id"], True)
+            changed += 1
+        except (EtsyAPIError, ValueError) as failure:
+            failures.append(f"{listing['public_title']}: {failure}")
+    params = {"collection": collection["code"], "etsy_collection_paused": changed}
+    if failures:
+        params["etsy_collection_error"] = " | ".join(failures[:3])
+    return RedirectResponse(
+        f"/collections?{urlencode(params)}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/collections/{collection_code}/etsy/reactivate")
+def reactivate_collection_on_etsy(
+    collection_code: str,
+    confirmed: bool = Form(False),
+):
+    collection, artworks, retired_artworks = get_collection(collection_code)
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm reactivating this collection")
+    targets = [
+        listing
+        for artwork in [*artworks, *retired_artworks]
+        for listing in get_artwork_listings(artwork["artwork_code"])
+        if listing["external_listing_id"] and listing["etsy_paused_at"]
+    ]
+    changed = 0
+    failures = []
+    for listing in targets:
+        try:
+            update_etsy_listing_state(str(listing["external_listing_id"]), "active")
+            record_etsy_paused(listing["id"], False)
+            changed += 1
+        except (EtsyAPIError, ValueError) as failure:
+            failures.append(f"{listing['public_title']}: {failure}")
+    params = {"collection": collection["code"], "etsy_collection_reactivated": changed}
+    if failures:
+        params["etsy_collection_error"] = " | ".join(failures[:3])
+    return RedirectResponse(
+        f"/collections?{urlencode(params)}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -516,23 +738,50 @@ def create_mockup_set_post(
 @app.post("/mockup-studio/sets/{set_id}")
 async def update_mockup_set_post(set_id: int, request: Request):
     form = await request.form()
-    ordered_slots = [
-        slot for slot, _ in sorted(
-            ((slot, int(form[f"position_{slot}"])) for slot in GENERATED_SLOTS),
-            key=lambda item: item[1],
-        )
-    ]
-    scene_value = str(form.get("scene_id") or "").strip()
+    _, current_items = get_mockup_set(set_id)
     try:
+        items = []
+        for current in current_items:
+            slot = current["slot_key"]
+            source = str(form.get(f"source_{slot}") or "").split(":", 1)
+            if len(source) != 2 or source[0] not in {"template", "scene"}:
+                raise ValueError("Choose an image source for every position")
+            source_kind, source_value = source
+            if source_kind == "template" and source_value not in GENERATED_SLOTS:
+                raise ValueError("Choose a valid generated image")
+            if source_kind == "scene" and not source_value.isdigit():
+                raise ValueError("Choose a valid reusable scene")
+            items.append({
+                "slot_key": slot,
+                "label": str(form.get(f"label_{slot}") or "Listing image").strip(),
+                "source_kind": source_kind,
+                "template_slot": source_value if source_kind == "template" else None,
+                "scene_id": int(source_value) if source_kind == "scene" else None,
+                "position": int(form[f"position_{slot}"]),
+            })
         update_mockup_set(
             set_id, name=str(form.get("name") or ""),
             description=str(form.get("description") or ""),
             template_key=str(form.get("template_key") or DEFAULT_TEMPLATE_PACK),
-            ordered_slots=ordered_slots,
             lead_slot=str(form.get("lead_slot") or "hero"),
-            scene_id=int(scene_value) if scene_value.isdigit() else None,
+            items=items,
         )
     except (KeyError, ValueError, sqlite3.IntegrityError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse("/mockup-studio?set_updated=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/mockup-studio/sets/{set_id}/items")
+def add_mockup_set_item_post(set_id: int):
+    add_mockup_set_item(set_id)
+    return RedirectResponse("/mockup-studio?set_updated=1", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/mockup-studio/sets/{set_id}/items/{slot_key}/remove")
+def remove_mockup_set_item_post(set_id: int, slot_key: str):
+    try:
+        remove_mockup_set_item(set_id, slot_key)
+    except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse("/mockup-studio?set_updated=1", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -561,7 +810,7 @@ def create_mockup_scene_post(
             shutil.copyfileobj(upload.file, output)
         with Image.open(destination) as image:
             image.verify()
-        create_mockup_scene(
+        scene_id = create_mockup_scene(
             name=name, room_type=room_type, orientation=normalized_orientation,
             image_path=destination.name, placement_x=placement_x,
             placement_y=placement_y, placement_width=placement_width,
@@ -577,7 +826,7 @@ def create_mockup_scene_post(
     finally:
         upload.file.close()
     return RedirectResponse(
-        "/mockup-studio?scene_saved=1", status_code=status.HTTP_303_SEE_OTHER
+        f"/mockup-studio?scene_saved=1&scene={scene_id}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -611,7 +860,45 @@ def update_mockup_scene_placement_post(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse(
-        "/mockup-studio?scene_updated=1", status_code=status.HTTP_303_SEE_OTHER
+        f"/mockup-studio?scene_updated=1&scene={scene_id}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/mockup-studio/scenes/{scene_id}/background")
+def replace_mockup_scene_background_post(
+    scene_id: int, upload: UploadFile = File(...),
+    source_url: str = Form(""), creator: str = Form(""),
+    license_name: str = Form(""), confirmed: bool = Form(False),
+):
+    scene = get_mockup_scene(scene_id)
+    if scene is None or not scene["active"]:
+        raise HTTPException(status_code=404, detail="Reusable scene not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the background replacement")
+    suffix = Path(upload.filename or "").suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(status_code=400, detail="Upload a JPG, PNG, or WebP room image")
+    destination = MOCKUP_SCENES_DIR / f"scene-{secrets.token_hex(8)}{suffix}"
+    try:
+        with destination.open("wb") as output:
+            shutil.copyfileobj(upload.file, output)
+        with Image.open(destination) as image:
+            image.verify()
+        update_mockup_scene_background(
+            scene_id, image_path=destination.name, source_url=source_url,
+            creator=creator, license_name=license_name,
+        )
+    except (ValueError, UnidentifiedImageError, OSError) as error:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        upload.file.close()
+    old_background = MOCKUP_SCENES_DIR / scene["image_path"]
+    if old_background != destination:
+        old_background.unlink(missing_ok=True)
+    return RedirectResponse(
+        f"/mockup-studio?background_replaced=1&scene={scene_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
@@ -657,6 +944,7 @@ def etsy_connect_page(request: Request):
         context={
             "config": config,
             "connected": bool(config["access_token"] and config["shop_id"]),
+            "store_url": f"https://www.etsy.com/shop/{config['shop_name']}" if config["shop_name"] else "https://www.etsy.com/your/shops/me",
             "error": None,
         },
     )
@@ -672,6 +960,7 @@ def printify_connect_page(request: Request):
             "configured": api is not None,
             "source": printify_configuration_source(),
             "shop_id": api.shop_id if api else "",
+            "store_url": f"https://printify.com/app/store/{api.shop_id}/products" if api else "",
         },
     )
 
@@ -876,16 +1165,53 @@ def listing_page(request: Request, listing_id: int):
     listing = get_listing(listing_id)
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
+    _, collection_artworks, _ = get_collection(listing["collection_code"])
+    artwork_position = next(
+        (
+            index
+            for index, item in enumerate(collection_artworks)
+            if item["artwork_code"] == listing["artwork_code"]
+        ),
+        None,
+    )
+
+    def sibling_destination(position):
+        if position is None or position < 0 or position >= len(collection_artworks):
+            return None
+        sibling = collection_artworks[position]
+        sibling_listings = list(get_artwork_listings(sibling["artwork_code"]))
+        sibling_listing = next(
+            (item for item in sibling_listings if item["status"] == "published"),
+            sibling_listings[0] if sibling_listings else None,
+        )
+        return {
+            "title": sibling["public_title"],
+            "href": (
+                f"/listings/{sibling_listing['id']}"
+                if sibling_listing
+                else f"/artworks/{sibling['artwork_code']}?step=listing"
+            ),
+        }
+
+    previous_listing_artwork = sibling_destination(
+        artwork_position - 1 if artwork_position is not None else None
+    )
+    next_listing_artwork = sibling_destination(
+        artwork_position + 1 if artwork_position is not None else None
+    )
     readiness = get_listing_readiness(listing_id)
     printify_state = validate_printify_product(listing)
     production = get_artwork_production(listing["artwork_code"])
+    automatic_profile = _printify_profile_for_orientation(
+        production["orientation"] if production else ""
+    )
     available_printify_roles = {
         item["role"] for item in _printify_file_options(listing)
     }
     automatic_profile_roles = {
         ratio_role_for_variant(title)
-        for _, title, _ in HORIZONTAL_PRINTIFY_PROFILE["variants"]
-    }
+        for _, title, _ in automatic_profile["variants"]
+    } if automatic_profile else set()
     return templates.TemplateResponse(
         request=request,
         name="listing_form.html",
@@ -901,16 +1227,20 @@ def listing_page(request: Request, listing_id: int):
             "printify_state": printify_state,
             "printify_automation_available": bool(
                 readiness["ready"]
-                and production
-                and production["orientation"] == "horizontal"
+                and automatic_profile
                 and automatic_profile_roles.issubset(available_printify_roles)
             ),
+            "printify_profile": automatic_profile,
             "printify_handoff": (
                 inspect_printify_handoff(listing, readiness)
                 if printify_state["required"] else None
             ),
+            "previous_listing_artwork": previous_listing_artwork,
+            "next_listing_artwork": next_listing_artwork,
             "workflow_nav": _workflow_navigation(
-                listing, listing=listing, active_stage="listing"
+                listing,
+                listing=listing,
+                active_stage="publish" if printify_state["ready"] else "printify",
             ),
         },
     )
@@ -993,6 +1323,11 @@ def sync_etsy_listing_post(listing_id: int, confirmed: bool = Form(False)):
     try:
         result = sync_etsy_listing(listing)
         mark_etsy_synced(listing_id, result.get("state", ""))
+        record_publishing_recovery(
+            listing_id,
+            "etsy_ready_for_review",
+            "Etsy has the final ShangooliOS title, description, tags, images, and section. Final Etsy review remains.",
+        )
     except (EtsyAPIError, ValueError) as failure:
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     return RedirectResponse(
@@ -1264,6 +1599,8 @@ def create_printify_page(
 
 
 HORIZONTAL_PRINTIFY_PROFILE = {
+    "orientation": "horizontal",
+    "product_name": "Matte Horizontal Posters",
     "blueprint_id": 284,
     "provider_id": 99,
     "provider_name": "Printify Choice",
@@ -1276,6 +1613,29 @@ HORIZONTAL_PRINTIFY_PROFILE = {
         (43178, '36″ x 24″ / Matte', 5800),
     ),
 }
+
+VERTICAL_PRINTIFY_PROFILE = {
+    "orientation": "vertical",
+    "product_name": "Matte Vertical Posters",
+    "blueprint_id": 282,
+    "provider_id": 99,
+    "provider_name": "Printify Choice",
+    "variants": (
+        (43135, '11″ x 14″ / Matte', 2500),
+        (43138, '12″ x 18″ / Matte', 2800),
+        (43141, '16″ x 20″ / Matte', 3200),
+        (43144, '18″ x 24″ / Matte', 3800),
+        (43147, '20″ x 30″ / Matte', 4800),
+        (43150, '24″ x 36″ / Matte', 5800),
+    ),
+}
+
+
+def _printify_profile_for_orientation(orientation):
+    return {
+        "horizontal": HORIZONTAL_PRINTIFY_PROFILE,
+        "vertical": VERTICAL_PRINTIFY_PROFILE,
+    }.get((orientation or "").strip().lower())
 
 
 @app.post("/listings/{listing_id}/printify/prepare")
@@ -1294,16 +1654,18 @@ def prepare_printify_product_post(
     if not readiness or not readiness["ready"]:
         raise HTTPException(status_code=400, detail="Complete listing readiness first")
     production = get_artwork_production(listing["artwork_code"])
-    if not production or production["orientation"] != "horizontal":
+    profile = _printify_profile_for_orientation(
+        production["orientation"] if production else ""
+    )
+    if profile is None:
         raise HTTPException(
             status_code=400,
-            detail="The automatic Printify profile currently supports horizontal artwork only",
+            detail="Automatic Printify setup requires a certified vertical or horizontal orientation",
         )
     api = PrintifyAPI.from_env()
     if api is None:
         raise HTTPException(status_code=400, detail="Printify API is not configured")
 
-    profile = HORIZONTAL_PRINTIFY_PROFILE
     file_options = {item["role"]: item for item in _printify_file_options(listing)}
     try:
         providers = api.list_providers(profile["blueprint_id"])
@@ -1702,8 +2064,8 @@ def create_collection_post(
     target_artwork_count: int = Form(0),
     collection_status: str = Form("planned"),
     etsy_section_name: str = Form(""),
-    creative_direction: str = Form(""),
-    collection_negative_prompt: str = Form(""),
+    description: str = Form(""),
+    prompt: str = Form(""),
 ):
     collection_code = create_collection(
         code=code,
@@ -1711,8 +2073,8 @@ def create_collection_post(
         target_artwork_count=target_artwork_count,
         status=collection_status,
         etsy_section_name=etsy_section_name,
-        creative_direction=creative_direction,
-        negative_prompt=collection_negative_prompt,
+        description=description,
+        prompt=prompt,
     )
 
     return RedirectResponse(
@@ -1757,25 +2119,27 @@ def edit_collection_form(request: Request, collection_code: str):
 @app.post("/collections/{collection_code}/edit")
 def edit_collection_post(
     collection_code: str,
+    code: str = Form(""),
     name: str = Form(...),
     target_artwork_count: int = Form(0),
     collection_status: str = Form(...),
     etsy_section_name: str = Form(""),
-    creative_direction: str = Form(""),
-    collection_negative_prompt: str = Form(""),
+    description: str = Form(""),
+    prompt: str = Form(""),
 ):
-    update_collection(
+    updated_code = update_collection(
         collection_code=collection_code,
+        new_code=code or collection_code,
         name=name,
         target_artwork_count=target_artwork_count,
         status=collection_status,
         etsy_section_name=etsy_section_name,
-        creative_direction=creative_direction,
-        negative_prompt=collection_negative_prompt,
+        description=description,
+        prompt=prompt,
     )
 
     return RedirectResponse(
-        url=f"/collections?collection={collection_code.upper()}",
+        url=f"/collections?collection={updated_code}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -1788,6 +2152,57 @@ def archive_collection_post(collection_code: str):
         url="/",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+@app.post("/collections/{collection_code}/cover")
+def upload_collection_cover(collection_code: str, upload: UploadFile = File(...)):
+    collection, _, _ = get_collection(collection_code)
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    suffix = Path(upload.filename or "").suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(status_code=400, detail="Upload a JPG, PNG, or WebP image")
+    relative = Path("assets") / "collections" / collection_code.upper() / f"collection-cover{suffix}"
+    destination = BASE_DIR.parent / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with destination.open("wb") as output:
+            shutil.copyfileobj(upload.file, output)
+        with Image.open(destination) as image:
+            image.verify()
+        set_collection_cover(collection_code, str(relative), approved=False)
+    except (OSError, UnidentifiedImageError, ValueError) as error:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        upload.file.close()
+    return RedirectResponse(
+        f"/collections?collection={collection_code.upper()}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/collections/{collection_code}/cover/approve")
+def approve_collection_cover_post(collection_code: str):
+    try:
+        approve_collection_cover(collection_code)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/collections?collection={collection_code.upper()}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/collections/{collection_code}/cover")
+def view_collection_cover(collection_code: str):
+    collection, _, _ = get_collection(collection_code)
+    if collection is None or not collection["cover_image_path"]:
+        raise HTTPException(status_code=404, detail="Collection cover not found")
+    path = (BASE_DIR.parent / collection["cover_image_path"]).resolve()
+    if BASE_DIR.parent not in path.parents or not path.is_file():
+        raise HTTPException(status_code=404, detail="Collection cover not found")
+    return FileResponse(path)
 
 
 @app.get("/collections/{collection_code}/new")
@@ -1808,14 +2223,14 @@ def new_artwork_form(request: Request, collection_code: str):
 def create_artwork_post(
     collection_code: str,
     public_title: str = Form(...),
-    working_title: str = Form(""),
-    theme: str = Form(""),
+    description: str = Form(""),
+    prompt: str = Form(""),
 ):
     result = create_artwork_with_workspace(
         collection_code=collection_code,
         public_title=public_title,
-        working_title=working_title,
-        theme=theme,
+        description=description,
+        prompt=prompt,
     )
 
     return RedirectResponse(
@@ -1838,39 +2253,27 @@ def analyze_artwork_post(artwork_code: str):
             source = None
     result = analyze_artwork(artwork, source)
     update_artwork_intelligence(artwork_code, **result)
-    return RedirectResponse(url=f"/artworks/{artwork_code}?step=details", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/artworks/{artwork_code}?step=intelligence", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/artworks/{artwork_code}/intelligence")
 def save_artwork_intelligence_post(
     artwork_code: str,
     theme: str = Form(""), style: str = Form(""), mood: str = Form(""),
-    primary_colors: str = Form(""), suggested_room: str = Form(""),
-    target_customer: str = Form(""), generation_prompt: str = Form(""),
-    negative_prompt: str = Form(""), ai_model: str = Form(""),
+    primary_colors: str = Form(""), suggested_room: list[str] = Form([]),
+    target_customer: list[str] = Form([]), ai_model: str = Form(""),
     analysis_notes: str = Form(""),
 ):
-    update_artwork_intelligence(
-        artwork_code, theme=theme.strip(), style=style.strip(), mood=mood.strip(),
-        primary_colors=primary_colors.strip(), suggested_room=suggested_room.strip(),
-        target_customer=target_customer.strip(), generation_prompt=generation_prompt.strip(),
-        negative_prompt=negative_prompt.strip(), ai_model=ai_model.strip(),
-        analysis_notes=analysis_notes.strip(),
-    )
-    return RedirectResponse(url=f"/artworks/{artwork_code}?step=details", status_code=status.HTTP_303_SEE_OTHER)
-
-
-@app.post("/artworks/{artwork_code}/intelligence/apply-collection-prompt")
-def apply_collection_prompt_post(artwork_code: str):
-    if get_artwork(artwork_code) is None:
-        raise HTTPException(status_code=404, detail="Artwork not found")
-    # Ensure older artwork has an intelligence record before updating its snapshot.
-    get_artwork_intelligence(artwork_code)
-    apply_latest_collection_prompt(artwork_code)
-    return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?step=details&collection_prompt_applied=1",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    values = {
+        "theme": theme.strip(), "style": style.strip(), "mood": mood.strip(),
+        "primary_colors": primary_colors.strip(),
+        "suggested_room": ", ".join(suggested_room),
+        "target_customer": ", ".join(target_customer),
+        "ai_model": ai_model.strip(),
+        "analysis_notes": analysis_notes.strip(),
+    }
+    update_artwork_intelligence(artwork_code, **values)
+    return RedirectResponse(url=f"/artworks/{artwork_code}?step=intelligence", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/artworks/{artwork_code}/listing-content/generate")
@@ -1883,7 +2286,7 @@ def generate_listing_content_post(artwork_code: str):
     update_artwork_listing_content(artwork_code, **result)
     set_artwork_production_flags(artwork_code, listing_content_ready=True)
     return RedirectResponse(
-        url=f"/artworks/{artwork_code}?step=listing",
+        url=f"/artworks/{artwork_code}?step=story",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -1981,13 +2384,14 @@ def prepare_artwork_post(
         if missing_mockups:
             master_assignment = assignments.get("print_master") or source_assignment
             master_path = resolve_assigned_file(artwork, master_assignment)
-            results = generate_mockups(
-                artwork=dict(artwork),
-                source_path=master_path,
-                output_folder=workspace / "03 Mockups",
-                template_key=DEFAULT_TEMPLATE_PACK,
-            )
-            for result in results:
+            for slot_key in missing_mockups:
+                result = generate_listing_image(
+                    slot_key=slot_key,
+                    artwork=_mockup_artwork_payload(artwork),
+                    source_path=master_path,
+                    output_folder=workspace / "03 Mockups",
+                    template_key=DEFAULT_TEMPLATE_PACK,
+                )
                 upsert_artwork_file(
                     artwork_code=artwork_code,
                     role=result["role"],
@@ -1997,15 +2401,34 @@ def prepare_artwork_post(
                 )
             save_artwork_mockup_templates(
                 artwork_code,
-                {slot_key: DEFAULT_TEMPLATE_PACK for slot_key in GENERATED_SLOTS},
+                {slot_key: DEFAULT_TEMPLATE_PACK for slot_key in missing_mockups},
             )
 
         source_path = resolve_assigned_file(artwork, source_assignment)
-        intelligence = analyze_artwork(artwork, source_path)
+        generated_intelligence = analyze_artwork(artwork, source_path)
+        existing_intelligence = dict(get_artwork_intelligence(artwork_code))
+        intelligence = {
+            key: (
+                existing_intelligence.get(key)
+                if str(existing_intelligence.get(key) or "").strip()
+                else value
+            )
+            for key, value in generated_intelligence.items()
+        }
         update_artwork_intelligence(artwork_code, **intelligence)
-        listing_content = generate_listing_content(
+
+        generated_listing_content = generate_listing_content(
             artwork, get_artwork_intelligence(artwork_code)
         )
+        existing_listing_content = dict(get_artwork_listing_content(artwork_code))
+        listing_content = {
+            key: (
+                existing_listing_content.get(key)
+                if str(existing_listing_content.get(key) or "").strip()
+                else value
+            )
+            for key, value in generated_listing_content.items()
+        }
         update_artwork_listing_content(artwork_code, **listing_content)
         if not (artwork["story"] or "").strip():
             update_artwork(
@@ -2014,6 +2437,7 @@ def prepare_artwork_post(
                 artwork["working_title"] or "",
                 artwork["theme"] or "",
                 listing_content["long_story"],
+                artwork["prompt"] or "",
                 artwork["status"],
             )
 
@@ -2088,7 +2512,7 @@ def save_listing_content_post(
     required_ready = all(values[key] for key in ("etsy_title", "etsy_description", "etsy_tags", "alt_text"))
     set_artwork_production_flags(artwork_code, listing_content_ready=required_ready)
     return RedirectResponse(
-        url=f"/artworks/{artwork_code}?step=listing",
+        url=f"/artworks/{artwork_code}?step=story",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2118,11 +2542,13 @@ def save_artwork(
     request: Request,
     artwork_code: str,
     public_title: str = Form(...),
-    working_title: str = Form(""),
-    theme: str = Form(""),
-    story: str = Form(""),
+    description: str = Form(""),
+    prompt: str = Form(""),
     status_value: str = Form(..., alias="status"),
 ):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
     normalized_status = status_value.strip().lower()
 
     if normalized_status == "listed":
@@ -2163,9 +2589,10 @@ def save_artwork(
     update_artwork(
         artwork_code=artwork_code,
         public_title=public_title,
-        working_title=working_title,
-        theme=theme,
-        story=story,
+        working_title=artwork["working_title"] or "",
+        theme=artwork["theme"] or "",
+        story=description,
+        prompt=prompt,
         status=normalized_status,
     )
 
@@ -2198,13 +2625,11 @@ def save_artwork_status(
 def save_artwork_production(
     artwork_code: str,
     orientation: str = Form(""),
-    original_approved: bool = Form(False),
-    print_master_ready: bool = Form(False),
-    ratio_exports_ready: bool = Form(False),
-    mockups_ready: bool = Form(False),
-    listing_content_ready: bool = Form(False),
     production_notes: str = Form(""),
 ):
+    production = get_artwork_production(artwork_code)
+    if production is None:
+        raise HTTPException(status_code=404, detail="Artwork production record not found")
     certified_orientation = _certified_orientation(artwork_code)
     if certified_orientation and orientation != certified_orientation:
         raise HTTPException(
@@ -2222,11 +2647,11 @@ def save_artwork_production(
         orientation=effective_orientation,
         master_ratio=ratio_profile["master_ratio"],
         required_ratios=", ".join(ratio_profile["required_ratios"]),
-        original_approved=original_approved,
-        print_master_ready=print_master_ready,
-        ratio_exports_ready=ratio_exports_ready,
-        mockups_ready=mockups_ready,
-        listing_content_ready=listing_content_ready,
+        original_approved=bool(production["original_approved"]),
+        print_master_ready=bool(production["print_master_ready"]),
+        ratio_exports_ready=bool(production["ratio_exports_ready"]),
+        mockups_ready=bool(production["mockups_ready"]),
+        listing_content_ready=bool(production["listing_content_ready"]),
         notes=production_notes,
     )
 
@@ -2250,6 +2675,12 @@ def upload_source_file(
     get_artwork_production(artwork_code)
 
     try:
+        old_candidate = candidate_path(artwork)
+        old_approved = old_candidate.with_name(
+            f"{artwork_code.upper()}_ai_upscaled_approved.png"
+        )
+        old_candidate.unlink(missing_ok=True)
+        old_approved.unlink(missing_ok=True)
         saved = save_uploaded_file(
             artwork=artwork,
             upload=upload,
@@ -2492,7 +2923,7 @@ def update_artwork_everywhere(
             if saved_scene is not None and not saved_scene["active"]:
                 saved_scene = None
         mockups = generate_mockups(
-            artwork=dict(artwork), source_path=master_path,
+            artwork=_mockup_artwork_payload(artwork), source_path=master_path,
             output_folder=workspace / "03 Mockups", template_key=DEFAULT_TEMPLATE_PACK,
         )
         for result in mockups:
@@ -2800,7 +3231,7 @@ def generate_mockups_post(artwork_code: str, template_key: str = Form(DEFAULT_TE
         source_path = resolve_assigned_file(artwork, source_assignment)
         workspace = get_artwork_folder(artwork)
         results = generate_mockups(
-            artwork=dict(artwork),
+            artwork=_mockup_artwork_payload(artwork),
             source_path=source_path,
             output_folder=workspace / "03 Mockups",
             template_key=template_key,
@@ -2829,7 +3260,7 @@ def generate_mockups_post(artwork_code: str, template_key: str = Form(DEFAULT_TE
 
 
 @app.post("/artworks/{artwork_code}/mockups/sets/{set_id}/generate")
-def generate_mockup_set_post(artwork_code: str, set_id: int):
+async def generate_mockup_set_post(artwork_code: str, set_id: int, request: Request):
     artwork = get_artwork(artwork_code)
     mockup_set, items = get_mockup_set(set_id)
     if artwork is None or mockup_set is None:
@@ -2839,47 +3270,42 @@ def generate_mockup_set_post(artwork_code: str, set_id: int):
     if source_assignment is None:
         raise HTTPException(status_code=400, detail="Upload artwork before generating a set")
     try:
+        form = await request.form()
         workspace = get_artwork_folder(artwork)
         source_path = resolve_assigned_file(artwork, source_assignment)
-        results = generate_mockups(
-            artwork=dict(artwork), source_path=source_path,
-            output_folder=workspace / "03 Mockups",
-            template_key=mockup_set["template_key"],
-        )
-        for result in results:
+        production = get_artwork_production(artwork_code)
+        selected_sources = {}
+        for item in items:
+            slot = item["slot_key"]
+            candidates = _scene_candidates_for_item(item, production["orientation"])
+            candidate_ids = {scene["id"] for scene in candidates}
+            default_scene_id = item["scene_id"] if item["scene_id"] in candidate_ids else (
+                candidates[0]["id"] if candidates else None
+            )
+            override = str(form.get(f"scene_{slot}") or default_scene_id or "")
+            scene = get_mockup_scene(int(override)) if override.isdigit() and int(override) in candidate_ids else None
+            if scene is not None:
+                result = generate_scene_mockup(
+                    artwork=dict(artwork), source_path=source_path,
+                    scene_path=MOCKUP_SCENES_DIR / scene["image_path"],
+                    scene=dict(scene), output_folder=workspace / "03 Mockups", slot_key=slot,
+                )
+                selected_sources[slot] = f"scene:{scene['id']}"
+            else:
+                result = generate_listing_image(
+                    slot_key=item["template_slot"], artwork=_mockup_artwork_payload(artwork),
+                    source_path=source_path, output_folder=workspace / "03 Mockups",
+                    template_key=mockup_set["template_key"], output_slot_key=slot,
+                )
+                selected_sources[slot] = f"template:{item['template_slot']}"
             upsert_artwork_file(
                 artwork_code=artwork_code, role=result["role"],
                 relative_path=str(result["path"].relative_to(workspace)),
                 stored_filename=result["stored_filename"],
                 original_filename=result["original_filename"],
             )
-        room_item = next((item for item in items if item["slot_key"] == "room"), None)
-        if room_item and room_item["scene_id"]:
-            scene = get_mockup_scene(room_item["scene_id"])
-            if scene is None or not scene["active"]:
-                raise ValueError("The set's reusable room scene is unavailable")
-            scene_result = generate_scene_mockup(
-                artwork=dict(artwork), source_path=source_path,
-                scene_path=MOCKUP_SCENES_DIR / scene["image_path"],
-                scene=dict(scene), output_folder=workspace / "03 Mockups",
-            )
-            upsert_artwork_file(
-                artwork_code=artwork_code, role=scene_result["role"],
-                relative_path=str(scene_result["path"].relative_to(workspace)),
-                stored_filename=scene_result["stored_filename"],
-                original_filename=scene_result["original_filename"],
-            )
         save_artwork_mockup_order(artwork_code, [item["slot_key"] for item in items])
-        save_artwork_mockup_templates(
-            artwork_code,
-            {
-                item["slot_key"]: (
-                    f"scene:{item['scene_id']}" if item["scene_id"]
-                    else mockup_set["template_key"]
-                )
-                for item in items
-            },
-        )
+        save_artwork_mockup_templates(artwork_code, selected_sources)
         record_artwork_mockup_set_generated(artwork_code, set_id)
         set_artwork_production_flags(artwork_code, mockups_ready=False)
     except ValueError as error:
@@ -2894,9 +3320,10 @@ def generate_mockup_set_post(artwork_code: str, set_id: int):
 def approve_mockup_set_post(artwork_code: str, set_id: int, crop_reviewed: bool = Form(False)):
     if not crop_reviewed:
         raise HTTPException(status_code=400, detail="Review the Etsy cover crops before approval")
-    context = _artwork_context(artwork_code)
-    if context["production_summary"]["missing_mockups"]:
-        raise HTTPException(status_code=400, detail="Generate all eight images before approval")
+    _, items = get_mockup_set(set_id)
+    assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
+    if any(f"mockup:{item['slot_key']}" not in assignments for item in items):
+        raise HTTPException(status_code=400, detail="Generate every set image before approval")
     try:
         approve_artwork_mockup_set(artwork_code, set_id)
         set_artwork_production_flags(artwork_code, mockups_ready=True)
@@ -2908,8 +3335,15 @@ def approve_mockup_set_post(artwork_code: str, set_id: int, crop_reviewed: bool 
     )
 
 
-@app.post("/artworks/{artwork_code}/mockups/scene")
-def generate_scene_mockup_post(artwork_code: str, scene_id: int = Form(...)):
+@app.post("/artworks/{artwork_code}/mockups/{slot_key}/scene")
+async def generate_scene_mockup_post(artwork_code: str, slot_key: str, request: Request):
+    if slot_key not in {"room", "bedroom", "office"}:
+        raise HTTPException(status_code=400, detail="Choose a lifestyle-image slot")
+    form = await request.form()
+    scene_value = str(form.get(f"scene_id_{slot_key}") or "")
+    if not scene_value.isdigit():
+        raise HTTPException(status_code=400, detail="Choose a reusable scene")
+    scene_id = int(scene_value)
     artwork = get_artwork(artwork_code)
     scene = get_mockup_scene(scene_id)
     if artwork is None or scene is None or not scene["active"]:
@@ -2928,10 +3362,10 @@ def generate_scene_mockup_post(artwork_code: str, scene_id: int = Form(...)):
     try:
         workspace = get_artwork_folder(artwork)
         result = generate_scene_mockup(
-            artwork=dict(artwork),
+            artwork=_mockup_artwork_payload(artwork),
             source_path=resolve_assigned_file(artwork, source_assignment),
             scene_path=MOCKUP_SCENES_DIR / scene["image_path"],
-            scene=dict(scene), output_folder=workspace / "03 Mockups",
+            scene=dict(scene), output_folder=workspace / "03 Mockups", slot_key=slot_key,
         )
         upsert_artwork_file(
             artwork_code=artwork_code, role=result["role"],
@@ -2939,7 +3373,7 @@ def generate_scene_mockup_post(artwork_code: str, scene_id: int = Form(...)):
             stored_filename=result["stored_filename"],
             original_filename=result["original_filename"],
         )
-        save_artwork_mockup_template(artwork_code, "room", f"scene:{scene_id}")
+        save_artwork_mockup_template(artwork_code, slot_key, f"scene:{scene_id}")
         set_artwork_production_flags(artwork_code, mockups_ready=False)
         invalidate_artwork_mockup_set_approval(artwork_code)
     except ValueError as error:
@@ -3011,7 +3445,7 @@ async def generate_one_listing_image_post(artwork_code: str, slot_key: str, requ
         workspace = get_artwork_folder(artwork)
         result = generate_listing_image(
             slot_key=slot_key,
-            artwork=dict(artwork),
+            artwork=_mockup_artwork_payload(artwork),
             source_path=source_path,
             output_folder=workspace / "03 Mockups",
             template_key=template_key,
@@ -3065,6 +3499,11 @@ async def save_mockup_settings(artwork_code: str, request: Request):
             detail="Generate or upload all eight listing images before marking them reviewed",
         )
     set_artwork_production_flags(artwork_code, mockups_ready=reviewed)
+    mockup_state = get_artwork_mockup_set_state(artwork_code)
+    if reviewed and mockup_state:
+        approve_artwork_mockup_set(artwork_code, mockup_state["set_id"])
+    elif not reviewed:
+        invalidate_artwork_mockup_set_approval(artwork_code)
 
     return RedirectResponse(
         url=f"/artworks/{artwork_code.upper()}?step=mockups&mockup_settings_saved=1",
@@ -3096,7 +3535,10 @@ def view_assigned_file(artwork_code: str, role: str = Query(...)):
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
-    return FileResponse(file_path)
+    # Assigned roles frequently point to newly regenerated files while their
+    # public URL stays the same. Prevent the browser from showing the previous
+    # mockup after a successful replacement.
+    return FileResponse(file_path, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/artworks/{artwork_code}/ratios/review")

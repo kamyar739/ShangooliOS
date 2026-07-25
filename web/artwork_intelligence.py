@@ -38,7 +38,9 @@ def _dominant_colors(path: Path, count: int = 5) -> list[str]:
 
 def analyze_artwork(artwork, source_path: Path | None) -> dict:
     title = artwork["public_title"] or artwork["working_title"] or artwork["artwork_code"]
-    theme = (artwork["theme"] or "").strip()
+    story = (artwork["story"] or "").strip()
+    prompt = (artwork["prompt"] or "").strip()
+    existing_theme = (artwork["theme"] or "").strip()
     colors = _dominant_colors(source_path) if source_path and source_path.exists() else []
     orientation = "unknown"
     dimensions = ""
@@ -48,15 +50,55 @@ def analyze_artwork(artwork, source_path: Path | None) -> dict:
         orientation = "horizontal" if width > height else "vertical" if height > width else "square"
         dimensions = f"{width} × {height}px"
 
-    combined = f"{title} {theme}".lower()
-    energetic = any(word in combined for word in ("joy", "dance", "festival", "celebr", "movement", "freedom"))
-    mood = "Joyful, energetic, uplifting" if energetic else "Expressive, contemporary, inviting"
-    suggested_room = "Living room, dining room, entryway, or creative space"
-    target_customer = "Homeowners, art lovers, gift buyers, and modern decor shoppers"
-    notes = f"Local analysis from source artwork. Orientation: {orientation}. Source dimensions: {dimensions or 'not available'}. Review and refine the creative fields before using them for listing generation."
+    combined = f"{title} {existing_theme} {story} {prompt}".lower()
+    if existing_theme:
+        theme = existing_theme
+    elif "flamenco" in combined or "dancer" in combined:
+        theme = "Flamenco, movement, and emotional expression"
+    elif any(word in combined for word in ("celebr", "joy", "gather")):
+        theme = "Collective joy, movement, and celebration"
+    else:
+        theme = f"{title}: movement, emotion, and visual storytelling"
+
+    if "minimal" in combined:
+        style = "Minimalist"
+    elif "impression" in combined:
+        style = "Impressionist"
+    elif any(word in combined for word in ("expression", "oil paint", "painterly", "flamenco")):
+        style = "Contemporary expressionist figurative oil painting"
+    else:
+        style = "Modern abstract figurative"
+
+    mood_rules = (
+        ("Passionate", ("passion", "flamenco", "rapture", "fire")),
+        ("Joyful", ("joy", "celebr", "festival", "gather")),
+        ("Serene", ("serene", "calm", "quiet", "peace")),
+        ("Dramatic", ("dramatic", "intense", "shadow", "storm")),
+        ("Reflective", ("reflect", "solitary", "contempl", "surrender")),
+        ("Empowering", ("power", "strength", "freedom", "triumph")),
+    )
+    mood = next(
+        (label for label, words in mood_rules if any(word in combined for word in words)),
+        "Reflective",
+    )
+    suggested_room = "Living room, Entryway, Creative space"
+    target_customer = (
+        "Flamenco enthusiasts, Dance lovers, Contemporary decor shoppers"
+        if "flamenco" in combined or "dancer" in combined
+        else "Art collectors, Contemporary decor shoppers, Gift buyers"
+    )
+    subject = (
+        "a flamenco dancer and its expressive movement"
+        if "flamenco" in combined or "dancer" in combined
+        else f"the visual subject of {title}"
+    )
+    notes = (
+        f"Analyzed {subject}. The {orientation} source is {dimensions or 'an unknown size'}; "
+        "the creative fields below use controlled values and can be refined before listing generation."
+    )
     return {
         "theme": theme,
-        "style": "Modern abstract figurative art",
+        "style": style,
         "mood": mood,
         "primary_colors": ", ".join(colors),
         "suggested_room": suggested_room,

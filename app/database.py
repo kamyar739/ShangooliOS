@@ -193,7 +193,10 @@ def initialize_artwork_workspace(row) -> Path:
     return artwork_folder
 
 
-def create_artwork(collection_code, public_title, working_title, theme):
+def create_artwork(
+    collection_code, public_title, working_title="", theme="",
+    description="", prompt="",
+):
     collection_code = collection_code.strip().upper()
     public_title = public_title.strip()
     if not public_title:
@@ -216,7 +219,8 @@ def create_artwork(collection_code, public_title, working_title, theme):
             "public_title": public_title,
             "working_title": working_title,
             "theme": theme,
-            "story": None,
+            "story": description,
+            "prompt": prompt,
         }
         artwork_folder = get_artwork_folder(artwork_row)
 
@@ -228,13 +232,14 @@ def create_artwork(collection_code, public_title, working_title, theme):
                 """
                 INSERT INTO artworks (
                     artwork_code, collection_id, sequence_number,
-                    public_title, working_title, theme, status
+                    public_title, working_title, theme, story, prompt, status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'idea')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idea')
                 """,
                 (
                     artwork_code, collection["id"], sequence_number,
                     public_title, working_title, theme,
+                    description.strip() or None, prompt.strip() or None,
                 ),
             )
             connection.commit()
@@ -270,7 +275,7 @@ def get_artwork(artwork_code):
         return connection.execute(
             """
             SELECT a.artwork_code, a.public_title, a.working_title,
-                   a.theme, a.story, a.status,
+                   a.theme, a.story, a.prompt, a.status,
                    c.code AS collection_code, c.name AS collection_name
             FROM artworks AS a
             JOIN collections AS c ON c.id = a.collection_id
@@ -281,7 +286,7 @@ def get_artwork(artwork_code):
 
 
 def update_artwork(
-    artwork_code, public_title, working_title, theme, story, status
+    artwork_code, public_title, working_title, theme, story, prompt, status
 ):
     allowed_statuses = {
         "idea", "creating", "review", "approved",
@@ -304,11 +309,11 @@ def update_artwork(
             """
             UPDATE artworks
             SET public_title = ?, working_title = ?, theme = ?,
-                story = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                story = ?, prompt = ?, status = ?, updated_at = CURRENT_TIMESTAMP
             WHERE artwork_code = ?
             """,
             (
-                public_title.strip(), working_title, theme, story,
+                public_title.strip(), working_title, theme, story, prompt,
                 normalized_status, artwork_code.strip().upper(),
             ),
         )

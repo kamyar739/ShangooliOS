@@ -10,7 +10,7 @@ from PIL import Image
 
 from app import database
 from web import db
-from web.app import app
+from web.app import app, _mockup_sets_for_artwork
 
 
 class DashboardTests(unittest.TestCase):
@@ -127,6 +127,10 @@ class DashboardTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 303)
             scene = db.list_mockup_scenes()[0]
+            self.assertEqual(
+                response.headers["location"],
+                f"/mockup-studio?scene_saved=1&scene={scene['id']}",
+            )
             self.assertEqual(scene["name"], "Bright sofa wall")
             self.assertEqual(scene["creator"], "Example Artist")
             self.assertTrue((scenes_folder / scene["image_path"]).is_file())
@@ -134,14 +138,36 @@ class DashboardTests(unittest.TestCase):
                 f"/mockup-studio/scenes/{scene['id']}/image"
             )
             self.assertEqual(image_response.status_code, 200)
+            old_background = scenes_folder / scene["image_path"]
+            replacement_bytes = BytesIO()
+            Image.new("RGB", (1000, 700), "#b9b1a5").save(replacement_bytes, "JPEG")
+            response = self.client.post(
+                f"/mockup-studio/scenes/{scene['id']}/background",
+                data={
+                    "source_url": "https://example.com/replacement",
+                    "creator": "Replacement Artist", "license_name": "Owned",
+                    "confirmed": "true",
+                },
+                files={"upload": ("replacement.jpg", replacement_bytes.getvalue(), "image/jpeg")},
+                follow_redirects=False,
+            )
+            self.assertEqual(response.status_code, 303)
+            self.assertIn(f"scene={scene['id']}", response.headers["location"])
+            replaced = db.get_mockup_scene(scene["id"])
+            self.assertEqual(replaced["creator"], "Replacement Artist")
+            self.assertTrue((scenes_folder / replaced["image_path"]).is_file())
+            self.assertFalse(old_background.exists())
 
-        studio = self.client.get("/mockup-studio")
+        studio = self.client.get(f"/mockup-studio?scene={scene['id']}")
         self.assertIn("Mockup Studio", studio.text)
         self.assertIn("Bright sofa wall", studio.text)
-        self.assertIn("Example Artist", studio.text)
-        self.assertIn("Pexels License", studio.text)
+        self.assertIn("Replacement Artist", studio.text)
+        self.assertIn("Owned", studio.text)
+        self.assertIn(f'<option value="{scene["id"]}" selected>', studio.text)
         artwork = self.client.get("/artworks/CEL-001")
-        self.assertIn("Living room · Bright sofa wall", artwork.text)
+        self.assertIn("Bright sofa wall · Horizontal", artwork.text)
+        self.assertNotIn("Generate room mockup", artwork.text)
+        self.assertIn("Change scenes for this artwork", artwork.text)
 
         scene_id = db.list_mockup_scenes()[0]["id"]
         response = self.client.post(
@@ -173,7 +199,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_mockup_studio_manages_ordered_marketplace_sets(self):
         studio = self.client.get("/mockup-studio")
-        self.assertIn("Marketplace sets", studio.text)
+        self.assertIn("Etsy listing recipe", studio.text)
         self.assertIn("Etsy Standard", studio.text)
 
         set_id = db.create_mockup_set(
@@ -195,6 +221,39 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(updated_items[0]["slot_key"], "collection")
         self.assertTrue(next(item for item in updated_items if item["slot_key"] == "room")["is_lead"])
 
+        response = self.client.post(
+            f"/mockup-studio/sets/{set_id}/items", follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        _, expanded_items = db.get_mockup_set(set_id)
+        self.assertEqual(len(expanded_items), 9)
+        self.assertEqual(expanded_items[-1]["label"], "Additional image 1")
+
+    def test_marketplace_set_automatically_matches_room_scenes(self):
+        with db.get_connection() as connection:
+            connection.executemany(
+                """INSERT INTO mockup_scenes
+                   (name, room_type, orientation, image_path)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    ("Living Room 01", "Living room", "horizontal", "living.jpg"),
+                    ("Bedroom 01", "Bedroom", "horizontal", "bedroom.jpg"),
+                    ("Office 01", "Office", "horizontal", "office.jpg"),
+                    ("Office Vertical", "Office", "vertical", "office-v.jpg"),
+                ],
+            )
+            connection.commit()
+
+        mockup_set = _mockup_sets_for_artwork("horizontal")[0]
+        by_slot = {item["slot_key"]: item for item in mockup_set["items"]}
+        self.assertEqual(by_slot["room"]["selected_scene_name"], "Living Room 01")
+        self.assertEqual(by_slot["bedroom"]["selected_scene_name"], "Bedroom 01")
+        self.assertEqual(by_slot["office"]["selected_scene_name"], "Office 01")
+        self.assertNotIn(
+            "Office Vertical",
+            [scene["name"] for scene in by_slot["office"]["scene_candidates"]],
+        )
+
     def test_mockup_set_approval_is_invalidated_by_source_change(self):
         set_id = db.list_mockup_sets()[0]["id"]
         db.record_artwork_mockup_set_generated("CEL-001", set_id)
@@ -204,6 +263,32 @@ class DashboardTests(unittest.TestCase):
         db.invalidate_artwork_after_source_change("CEL-001")
 
         self.assertIsNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
+
+    def test_scene_background_change_invalidates_generated_approval(self):
+        with db.get_connection() as connection:
+            scene_id = connection.execute(
+                """INSERT INTO mockup_scenes
+                   (name, room_type, orientation, image_path)
+                   VALUES ('Office 01', 'Office', 'horizontal', 'old.jpg')"""
+            ).lastrowid
+            artwork_id = connection.execute(
+                "SELECT id FROM artworks WHERE artwork_code='CEL-001'"
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO artwork_mockup_templates
+                   (artwork_id, slot_key, template_key) VALUES (?, 'office', ?)""",
+                (artwork_id, f"scene:{scene_id}"),
+            )
+            connection.commit()
+        set_id = db.list_mockup_sets()[0]["id"]
+        db.record_artwork_mockup_set_generated("CEL-001", set_id)
+        db.approve_artwork_mockup_set("CEL-001", set_id)
+        db.set_artwork_production_flags("CEL-001", mockups_ready=True)
+
+        db.update_mockup_scene_background(scene_id, image_path="new.jpg")
+
+        self.assertIsNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
+        self.assertFalse(db.get_artwork_production("CEL-001")["mockups_ready"])
 
     def test_mockup_set_requires_crop_review_before_approval(self):
         set_id = db.list_mockup_sets()[0]["id"]
@@ -216,15 +301,26 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIsNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
 
-        with patch(
-            "web.app._artwork_context",
-            return_value={"production_summary": {"missing_mockups": []}},
-        ):
-            response = self.client.post(
-                f"/artworks/CEL-001/mockups/sets/{set_id}/approve",
-                data={"crop_reviewed": "true"},
-                follow_redirects=False,
+        with db.get_connection() as connection:
+            artwork_id = connection.execute(
+                "SELECT id FROM artworks WHERE artwork_code='CEL-001'"
+            ).fetchone()["id"]
+            connection.executemany(
+                """INSERT INTO artwork_files
+                   (artwork_id, role, relative_path, stored_filename, original_filename)
+                   VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (artwork_id, f"mockup:{slot}", f"{slot}.jpg", f"{slot}.jpg", f"{slot}.jpg")
+                    for slot in db.MOCKUP_SET_SLOTS
+                ],
             )
+            connection.commit()
+
+        response = self.client.post(
+            f"/artworks/CEL-001/mockups/sets/{set_id}/approve",
+            data={"crop_reviewed": "true"},
+            follow_redirects=False,
+        )
 
         self.assertEqual(response.status_code, 303)
         self.assertIsNotNone(db.get_artwork_mockup_set_state("CEL-001")["approved_at"])
@@ -244,7 +340,10 @@ class DashboardTests(unittest.TestCase):
             connection.commit()
 
         default_response = self.client.get("/collections")
-        self.assertIn('<option value="CEL" selected>', default_response.text)
+        self.assertIn(
+            'class="collection-selector-card is-selected" href="/collections?collection=CEL"',
+            default_response.text,
+        )
         self.assertIn("Celebration artwork", default_response.text)
         self.assertNotIn("Your latest active artwork across all collections", default_response.text)
         self.assertIn('data-bs-target="#new-collection-modal"', default_response.text)
@@ -252,8 +351,11 @@ class DashboardTests(unittest.TestCase):
 
         response = self.client.get("/collections?collection=CEL")
         self.assertEqual(response.status_code, 200)
-        self.assertIn('<option value="CEL" selected>', response.text)
-        self.assertIn('id="collection-select"', response.text)
+        self.assertIn(
+            'class="collection-selector-card is-selected" href="/collections?collection=CEL"',
+            response.text,
+        )
+        self.assertIn('aria-label="Collection selector"', response.text)
         self.assertIn("Celebration artwork", response.text)
         self.assertIn(
             'class="collection-heading-link" href="/collections/CEL"',
@@ -401,6 +503,27 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("locked to vertical", response.json()["detail"])
+
+    def test_print_step_does_not_show_later_step_confirmations(self):
+        db.set_artwork_production_flags(
+            "CEL-001", original_approved=True,
+            mockups_ready=True, listing_content_ready=True,
+        )
+        page = self.client.get("/artworks/CEL-001?step=print")
+        self.assertNotIn('name="mockups_ready"', page.text)
+        self.assertNotIn('name="listing_content_ready"', page.text)
+        self.assertNotIn('name="original_approved"', page.text)
+
+        response = self.client.post(
+            "/artworks/CEL-001/production",
+            data={"orientation": "horizontal", "production_notes": "Print notes"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        production = db.get_artwork_production("CEL-001")
+        self.assertTrue(production["original_approved"])
+        self.assertTrue(production["mockups_ready"])
+        self.assertTrue(production["listing_content_ready"])
 
     def test_collection_and_artwork_pages_show_guided_workflow(self):
         collection_page = self.client.get("/collections/CEL")
@@ -563,42 +686,84 @@ class DashboardTests(unittest.TestCase):
         ]
         self.assertIn("Out of date", stale_workflow)
 
-    def test_collection_prompt_is_versioned_and_applied_explicitly(self):
-        db.update_collection(
-            "CEL", "Celebration", 8, "active",
-            etsy_section_name="Celebration",
-            creative_direction="Shared joyful movement and warm color.",
-            negative_prompt="No text or logos.",
-        )
-        intelligence = db.get_artwork_intelligence("CEL-001")
-        saved_version = intelligence["collection_prompt_version"]
-        self.assertEqual(
-            intelligence["collection_prompt_snapshot"],
-            "Shared joyful movement and warm color.",
-        )
-
-        db.update_collection(
-            "CEL", "Celebration", 8, "active",
-            etsy_section_name="Celebration",
-            creative_direction="Updated collection direction.",
-            negative_prompt="No text, logos, or borders.",
-        )
-        unchanged = db.get_artwork_intelligence("CEL-001")
-        self.assertEqual(unchanged["collection_prompt_version"], saved_version)
-        page = self.client.get("/artworks/CEL-001?step=details")
-        self.assertIn("The collection direction has changed", page.text)
-
+    def test_collection_and_artwork_prompts_build_the_final_prompt(self):
         response = self.client.post(
-            "/artworks/CEL-001/intelligence/apply-collection-prompt",
+            "/collections/CEL/edit",
+            data={
+                "name": "Celebration",
+                "description": "A collection about shared joy.",
+                "prompt": "Joyful movement in teal and warm gold.",
+                "target_artwork_count": "8",
+                "etsy_section_name": "Celebration",
+                "collection_status": "active",
+            },
             follow_redirects=False,
         )
         self.assertEqual(response.status_code, 303)
-        refreshed = db.get_artwork_intelligence("CEL-001")
-        self.assertEqual(
-            refreshed["collection_prompt_snapshot"],
-            "Updated collection direction.",
+
+        response = self.client.post(
+            "/artworks/CEL-001",
+            data={
+                "public_title": "Unbound",
+                "description": "A gathering in motion.",
+                "prompt": "Four dancers moving through an open arch.",
+                "status": "approved",
+            },
+            follow_redirects=False,
         )
-        self.assertGreater(refreshed["collection_prompt_version"], saved_version)
+        self.assertEqual(response.status_code, 303)
+
+        collection, _, _ = db.get_collection("CEL")
+        artwork = db.get_artwork("CEL-001")
+        self.assertEqual(collection["description"], "A collection about shared joy.")
+        self.assertEqual(
+            collection["prompt"], "Joyful movement in teal and warm gold."
+        )
+        self.assertEqual(artwork["story"], "A gathering in motion.")
+        self.assertEqual(
+            artwork["prompt"], "Four dancers moving through an open arch."
+        )
+
+        artwork_page = self.client.get("/artworks/CEL-001?step=details")
+        self.assertIn("Collection Prompt + Artwork Prompt", artwork_page.text)
+        self.assertIn(
+            "Joyful movement in teal and warm gold.\n\n"
+            "Four dancers moving through an open arch.",
+            artwork_page.text,
+        )
+        self.assertNotIn("Collection v", artwork_page.text)
+        self.assertNotIn("Scene Prompt", artwork_page.text)
+
+    def test_empty_collection_code_can_change_but_used_code_is_locked(self):
+        with db.get_connection() as connection:
+            brand_id = connection.execute(
+                "SELECT id FROM brands WHERE code='SHG'"
+            ).fetchone()["id"]
+            connection.execute(
+                """
+                INSERT INTO collections (
+                    brand_id, code, name, collection_type, vertical, status
+                ) VALUES (?, 'DEN', 'Dental', 'standard', 'general', 'planned')
+                """,
+                (brand_id,),
+            )
+            connection.commit()
+
+        updated_code = db.update_collection(
+            "DEN", "Duende", 8, "planned",
+            etsy_section_name="Duende", new_code="DUE",
+        )
+        self.assertEqual(updated_code, "DUE")
+        collection, _, _ = db.get_collection("DUE")
+        self.assertEqual(collection["name"], "Duende")
+
+        with self.assertRaisesRegex(
+            ValueError, "cannot change after artwork has been created"
+        ):
+            db.update_collection(
+                "CEL", "Celebration", 8, "active",
+                etsy_section_name="Celebration", new_code="NEW",
+            )
 
     def test_collection_order_is_saved_and_used_by_dashboard(self):
         with db.get_connection() as connection:

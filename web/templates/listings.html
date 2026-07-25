@@ -48,9 +48,29 @@
 
 <div class="listing-card-grid">
 {% if listings %}
-{% set grouping = namespace(collection='') %}
-{% for item in listings %}
-{% if item['collection_code'] != grouping.collection %}{% set grouping.collection = item['collection_code'] %}<div class="listing-collection-divider"><span>{{ item['collection_code'] }}</span><strong>{{ item['collection_name'] }}</strong></div>{% endif %}
+{% for collection_group in listings|groupby('collection_code') %}
+{% set collection_items = collection_group.list %}
+{% set collection_summary = namespace(live=0, ready=0, attention=0) %}
+{% for summary_item in collection_items %}
+  {% if summary_item['status'] == 'published' %}{% set collection_summary.live = collection_summary.live + 1 %}{% endif %}
+  {% if summary_item['readiness']['ready'] and summary_item['status'] != 'published' %}{% set collection_summary.ready = collection_summary.ready + 1 %}{% endif %}
+  {% if not summary_item['readiness']['ready'] %}{% set collection_summary.attention = collection_summary.attention + 1 %}{% endif %}
+{% endfor %}
+<details class="listing-collection-fold"{% if active_collection == collection_group.grouper or collections|length == 1 %} open{% endif %}>
+  <summary class="listing-collection-fold-summary">
+    <span class="listing-collection-fold-identity">
+      <span class="collection-code-chip">{{ collection_group.grouper }}</span>
+      <span><strong>{{ collection_items[0]['collection_name'] }}</strong><small>{{ collection_items|length }} listing{% if collection_items|length != 1 %}s{% endif %}</small></span>
+    </span>
+    <span class="listing-collection-fold-counts">
+      {% if collection_summary.live %}<span class="collection-count is-live">{{ collection_summary.live }} live</span>{% endif %}
+      {% if collection_summary.ready %}<span class="collection-count is-ready">{{ collection_summary.ready }} ready</span>{% endif %}
+      {% if collection_summary.attention %}<span class="collection-count is-attention">{{ collection_summary.attention }} need attention</span>{% endif %}
+      <span class="listing-collection-fold-toggle" aria-hidden="true">⌄</span>
+    </span>
+  </summary>
+  <div class="listing-collection-fold-content">
+{% for item in collection_items %}
 <article class="listing-summary-card">
   <div class="listing-summary-main">
     <a class="listing-summary-thumb" href="/artworks/{{ item['artwork_code'] }}" aria-label="Open {{ item['public_title'] }} artwork">
@@ -95,6 +115,9 @@
     </form>
   </div>
 </article>
+{% endfor %}
+</div>
+</details>
 {% endfor %}
 {% else %}
 <div class="card border-0 shadow-sm p-4 text-muted">

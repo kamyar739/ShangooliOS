@@ -9,20 +9,18 @@
       <div><div class="eyebrow">Catalog</div><h1 class="display-6 fw-bold">Collections</h1><p class="text-muted mb-0">Organize artwork into focused storefront collections.</p></div>
       <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-collection-modal">+ New collection</button>
     </div>
+    {% if request.query_params.get('etsy_collection_paused') is not none %}<div class="alert alert-success">{{ request.query_params.get('etsy_collection_paused') }} Etsy listing{% if request.query_params.get('etsy_collection_paused') != '1' %}s{% endif %} paused. The ShangooliOS and Printify records were preserved.</div>{% endif %}
+    {% if request.query_params.get('etsy_collection_reactivated') is not none %}<div class="alert alert-success">{{ request.query_params.get('etsy_collection_reactivated') }} Etsy listing{% if request.query_params.get('etsy_collection_reactivated') != '1' %}s{% endif %} reactivated.</div>{% endif %}
+    {% if request.query_params.get('etsy_collection_error') %}<div class="alert alert-warning"><strong>Some listings need attention.</strong> Completed listings remain saved. {{ request.query_params.get('etsy_collection_error') }}</div>{% endif %}
     {% if selected_collection %}
     <section class="collection-switcher-shell mb-4" aria-label="Collection selector">
-      <form class="collection-select-form" method="get" action="/collections">
-        <label for="collection-select">Collection</label>
-        <select class="form-select" id="collection-select" name="collection" onchange="this.form.submit()">
-          {% for collection in collections %}
-          <option value="{{ collection['code'] }}" {% if selected_collection['code'] == collection['code'] %}selected{% endif %}>{{ collection['code'] }} — {{ collection['name'] }}</option>
-          {% endfor %}
-        </select>
-      </form>
-      <div class="collection-switcher-meta" aria-label="Selected collection summary">
-        <span class="collection-meta-item"><strong>{{ selected_collection['artwork_count'] or 0 }}</strong> artwork{% if selected_collection['artwork_count'] != 1 %}s{% endif %}</span>
-        <span class="collection-meta-item"><strong>{{ selected_collection['target_artwork_count'] or 0 }}</strong> target</span>
-        <span class="status-pill collection-status-{{ selected_collection['display_status_class'] }}">{% if selected_collection['live_etsy_count'] %}{{ selected_collection['live_etsy_count'] }} live on Etsy{% else %}{{ selected_collection['display_status'] }}{% endif %}</span>
+      <div class="collection-selector-gallery">
+        {% for collection in collections %}
+        <a class="collection-selector-card {% if selected_collection['code'] == collection['code'] %}is-selected{% endif %}" href="/collections?collection={{ collection['code'] }}">
+          <span class="collection-selector-cover">{% if collection['representative_artwork_code'] %}<img src="/artworks/{{ collection['representative_artwork_code'] }}/files/view?role=source" alt="">{% else %}<span>{{ collection['code'] }}</span>{% endif %}</span>
+          <span><strong>{{ collection['name'] }}</strong><small>{{ collection['artwork_count'] or 0 }} / {{ collection['target_artwork_count'] or 0 }} artworks · {{ collection['display_status'] }}</small></span>
+        </a>
+        {% endfor %}
       </div>
       <div class="collection-switcher-actions">
         <button class="btn btn-sm btn-outline-secondary collection-order-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#collection-order-panel" aria-expanded="false" aria-controls="collection-order-panel">Manage order</button>
@@ -45,6 +43,16 @@
         <div><div class="eyebrow">Selected collection · {{ selected_collection['code'] }}</div><h2 class="h4 mb-1" id="collection-gallery-title">{{ selected_collection['name'] }}</h2></div>
         <div class="collection-gallery-controls"><button type="button" data-gallery-previous aria-label="Previous artwork">←</button><button type="button" data-gallery-next aria-label="Next artwork">→</button></div>
       </div>
+      <details class="collection-cover-panel">
+        <summary><span>Collection identity</span><small>{% if selected_collection['cover_approved'] %}Approved cover{% elif selected_collection['cover_image_path'] %}Cover needs approval{% else %}Add signature cover{% endif %}</small></summary>
+        <div class="collection-cover-content">
+        <div class="collection-cover-preview">{% if selected_collection['cover_image_path'] %}<img src="/collections/{{ selected_collection['code'] }}/cover" alt="{{ selected_collection['name'] }} signature cover">{% else %}<span>Signature cover image</span>{% endif %}</div>
+        <div><p class="small text-muted mb-2">A dedicated cover for Etsy banners, social posts, and collection marketing—not a numbered artwork.</p>
+          <form method="post" action="/collections/{{ selected_collection['code'] }}/cover" enctype="multipart/form-data" class="d-flex gap-2"><input class="form-control form-control-sm" type="file" name="upload" accept="image/*" required><button class="btn btn-sm btn-outline-primary" type="submit">Upload cover</button></form>
+          {% if selected_collection['cover_image_path'] and not selected_collection['cover_approved'] %}<form method="post" action="/collections/{{ selected_collection['code'] }}/cover/approve" class="mt-2"><button class="btn btn-sm btn-primary" type="submit">Approve cover</button></form>{% elif selected_collection['cover_approved'] %}<span class="status-pill status-approved mt-2">Approved cover</span>{% endif %}
+        </div>
+        </div>
+      </details>
       <div class="collection-gallery-track" data-collection-gallery tabindex="0">
         {% for artwork in collection_artworks %}
         <a class="collection-gallery-slide" href="/artworks/{{ artwork['artwork_code'] }}">
@@ -61,6 +69,12 @@
       <div class="d-flex gap-2 flex-wrap">
         {% if retired_artworks %}
         <a class="btn btn-sm {% if show_retired %}btn-secondary{% else %}btn-outline-secondary{% endif %}" href="/collections?collection={{ selected_collection['code'] }}{% if not show_retired %}&show_retired=true{% endif %}">{% if show_retired %}Hide{% else %}Show{% endif %} retired ({{ retired_artworks|length }})</a>
+        {% endif %}
+        {% if selected_collection['etsy_live_listing_count'] %}
+        <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="modal" data-bs-target="#pause-collection-etsy-modal">Pause collection on Etsy</button>
+        {% endif %}
+        {% if selected_collection['etsy_paused_listing_count'] %}
+        <button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="modal" data-bs-target="#reactivate-collection-etsy-modal">Reactivate on Etsy</button>
         {% endif %}
         <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#edit-collection-modal">Edit collection</button>
         {% if selected_collection['status'] != 'archived' %}<button class="btn btn-sm btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-artwork-modal">+ New artwork</button>{% endif %}
@@ -108,9 +122,9 @@
     <div class="modal-header"><div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="modal-title h4" id="new-artwork-title">New artwork</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <form method="post" action="/collections/{{ selected_collection['code'] }}/new">
       <div class="modal-body"><div class="row g-3">
-        <div class="col-12"><label class="form-label" for="modal-public-title">Public title</label><input class="form-control" id="modal-public-title" name="public_title" required></div>
-        <div class="col-12"><label class="form-label" for="modal-working-title">Working title</label><input class="form-control" id="modal-working-title" name="working_title"></div>
-        <div class="col-12"><label class="form-label" for="modal-artwork-theme">Theme</label><input class="form-control" id="modal-artwork-theme" name="theme"></div>
+        <div class="col-12"><label class="form-label" for="modal-public-title">Title</label><input class="form-control" id="modal-public-title" name="public_title" required></div>
+        <div class="col-12"><label class="form-label" for="modal-artwork-description">Description</label><textarea class="form-control" id="modal-artwork-description" name="description" rows="3"></textarea></div>
+        <div class="col-12"><label class="form-label" for="modal-artwork-prompt">Prompt</label><textarea class="form-control" id="modal-artwork-prompt" name="prompt" rows="5"></textarea></div>
       </div></div>
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Create artwork</button></div>
     </form>
@@ -121,17 +135,48 @@
     <div class="modal-header"><div><div class="eyebrow">{{ selected_collection['code'] }}</div><h2 class="modal-title h4" id="edit-collection-title">Edit collection</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <form method="post" action="/collections/{{ selected_collection['code'] }}/edit">
       <div class="modal-body"><div class="row g-3">
+        <div class="col-12"><label class="form-label" for="modal-edit-code">Collection code</label><input class="form-control" id="modal-edit-code" name="code" maxlength="10" value="{{ selected_collection['code'] }}" {% if selected_collection['artwork_count'] %}readonly{% endif %}><div class="form-text">{% if selected_collection['artwork_count'] %}Locked because this collection contains artwork.{% else %}Used as the prefix for new artwork filenames.{% endif %}</div></div>
         <div class="col-12"><label class="form-label" for="modal-edit-name">Collection name</label><input class="form-control" id="modal-edit-name" name="name" value="{{ selected_collection['name'] }}" required></div>
+        <div class="col-12"><label class="form-label" for="modal-edit-description">Description</label><textarea class="form-control" id="modal-edit-description" name="description" rows="3">{{ selected_collection['description'] or '' }}</textarea></div>
+        <div class="col-12"><label class="form-label" for="modal-edit-prompt">Prompt</label><textarea class="form-control" id="modal-edit-prompt" name="prompt" rows="5">{{ selected_collection['prompt'] or '' }}</textarea></div>
         <div class="col-5"><label class="form-label" for="modal-edit-target">Target artworks</label><input class="form-control" id="modal-edit-target" name="target_artwork_count" type="number" min="0" value="{{ selected_collection['target_artwork_count'] or 0 }}"></div>
         <div class="col-7"><label class="form-label" for="modal-edit-status">Status</label><select class="form-select" id="modal-edit-status" name="collection_status">{% for option in ['planned', 'active', 'complete', 'paused'] %}<option value="{{ option }}" {% if selected_collection['status'] == option %}selected{% endif %}>{{ option|title }}</option>{% endfor %}</select></div>
         <div class="col-12"><label class="form-label" for="modal-edit-etsy">Etsy section name</label><input class="form-control" id="modal-edit-etsy" name="etsy_section_name" maxlength="24" value="{{ selected_collection['etsy_section_name'] or '' }}" required></div>
-        <div class="col-12"><label class="form-label" for="modal-edit-direction">Collection creative direction</label><textarea class="form-control" id="modal-edit-direction" name="creative_direction" rows="4" placeholder="Shared visual language, palette, mood, composition, subjects, and texture.">{{ selected_collection['creative_direction'] or '' }}</textarea><div class="form-text">Foundation inherited by artwork prompts. Existing artwork keeps its saved version until you apply the latest.</div></div>
-        <div class="col-12"><label class="form-label" for="modal-edit-exclusions">Collection exclusions</label><textarea class="form-control" id="modal-edit-exclusions" name="collection_negative_prompt" rows="2" placeholder="Shared elements or artifacts to avoid.">{{ selected_collection['negative_prompt'] or '' }}</textarea></div>
       </div></div>
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Save collection</button></div>
     </form>
   </div></div>
 </div>
+{% if selected_collection['etsy_live_listing_count'] %}
+<div class="modal fade" id="pause-collection-etsy-modal" tabindex="-1" aria-labelledby="pause-collection-etsy-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content collection-create-modal">
+    <div class="modal-header"><div><div class="eyebrow">Etsy storefront</div><h2 class="modal-title h4" id="pause-collection-etsy-title">Pause {{ selected_collection['name'] }}</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <form method="post" action="/collections/{{ selected_collection['code'] }}/etsy/pause" data-long-operation>
+      <div class="modal-body">
+        <p>This will make <strong>{{ selected_collection['etsy_live_listing_count'] }} live listing{% if selected_collection['etsy_live_listing_count'] != 1 %}s{% endif %}</strong> unavailable on Etsy.</p>
+        <div class="alert alert-light border">ShangooliOS artwork, Printify products, prices, variants, and listing history will be preserved.</div>
+        <label class="form-check"><input class="form-check-input" type="checkbox" name="confirmed" value="true" required><span class="form-check-label">I want to pause every live Etsy listing in this collection.</span></label>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-warning" type="submit">Pause collection on Etsy</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% if selected_collection['etsy_paused_listing_count'] %}
+<div class="modal fade" id="reactivate-collection-etsy-modal" tabindex="-1" aria-labelledby="reactivate-collection-etsy-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content collection-create-modal">
+    <div class="modal-header"><div><div class="eyebrow">Etsy storefront</div><h2 class="modal-title h4" id="reactivate-collection-etsy-title">Reactivate {{ selected_collection['name'] }}</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <form method="post" action="/collections/{{ selected_collection['code'] }}/etsy/reactivate" data-long-operation>
+      <div class="modal-body">
+        <p>This will reactivate <strong>{{ selected_collection['etsy_paused_listing_count'] }} paused listing{% if selected_collection['etsy_paused_listing_count'] != 1 %}s{% endif %}</strong> on Etsy.</p>
+        <div class="alert alert-warning">Etsy may charge its normal renewal fee for listings that expired while inactive.</div>
+        <label class="form-check"><input class="form-check-input" type="checkbox" name="confirmed" value="true" required><span class="form-check-label">I want to reactivate every paused Etsy listing in this collection.</span></label>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" type="submit">Reactivate collection</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
 {% endif %}
 <div class="modal fade" id="new-collection-modal" tabindex="-1" aria-labelledby="new-collection-title" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -145,11 +190,11 @@
           <div class="row g-3">
             <div class="col-4"><label class="form-label" for="modal-collection-code">Code</label><input class="form-control" id="modal-collection-code" name="code" maxlength="10" placeholder="LAN" required></div>
             <div class="col-8"><label class="form-label" for="modal-collection-name">Collection name</label><input class="form-control" id="modal-collection-name" name="name" placeholder="Landscape Collection" required></div>
+            <div class="col-12"><label class="form-label" for="modal-collection-description">Description</label><textarea class="form-control" id="modal-collection-description" name="description" rows="3"></textarea></div>
+            <div class="col-12"><label class="form-label" for="modal-collection-prompt">Prompt</label><textarea class="form-control" id="modal-collection-prompt" name="prompt" rows="5"></textarea></div>
             <div class="col-5"><label class="form-label" for="modal-target-count">Target artworks</label><input class="form-control" id="modal-target-count" name="target_artwork_count" type="number" min="0" value="0"></div>
             <div class="col-7"><label class="form-label" for="modal-collection-status">Status</label><select class="form-select" id="modal-collection-status" name="collection_status"><option value="planned" selected>Planned</option><option value="active">Active</option><option value="complete">Complete</option><option value="paused">Paused</option></select></div>
             <div class="col-12"><label class="form-label" for="modal-etsy-section">Etsy section name</label><input class="form-control" id="modal-etsy-section" name="etsy_section_name" maxlength="24" placeholder="Uses collection name when blank"><div class="form-text">Buyer-facing Etsy navigation, limited to 24 characters.</div></div>
-            <div class="col-12"><label class="form-label" for="modal-collection-direction">Collection creative direction</label><textarea class="form-control" id="modal-collection-direction" name="creative_direction" rows="4" placeholder="Shared visual language, palette, mood, composition, subjects, and texture."></textarea></div>
-            <div class="col-12"><label class="form-label" for="modal-collection-exclusions">Collection exclusions</label><textarea class="form-control" id="modal-collection-exclusions" name="collection_negative_prompt" rows="2" placeholder="Shared elements or artifacts to avoid."></textarea></div>
           </div>
         </div>
         <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary">Create collection</button></div>

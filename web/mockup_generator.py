@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
@@ -25,6 +26,19 @@ def _font(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
         except OSError:
             continue
     return ImageFont.load_default()
+
+
+def _serif_font(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
+    candidates = (
+        "/System/Library/Fonts/Supplemental/Georgia Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Georgia.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    )
+    for candidate in candidates:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except OSError:
+            continue
+    return _font(size, bold=bold)
 
 
 def _load_artwork(source_path: Path) -> Image.Image:
@@ -52,66 +66,82 @@ def _save(canvas: Image.Image, destination: Path) -> None:
     canvas.convert("RGB").save(destination, "JPEG", quality=94, optimize=True, progressive=True)
 
 
-def _hero(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
+def _hero(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK,
+          *, collection_name: str = "") -> Image.Image:
     profile = get_template_pack(template_key)
     canvas = Image.new("RGB", CANVAS_SIZE, profile["mat"])
     draw = ImageDraw.Draw(canvas)
 
-    draw.ellipse((180, 1450, 1820, 1770), fill="#ded8cf")
+    # A quiet, gallery-like background keeps the artwork dominant while still
+    # feeling more intentional than a flat product export.
+    top = (249, 247, 242) if profile["key"] == "modern_minimal" else (248, 240, 230)
+    bottom = (232, 227, 218) if profile["key"] == "modern_minimal" else (232, 215, 198)
+    for y in range(CANVAS_SIZE[1]):
+        blend = y / (CANVAS_SIZE[1] - 1)
+        color = tuple(round(a + (b - a) * blend) for a, b in zip(top, bottom))
+        draw.line((0, y, CANVAS_SIZE[0], y), fill=color)
+    draw.rectangle((120, 118, 1880, 1882), outline=(255, 255, 255), width=2)
+    draw.line((240, 185, 1760, 185), fill=profile["accent"], width=4)
 
-    max_art = (1370, 1180)
+    # The artwork is sized and positioned inside the central 4:3 safe crop so
+    # Etsy can crop the square without cutting into the piece.
+    max_art = (1560, 1200)
     art = _fit(artwork, max_art)
-    frame_padding = 44
-    frame_w = art.width + frame_padding * 2
-    frame_h = art.height + frame_padding * 2
-    frame_x = (CANVAS_SIZE[0] - frame_w) // 2
-    frame_y = 220 + (1180 - art.height) // 2
+    art_x = (CANVAS_SIZE[0] - art.width) // 2
+    frame_y = 265 + (1160 - art.height) // 2
 
     shadow = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow)
-    shadow_draw.rounded_rectangle(
-        (frame_x + 30, frame_y + 34, frame_x + frame_w + 30, frame_y + frame_h + 34),
-        radius=14,
-        fill=(0, 0, 0, 82),
+    shadow_draw.rectangle(
+        (art_x + 24, frame_y + 30, art_x + art.width + 24, frame_y + art.height + 30),
+        fill=(42, 35, 29, 68),
     )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(28))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(32))
     canvas = Image.alpha_composite(canvas.convert("RGBA"), shadow).convert("RGB")
     draw = ImageDraw.Draw(canvas)
 
-    draw.rounded_rectangle(
-        (frame_x, frame_y, frame_x + frame_w, frame_y + frame_h),
-        radius=10,
-        fill=profile["frame"],
-    )
-    mat = 22
+    canvas.paste(art, (art_x, frame_y))
     draw.rectangle(
-        (frame_x + mat, frame_y + mat, frame_x + frame_w - mat, frame_y + frame_h - mat),
-        fill=profile["mat"],
+        (art_x - 1, frame_y - 1, art_x + art.width, frame_y + art.height),
+        outline=(74, 69, 63),
+        width=2,
     )
-    art_x = frame_x + frame_padding
-    art_y = frame_y + frame_padding
-    canvas.paste(art, (art_x, art_y))
 
-    title_font = _font(66, bold=True)
-    shop_font = _font(34)
+    title_font = _font(48, bold=True)
+    shop_font = _font(25)
     safe_title = title.strip() or "ShangooliShop Artwork"
     title_box = draw.textbbox((0, 0), safe_title, font=title_font)
     title_width = title_box[2] - title_box[0]
-    if title_width > 1680:
-        title_font = _font(48, bold=True)
+    if title_width > 1480:
+        title_font = _font(38, bold=True)
         title_box = draw.textbbox((0, 0), safe_title, font=title_font)
         title_width = title_box[2] - title_box[0]
-    draw.text(((2000 - title_width) / 2, 1640), safe_title, fill="#292724", font=title_font)
-    shop_text = "ShangooliShop • Fine Art Print"
+    title_y = min(1580, frame_y + art.height + 92)
+    draw.text(((2000 - title_width) / 2, title_y), safe_title, fill=profile["text"], font=title_font)
+    shop_text = "SHANGOOLI SHOP  ·  FINE ART PRINT"
     shop_box = draw.textbbox((0, 0), shop_text, font=shop_font)
-    draw.text(((2000 - (shop_box[2] - shop_box[0])) / 2, 1740), shop_text, fill="#6f6a63", font=shop_font)
+    draw.text(
+        ((2000 - (shop_box[2] - shop_box[0])) / 2, title_y + 76),
+        shop_text,
+        fill="#716b63",
+        font=shop_font,
+    )
+    if collection_name:
+        collection_text = f"PART OF {collection_name.upper()}"
+        collection_box = draw.textbbox((0, 0), collection_text, font=_font(22, bold=True))
+        draw.text(
+            ((2000 - (collection_box[2] - collection_box[0])) / 2, title_y + 122),
+            collection_text, fill="#8c8278", font=_font(22, bold=True),
+        )
     return canvas
 
 
 def _detail(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
     canvas = Image.new("RGB", CANVAS_SIZE, "#f7f5f1")
-    detail = _cover(artwork, (1740, 1440))
-    canvas.paste(detail, (130, 120))
+    detail = _fit(artwork, (1740, 1440))
+    detail_x = (2000 - detail.width) // 2
+    detail_y = 120 + (1440 - detail.height) // 2
+    canvas.paste(detail, (detail_x, detail_y))
 
     overlay = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
     overlay_draw = ImageDraw.Draw(overlay)
@@ -307,30 +337,74 @@ def _how_it_works(artwork: Image.Image, title: str, template_key: str = DEFAULT_
     draw.text((120, 1860), "SHANGOOLISHOP", fill="#282522", font=_font(38, bold=True))
     return canvas
 
-def _collection(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK) -> Image.Image:
-    profile = get_template_pack(template_key)
-    canvas = Image.new("RGB", CANVAS_SIZE, profile["text"])
+def _collection(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLATE_PACK,
+                *, collection_name: str = "", collection_description: str = "",
+                collection_thumbnails: list[Path] | None = None,
+                collection_thumbnail_titles: list[str] | None = None) -> Image.Image:
+    canvas = Image.new("RGB", CANVAS_SIZE, "#f6eee6")
     draw = ImageDraw.Draw(canvas)
-    # Decorative celebration arcs
-    draw.arc((80, 90, 850, 860), 195, 350, fill=profile["accent"], width=34)
-    draw.arc((1200, 1180, 2050, 2030), 15, 170, fill=profile["accent"], width=38)
-    art = _fit(artwork, (1180, 1050))
-    frame_x = 410
-    frame_y = 180
-    frame_w = 1180
-    frame_h = 1100
-    draw.rectangle((frame_x, frame_y, frame_x + frame_w, frame_y + frame_h), fill="#f6f1e8")
-    art_x = frame_x + (frame_w - art.width) // 2
-    art_y = frame_y + (frame_h - art.height) // 2
-    canvas.paste(art, (art_x, art_y))
+    top = (250, 246, 239)
+    bottom = (232, 208, 190)
+    for y in range(CANVAS_SIZE[1]):
+        blend = y / (CANVAS_SIZE[1] - 1)
+        color = tuple(round(a + (b - a) * blend) for a, b in zip(top, bottom))
+        draw.line((0, y, CANVAS_SIZE[0], y), fill=color)
+    draw.ellipse((-1180, -900, 480, 760), outline="#b54f35", width=24)
+    draw.ellipse((1390, 1450, 2320, 2380), outline="#d18a4a", width=28)
 
-    draw.text((160, 1370), "THE CELEBRATION COLLECTION", fill="#d6a764", font=_font(40, bold=True))
-    display_title = (title.strip() or "Joyful Contemporary Art")[:46]
-    draw.text((160, 1450), display_title, fill="#fffaf2", font=_font(72, bold=True))
-    draw.text((160, 1570), "Art that brings movement, color, and joy into the room.", fill="#d8d0c7", font=_font(35))
-    draw.line((160, 1690, 1840, 1690), fill="#645d57", width=3)
-    draw.text((160, 1760), "SHANGOOLISHOP", fill="#fffaf2", font=_font(46, bold=True))
-    draw.text((160, 1835), "Original artwork • Professionally printed", fill="#aaa29a", font=_font(30))
+    thumbnails = []
+    titles = collection_thumbnail_titles or []
+    for index, path in enumerate(collection_thumbnails or []):
+        try:
+            thumbnails.append((
+                _load_artwork(Path(path)),
+                titles[index] if index < len(titles) else "",
+            ))
+        except ValueError:
+            continue
+
+    draw.text((120, 80), "A SHANGOOLISHOP SERIES", fill="#9e4937", font=_font(27, bold=True))
+    collection_label = (collection_name or "The Collection")[:46]
+    draw.text((120, 125), collection_label, fill="#281f1b", font=_serif_font(88, bold=True))
+    draw.text((125, 250), "SIX WORKS  ·  ONE EMOTIONAL JOURNEY", fill="#9e4937", font=_font(25, bold=True))
+    description = (collection_description or "Every collection tells a story.").strip()
+    description_lines = "\n".join(textwrap.wrap(description, width=105)[:4])
+    draw.multiline_text(
+        (120, 305), description_lines,
+        fill="#554a43", font=_font(27), spacing=7,
+    )
+
+    cell_width = 560
+    cell_height = 470
+    image_width = 520
+    image_height = 370
+    start_x = 120
+    start_y = 500
+    gap_x = 40
+    gap_y = 38
+    for index, (image, artwork_title) in enumerate(thumbnails[:6]):
+        row, column = divmod(index, 3)
+        x = start_x + column * (cell_width + gap_x)
+        y = start_y + row * (cell_height + gap_y)
+        draw.rounded_rectangle((x + 10, y + 12, x + cell_width + 10, y + cell_height + 12), radius=18, fill="#bda897")
+        tile = _cover(image, (cell_width, image_height)).filter(ImageFilter.GaussianBlur(16))
+        tile = Image.blend(tile, Image.new("RGB", tile.size, "#7b4a3d"), 0.22)
+        canvas.paste(tile, (x, y))
+        thumb = _fit(image, (image_width, image_height))
+        image_x = x + (cell_width - thumb.width) // 2
+        image_y = y + (image_height - thumb.height) // 2
+        canvas.paste(thumb, (image_x, image_y))
+        draw.rectangle((x, y + image_height, x + cell_width, y + cell_height), fill="#fffaf4")
+        draw.text((x + 18, y + 395), f"{index + 1:02d}", fill="#b6533a", font=_font(23, bold=True))
+        label = artwork_title.strip() or f"Artwork {index + 1}"
+        draw.text((x + 70, y + 390), label[:26], fill="#2d2521", font=_serif_font(31, bold=True))
+
+    draw.line((120, 1515, 1880, 1515), fill="#b98f76", width=3)
+    draw.text((120, 1590), "Every Collection Tells a Story.", fill="#281f1b", font=_serif_font(58, bold=True))
+    draw.text((120, 1700), "ORIGINAL ARTWORK  ·  PROFESSIONALLY PRINTED", fill="#554a43", font=_font(25, bold=True))
+    draw.rounded_rectangle((120, 1785, 740, 1875), radius=45, fill="#9e4937")
+    draw.text((165, 1812), "etsy.com/shop/ShangooliShop", fill="#fff9f2", font=_font(28, bold=True))
+    draw.text((1515, 1818), "SHANGOOLISHOP", fill="#9e4937", font=_font(27, bold=True))
     return canvas
 
 def _ratio_thumbnail(artwork: Image.Image, ratio: tuple[int, int], max_size: tuple[int, int]) -> Image.Image:
@@ -362,17 +436,28 @@ def _sizes(artwork: Image.Image, title: str, template_key: str = DEFAULT_TEMPLAT
         ratios = (("1:1", (1, 1)), ("Square", (1, 1)), ("Square", (1, 1)), ("Square", (1, 1)))
     else:
         ratios = (("3:2", (3, 2)), ("4:3", (4, 3)), ("5:4", (5, 4)), ("14:11", (14, 11)))
-    positions = ((120, 390), (1040, 390), (120, 1040), (1040, 1040))
+    positions = (
+        ((80, 430), (550, 430), (1020, 430), (1490, 430))
+        if orientation == "vertical"
+        else ((120, 390), (1040, 390), (120, 1040), (1040, 1040))
+    )
     for (label, ratio), (x, y) in zip(ratios, positions):
-        thumb = _ratio_thumbnail(artwork, ratio, (700, 470))
+        thumb = _ratio_thumbnail(
+            artwork, ratio, (300, 860) if orientation == "vertical" else (700, 470)
+        )
         frame_w, frame_h = thumb.width + 42, thumb.height + 42
-        frame_x = x + (760 - frame_w) // 2
+        cell_width = 390 if orientation == "vertical" else 760
+        frame_x = x + (cell_width - frame_w) // 2
         frame_y = y
         draw.rectangle((frame_x + 16, frame_y + 18, frame_x + frame_w + 16, frame_y + frame_h + 18), fill="#d8d4cd")
         draw.rectangle((frame_x, frame_y, frame_x + frame_w, frame_y + frame_h), fill="#302e2b")
         canvas.paste(thumb, (frame_x + 21, frame_y + 21))
         label_box = draw.textbbox((0, 0), label, font=_font(54, bold=True))
-        draw.text((x + (760 - (label_box[2] - label_box[0])) / 2, y + 520), label, fill="#272522", font=_font(54, bold=True))
+        draw.text(
+            (x + (cell_width - (label_box[2] - label_box[0])) / 2,
+             y + (930 if orientation == "vertical" else 520)),
+            label, fill="#272522", font=_font(54, bold=True),
+        )
 
     footer = (title.strip() or "ShangooliShop Artwork") + f" • {orientation.title()} ratio guide"
     draw.text((120, 1840), footer, fill="#77716a", font=_font(30))
@@ -400,7 +485,17 @@ def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path, t
     for slot_key in GENERATED_SLOTS:
         filename = f"{code}_listing_{slot_key}_{template_key}.jpg"
         destination = output_folder / filename
-        _save(builders[slot_key](source, title, template_key), destination)
+        kwargs = {}
+        if slot_key == "hero":
+            kwargs["collection_name"] = artwork.get("collection_name") or ""
+        elif slot_key == "collection":
+            kwargs = {
+                "collection_name": artwork.get("collection_name") or "",
+                "collection_description": artwork.get("collection_description") or "",
+                "collection_thumbnails": artwork.get("collection_thumbnail_paths") or [],
+                "collection_thumbnail_titles": artwork.get("collection_thumbnail_titles") or [],
+            }
+        _save(builders[slot_key](source, title, template_key, **kwargs), destination)
         results.append(
             {
                 "slot_key": slot_key,
@@ -413,7 +508,9 @@ def generate_mockups(*, artwork: dict, source_path: Path, output_folder: Path, t
     return results
 
 
-def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, output_folder: Path, template_key: str = DEFAULT_TEMPLATE_PACK) -> dict:
+def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path,
+                           output_folder: Path, template_key: str = DEFAULT_TEMPLATE_PACK,
+                           output_slot_key: str | None = None) -> dict:
     """Generate one listing image without replacing the other seven."""
     get_template_pack(template_key)
     if slot_key not in GENERATED_SLOTS:
@@ -431,12 +528,23 @@ def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, o
         "collection": _collection,
     }
     code = artwork["artwork_code"]
-    filename = f"{code}_listing_{slot_key}_{template_key}.jpg"
+    saved_slot = output_slot_key or slot_key
+    filename = f"{code}_listing_{saved_slot}_{template_key}.jpg"
     destination = output_folder / filename
-    _save(builders[slot_key](source, title, template_key), destination)
+    kwargs = {}
+    if slot_key == "hero":
+        kwargs["collection_name"] = artwork.get("collection_name") or ""
+    elif slot_key == "collection":
+        kwargs = {
+            "collection_name": artwork.get("collection_name") or "",
+            "collection_description": artwork.get("collection_description") or "",
+            "collection_thumbnails": artwork.get("collection_thumbnail_paths") or [],
+            "collection_thumbnail_titles": artwork.get("collection_thumbnail_titles") or [],
+        }
+    _save(builders[slot_key](source, title, template_key, **kwargs), destination)
     return {
-        "slot_key": slot_key,
-        "role": f"mockup:{slot_key}",
+        "slot_key": saved_slot,
+        "role": f"mockup:{saved_slot}",
         "path": destination,
         "stored_filename": filename,
         "original_filename": filename,
@@ -445,7 +553,7 @@ def generate_listing_image(*, slot_key: str, artwork: dict, source_path: Path, o
 
 def generate_scene_mockup(
     *, artwork: dict, source_path: Path, scene_path: Path, scene: dict,
-    output_folder: Path,
+    output_folder: Path, slot_key: str = "room",
 ) -> dict:
     """Composite approved artwork into a reusable room scene placement."""
     artwork_image = _load_artwork(source_path)
@@ -468,8 +576,12 @@ def generate_scene_mockup(
     mat = max(0, round(min(width, height) * float(scene.get("mat_width", 1.2)) / 100))
     surround = frame + mat
     art = _fit(artwork_image, (max(1, width - surround * 2), max(1, height - surround * 2)))
-    frame_width, frame_height = width, height
-    frame_left, frame_top = left, top
+    # The saved placement is the maximum wall area. Fit the actual frame inside
+    # it so every poster keeps its own proportions without a stretched or
+    # excessively matted frame.
+    frame_width, frame_height = art.width + surround * 2, art.height + surround * 2
+    frame_left = left + (width - frame_width) // 2
+    frame_top = top + (height - frame_height) // 2
     shadow = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow)
     shadow_draw.rectangle(
@@ -502,12 +614,12 @@ def generate_scene_mockup(
         character.lower() if character.isalnum() else "-"
         for character in scene["name"]
     ).strip("-") or "scene"
-    filename = f"{artwork['artwork_code']}_listing_room_{safe_scene_name}.jpg"
+    filename = f"{artwork['artwork_code']}_listing_{slot_key}_{safe_scene_name}.jpg"
     destination = output_folder / filename
     _save(canvas, destination)
     return {
-        "slot_key": "room",
-        "role": "mockup:room",
+        "slot_key": slot_key,
+        "role": f"mockup:{slot_key}",
         "path": destination,
         "stored_filename": filename,
         "original_filename": filename,

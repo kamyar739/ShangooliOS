@@ -12,7 +12,7 @@
         rel="stylesheet"
     >
     <link
-        href="{{ url_for('static', path='style.css') }}?v=20260721-mockup-studio-phase2-1"
+        href="{{ url_for('static', path='style.css') }}?v=20260724-listing-groups-1"
         rel="stylesheet"
     >
 </head>
@@ -53,6 +53,7 @@
       const overlay = document.querySelector('[data-app-wait]');
       const message = overlay && overlay.querySelector('[data-app-wait-message]');
       let timer;
+      let stageTimer;
       function revealWait(label) {
         if (message) message.textContent = label || 'Working…';
         overlay.hidden = false;
@@ -60,6 +61,7 @@
       }
       function hideWait() {
         clearTimeout(timer);
+        clearInterval(stageTimer);
         overlay.hidden = true;
         document.body.classList.remove('is-waiting');
       }
@@ -83,6 +85,16 @@
         if (event.target.matches('[data-long-operation]')) {
           event.preventDefault();
           showWait(label, true);
+          const stages = (event.target.dataset.waitStages || '').split('|').filter(Boolean);
+          if (stages.length) {
+            let stage = 0;
+            if (message) message.textContent = stages[stage] + '…';
+            clearInterval(stageTimer);
+            stageTimer = setInterval(() => {
+              stage = Math.min(stage + 1, stages.length - 1);
+              if (message) message.textContent = stages[stage] + '…';
+            }, 4500);
+          }
           if (submitter) submitter.disabled = true;
           fetch(event.target.action, {
             method: (event.target.method || 'POST').toUpperCase(),

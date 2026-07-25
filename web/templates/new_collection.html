@@ -33,6 +33,16 @@
                     </div>
 
                     <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea id="description" name="description" class="form-control" rows="4"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="prompt" class="form-label">Prompt</label>
+                        <textarea id="prompt" name="prompt" class="form-control" rows="7" placeholder="Shared prompt used for every artwork in this collection."></textarea>
+                    </div>
+
+                    <div class="mb-3">
                         <label for="target_artwork_count" class="form-label">
                             Target Artwork Count
                         </label>
@@ -46,16 +56,6 @@
                                class="form-control" maxlength="24"
                                placeholder="Example: Landscape Collection">
                         <div class="form-text">Buyer-facing Etsy navigation, limited to 24 characters. Leave blank to use the collection name.</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="creative_direction" class="form-label">Collection creative direction</label>
-                        <textarea id="creative_direction" name="creative_direction" class="form-control" rows="5" placeholder="Shared visual language, palette, mood, composition, subjects, and texture."></textarea>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="collection_negative_prompt" class="form-label">Collection exclusions</label>
-                        <textarea id="collection_negative_prompt" name="collection_negative_prompt" class="form-control" rows="3" placeholder="Shared elements or artifacts to avoid."></textarea>
                     </div>
 
                     <div class="mb-4">

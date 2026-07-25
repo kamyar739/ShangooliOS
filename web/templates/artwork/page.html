@@ -24,9 +24,13 @@
 </div>
 <script>
 (function () {
+  const prepareModal = document.getElementById('prepare-artwork-modal');
+  if (prepareModal && prepareModal.parentElement !== document.body) {
+    document.body.appendChild(prepareModal);
+  }
   const controller = document.querySelector('[data-workflow-controller]');
   if (!controller) return;
-  const stages = ['details', 'source', 'certification', 'print', 'mockups', 'listing', 'publish'];
+  const stages = ['details', 'source', 'certification', 'intelligence', 'print', 'mockups', 'story', 'listing', 'printify', 'publish'];
   const panels = Array.from(controller.querySelectorAll('[data-workflow-stage]'));
   const links = Array.from(document.querySelectorAll('[data-workflow-link]'));
   const previous = controller.querySelector('[data-workflow-previous]');
@@ -38,11 +42,14 @@
   const stageCopy = {
     details: ['Step 1', 'Artwork details', 'Review the artwork identity and reusable creative context.'],
     source: ['Step 2', 'Source artwork', 'Upload or replace the original. Existing downstream files remain available but are marked out of date.'],
-    certification: ['Step 3', 'Artwork certification', 'Review dimensions, effective PPI, and any AI-enhancement decision.'],
-    print: ['Step 4', 'Print files', 'Confirm orientation and review the generated print ratios.'],
-    mockups: ['Step 5', 'Mockups', 'Create, review, and order the images customers will see.'],
-    listing: ['Step 6', 'Listing', 'Prepare the marketplace title, description, tags, and listing record.'],
-    publish: ['Step 7', 'Publish', 'Review the current state, then update Printify and Etsy from one place.']
+    certification: ['Step 3', 'Artwork quality', 'Review dimensions, effective PPI, and any AI-enhancement decision.'],
+    intelligence: ['Step 4', 'Artwork Intelligence', 'Describe the subject, style, mood, colors, rooms, and target customer.'],
+    print: ['Step 5', 'Print files', 'Confirm orientation and review the generated print ratios.'],
+    mockups: ['Step 6', 'Mockups', 'Create, review, and order the images customers will see.'],
+    story: ['Step 7', 'Story & SEO', 'Prepare the marketplace story, title, description, tags, and keywords.'],
+    listing: ['Step 8', 'Listing', 'Create and review the marketplace listing record.'],
+    printify: ['Step 9', 'Printify', 'Create and review the fulfillment product and its variants.'],
+    publish: ['Step 10', 'Publish', 'Send the product to Etsy and synchronize the final listing.']
   };
 
   function showStage(key, updateHash) {
