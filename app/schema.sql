@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS artworks (
     public_title TEXT NOT NULL,
     working_title TEXT,
     theme TEXT,
+    description TEXT,
     story TEXT,
     prompt TEXT,
     status TEXT NOT NULL DEFAULT 'idea',

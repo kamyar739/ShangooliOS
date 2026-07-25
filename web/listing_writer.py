@@ -90,7 +90,7 @@ def _etsy_tags(title: str, theme: str, style: str, mood: str, colors: list[str])
 
 def generate_listing_content(artwork, intelligence) -> dict:
     title = _clean(artwork["public_title"] or artwork["working_title"] or artwork["artwork_code"])
-    artwork_description = _clean(_row_value(artwork, "story"))
+    artwork_description = _clean(_row_value(artwork, "description"))
     artwork_prompt = _clean(_row_value(artwork, "prompt"))
     theme = _clean(intelligence["theme"] or artwork["theme"])
     style = _clean(intelligence["style"]) or (

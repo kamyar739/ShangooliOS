@@ -38,7 +38,7 @@ def _dominant_colors(path: Path, count: int = 5) -> list[str]:
 
 def analyze_artwork(artwork, source_path: Path | None) -> dict:
     title = artwork["public_title"] or artwork["working_title"] or artwork["artwork_code"]
-    story = (artwork["story"] or "").strip()
+    description = (artwork["description"] or "").strip()
     prompt = (artwork["prompt"] or "").strip()
     existing_theme = (artwork["theme"] or "").strip()
     colors = _dominant_colors(source_path) if source_path and source_path.exists() else []
@@ -50,7 +50,7 @@ def analyze_artwork(artwork, source_path: Path | None) -> dict:
         orientation = "horizontal" if width > height else "vertical" if height > width else "square"
         dimensions = f"{width} × {height}px"
 
-    combined = f"{title} {existing_theme} {story} {prompt}".lower()
+    combined = f"{title} {existing_theme} {description} {prompt}".lower()
     if existing_theme:
         theme = existing_theme
     elif "flamenco" in combined or "dancer" in combined:

@@ -96,8 +96,26 @@ class FastFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Fast Flow", response.text)
         self.assertIn('href="/fast-flow"', response.text)
-        self.assertIn("internal Fast Flow MVP detail", response.text)
+        self.assertIn("internal JSON format", response.text)
+        self.assertIn("Choose the approved artwork images", response.text)
+        self.assertIn("Add the collection details", response.text)
+        self.assertIn("Review the collection", response.text)
+        self.assertIn("Create collection", response.text)
         self.assertIn("Nothing is created yet", response.text)
+        self.assertIn("Select all artwork images for this collection at once", response.text)
+        self.assertIn("No artwork images selected", response.text)
+        self.assertIn("Start over", response.text)
+        self.assertIn('name="images" type="file"', response.text)
+        self.assertIn(" multiple required", response.text)
+        with db.get_connection() as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM collections").fetchone()[0],
+                0,
+            )
+
+        reloaded = self.client.get("/fast-flow")
+        self.assertNotIn("The Flow Collection", reloaded.text)
+        self.assertIn("No artwork images selected", reloaded.text)
 
     def test_fast_flow_import_creates_normal_collection_artworks_and_sources(self):
         response = self.client.post(
@@ -129,7 +147,8 @@ class FastFlowTests(unittest.TestCase):
         )
 
         first = db.get_artwork("FLW-001")
-        self.assertEqual(first["story"], "First artwork description.")
+        self.assertEqual(first["description"], "First artwork description.")
+        self.assertIsNone(first["story"])
         self.assertEqual(first["prompt"], "First artwork prompt.")
         assignments = {
             item["role"]: item for item in db.get_artwork_file_assignments("FLW-001")
@@ -157,6 +176,83 @@ class FastFlowTests(unittest.TestCase):
         self.assertIn("Fast Flow import complete", collection_page.text)
         self.assertIn("First", collection_page.text)
         self.assertIn("Second", collection_page.text)
+
+    def test_fast_flow_imports_optional_intelligence_and_story_seo(self):
+        package = {
+            "collection": {
+                "code": "RCH",
+                "name": "The Rich Collection",
+            },
+            "artworks": [
+                {
+                    "image": "rich.png",
+                    "title": "Resonance",
+                    "description": "A factual description of the visible artwork.",
+                    "prompt": "A precise artwork generation prompt.",
+                    "intelligence": {
+                        "theme": "Memory and connection",
+                        "style": "Modern abstract figurative",
+                        "mood": "Reflective",
+                        "primary_colors": ["indigo", "gold", "ivory"],
+                        "suggested_rooms": ["Living room", "Bedroom"],
+                        "target_customer": [
+                            "Art collectors",
+                            "Contemporary decor shoppers",
+                        ],
+                        "ai_model": "GPT Image",
+                        "analysis_notes": "Prepared with the completed collection.",
+                    },
+                    "story_seo": {
+                        "short_story": "A short emotional story.",
+                        "long_story": "A separate long emotional marketing narrative.",
+                        "etsy_title": "Resonance Reflective Figurative Wall Art",
+                        "etsy_description": "A customer-facing Etsy description.",
+                        "etsy_tags": ["reflective wall art", "figurative print"],
+                        "image_alt_text": "An indigo and gold figurative composition.",
+                        "keywords": ["memory", "figurative art"],
+                    },
+                }
+            ],
+        }
+        response = self.client.post(
+            "/fast-flow/import",
+            data={"manifest": json.dumps(package)},
+            files=[("images", ("rich.png", image_bytes("#332266"), "image/png"))],
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 303)
+        artwork = db.get_artwork("RCH-001")
+        self.assertEqual(
+            artwork["description"], "A factual description of the visible artwork."
+        )
+        self.assertIsNone(artwork["story"])
+        self.assertEqual(artwork["prompt"], "A precise artwork generation prompt.")
+        intelligence = db.get_artwork_intelligence("RCH-001")
+        self.assertEqual(intelligence["theme"], "Memory and connection")
+        self.assertEqual(
+            intelligence["primary_colors"], "indigo, gold, ivory"
+        )
+        self.assertEqual(
+            intelligence["suggested_room"], "Living room, Bedroom"
+        )
+        self.assertEqual(
+            intelligence["target_customer"],
+            "Art collectors, Contemporary decor shoppers",
+        )
+        listing_content = db.get_artwork_listing_content("RCH-001")
+        self.assertEqual(
+            listing_content["long_story"],
+            "A separate long emotional marketing narrative.",
+        )
+        self.assertEqual(
+            listing_content["etsy_tags"],
+            "reflective wall art, figurative print",
+        )
+        self.assertEqual(
+            listing_content["alt_text"],
+            "An indigo and gold figurative composition.",
+        )
 
     def test_fast_flow_rejects_missing_image_before_creating_collection(self):
         response = self.client.post(

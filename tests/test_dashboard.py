@@ -719,7 +719,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(
             collection["prompt"], "Joyful movement in teal and warm gold."
         )
-        self.assertEqual(artwork["story"], "A gathering in motion.")
+        self.assertEqual(artwork["description"], "A gathering in motion.")
+        self.assertIsNone(artwork["story"])
         self.assertEqual(
             artwork["prompt"], "Four dancers moving through an open arch."
         )

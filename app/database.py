@@ -172,6 +172,10 @@ def initialize_artwork_workspace(row) -> Path:
 
 {row['theme'] or ''}
 
+## Description
+
+{row['description'] or ''}
+
 ## Story
 
 {row['story'] or ''}
@@ -219,7 +223,8 @@ def create_artwork(
             "public_title": public_title,
             "working_title": working_title,
             "theme": theme,
-            "story": description,
+            "description": description,
+            "story": "",
             "prompt": prompt,
         }
         artwork_folder = get_artwork_folder(artwork_row)
@@ -232,9 +237,9 @@ def create_artwork(
                 """
                 INSERT INTO artworks (
                     artwork_code, collection_id, sequence_number,
-                    public_title, working_title, theme, story, prompt, status
+                    public_title, working_title, theme, description, story, prompt, status
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idea')
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'idea')
                 """,
                 (
                     artwork_code, collection["id"], sequence_number,
@@ -275,7 +280,7 @@ def get_artwork(artwork_code):
         return connection.execute(
             """
             SELECT a.artwork_code, a.public_title, a.working_title,
-                   a.theme, a.story, a.prompt, a.status,
+                   a.theme, a.description, a.story, a.prompt, a.status,
                    c.code AS collection_code, c.name AS collection_name
             FROM artworks AS a
             JOIN collections AS c ON c.id = a.collection_id

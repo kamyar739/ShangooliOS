@@ -31,6 +31,8 @@ def ensure_production_schema():
         artwork_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(artworks)")
         }
+        if artwork_columns and "description" not in artwork_columns:
+            conn.execute("ALTER TABLE artworks ADD COLUMN description TEXT")
         if artwork_columns and "prompt" not in artwork_columns:
             conn.execute("ALTER TABLE artworks ADD COLUMN prompt TEXT")
         conn.execute(
@@ -775,7 +777,7 @@ def get_collection(collection_code):
                 a.public_title,
                 a.working_title,
                 a.theme,
-                a.story AS description,
+                a.description,
                 a.prompt,
                 a.status,
                 p.orientation,
@@ -832,7 +834,7 @@ def get_collection(collection_code):
                 a.public_title,
                 a.working_title,
                 a.theme,
-                a.story AS description,
+                a.description,
                 a.prompt,
                 a.status,
                 p.orientation,
@@ -917,6 +919,7 @@ def get_artwork(artwork_code):
                 a.public_title,
                 a.working_title,
                 a.theme,
+                a.description,
                 a.story,
                 a.prompt,
                 a.status,
@@ -1266,6 +1269,42 @@ def update_artwork(
                 artwork_code.upper(),
             ),
         )
+        conn.commit()
+
+
+def update_artwork_details(
+    artwork_code,
+    *,
+    public_title,
+    description,
+    prompt,
+    status,
+):
+    normalized_status = status.strip().lower()
+    allowed_statuses = {
+        "idea", "creating", "review", "approved", "production",
+        "listed", "paused", "retired",
+    }
+    if normalized_status not in allowed_statuses:
+        raise ValueError("Invalid artwork status")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE artworks
+            SET public_title = ?, description = ?, prompt = ?, status = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE artwork_code = ?
+            """,
+            (
+                public_title.strip(),
+                description.strip() or None,
+                prompt.strip() or None,
+                normalized_status,
+                artwork_code.upper(),
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Artwork not found")
         conn.commit()
 
 

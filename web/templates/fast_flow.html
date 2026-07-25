@@ -7,95 +7,129 @@
   <main class="workflow-stage-content workflow-compact">
     <div class="page-header mb-4">
       <div>
-        <div class="eyebrow">Collection import</div>
+        <div class="eyebrow">Collection intake</div>
         <h1 class="display-6 fw-bold">Fast Flow</h1>
-        <p class="text-muted mb-0">Import a completed collection, then continue with the existing manual production workflow.</p>
+        <p class="text-muted mb-0">Upload the finished artwork, add the ChatGPT collection package, and review everything before creation.</p>
       </div>
+      <button class="btn btn-outline-secondary" type="button" data-fast-flow-reset>Start over</button>
     </div>
 
-    {% if error %}
-    <div class="alert alert-danger"><strong>Import stopped.</strong> {{ error }}</div>
-    {% endif %}
+    {% if error %}<div class="alert alert-danger"><strong>Import stopped.</strong> {{ error }}</div>{% endif %}
 
     <form method="post" action="/fast-flow/import" enctype="multipart/form-data" data-fast-flow-form data-long-operation>
-      <section class="card app-card mb-3">
+      <textarea class="visually-hidden" id="fast-flow-manifest" name="manifest" tabindex="-1" aria-hidden="true" required>{{ manifest_text }}</textarea>
+
+      <section class="card app-card fast-flow-start-card mb-3">
         <div class="card-body p-4">
           <div class="fast-flow-section-heading">
-            <div><div class="eyebrow">1. Metadata</div><h2 class="h4 mb-1">Choose or paste the collection manifest</h2></div>
+            <div>
+              <div class="eyebrow">1. Approved artwork</div>
+              <h2 class="h4 mb-1">Choose the approved artwork images</h2>
+              <p class="text-secondary mb-0">Select all artwork images for this collection at once.</p>
+            </div>
             <span class="status-pill listing-status-draft">Nothing is created yet</span>
           </div>
-          <p class="text-secondary">Use the structured JSON prepared with ChatGPT. The artwork order in the manifest becomes the collection order.</p>
-          <div class="alert alert-light border py-2 small">This metadata format is an internal Fast Flow MVP detail and may change after we test real collection imports.</div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold" for="fast-flow-manifest-file">Metadata file</label>
-            <input class="form-control" id="fast-flow-manifest-file" type="file" accept=".json,application/json">
-            <div class="form-text">Selecting a JSON file fills the editable metadata area below.</div>
+          <div class="fast-flow-image-picker mt-3" data-fast-flow-dropzone>
+            <div><strong>Drop approved images here</strong><span>JPG, JPEG, PNG, TIFF, or WebP. You can also browse your computer.</span></div>
+            <label class="btn btn-primary btn-lg" for="fast-flow-images">Choose artwork images</label>
+            <input class="visually-hidden" id="fast-flow-images" name="images" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" multiple required>
           </div>
-          <div>
-            <label class="form-label fw-semibold" for="fast-flow-manifest">Collection metadata</label>
-            <textarea class="form-control font-monospace" id="fast-flow-manifest" name="manifest" rows="15" required placeholder='Paste the completed collection JSON here.'>{{ manifest_text }}</textarea>
+          <div class="fast-flow-selection-summary mt-3">
+            <strong data-fast-flow-selected-count>No artwork images selected</strong>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-fast-flow-clear-images hidden>Remove all images</button>
           </div>
-          <details class="mt-3">
-            <summary class="fw-semibold">Show the MVP metadata format</summary>
-            <pre class="fast-flow-example mt-3">{
-  "collection": {
-    "code": "DUE",
-    "name": "The Duende Collection",
-    "description": "A six-part emotional journey.",
-    "prompt": "Shared collection prompt.",
-    "etsy_section_name": "Duende",
-    "status": "active"
-  },
-  "artworks": [
-    {
-      "image": "surrender.png",
-      "title": "Surrender",
-      "description": "Artwork description.",
-      "prompt": "Artwork-specific prompt.",
-      "story": "The complete artwork story.",
-      "seo": {
-        "title": "Customer-facing Etsy title",
-        "description": "Customer-facing Etsy description.",
-        "tags": ["flamenco wall art", "expressive art"],
-        "alt_text": "Description of the visible artwork.",
-        "keywords": ["flamenco", "wall art"]
-      }
-    }
-  ]
-}</pre>
-          </details>
-        </div>
-      </section>
-
-      <section class="card app-card mb-3">
-        <div class="card-body p-4">
-          <div class="eyebrow">2. Approved images</div>
-          <h2 class="h4 mb-1">Choose every artwork image</h2>
-          <p class="text-secondary">Filenames must match the <code>image</code> values in the metadata. Images are attached as source artwork; production approval remains in the existing Quality step.</p>
-          <input class="form-control" id="fast-flow-images" name="images" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" multiple required>
+          <div class="fast-flow-selected-grid mt-3" data-fast-flow-selected-images hidden></div>
         </div>
       </section>
 
       <section class="card app-card mb-3">
         <div class="card-body p-4">
           <div class="fast-flow-section-heading">
-            <div><div class="eyebrow">3. Preview</div><h2 class="h4 mb-1">Review what will be created</h2></div>
-            <span class="status-pill listing-status-draft" data-fast-flow-status>Waiting for metadata and images</span>
-          </div>
-          <div class="alert alert-light border mt-3 mb-0" data-fast-flow-message>Select the metadata and artwork images to build the preview.</div>
-          <div class="fast-flow-preview mt-3" data-fast-flow-preview hidden>
-            <div class="fast-flow-collection-summary">
-              <div><span class="code-pill" data-fast-flow-code></span><h3 class="h4 mb-1" data-fast-flow-name></h3><p class="text-secondary mb-0" data-fast-flow-description></p></div>
-              <strong data-fast-flow-count></strong>
+            <div>
+              <div class="eyebrow">2. Collection package</div>
+              <h2 class="h4 mb-1">Add the collection package from ChatGPT</h2>
+              <p class="text-secondary mb-0">Add the collection details by pasting below or uploading the JSON file. ShangooliOS fills every collection and artwork field for you.</p>
             </div>
-            <div class="fast-flow-artwork-grid mt-3" data-fast-flow-artworks></div>
+            <label class="btn btn-outline-primary" for="fast-flow-manifest-file">Upload JSON file</label>
+            <input class="visually-hidden" id="fast-flow-manifest-file" type="file" accept=".json,application/json">
+          </div>
+          <label class="form-label fw-semibold mt-3" for="fast-flow-package">Paste collection package</label>
+          <textarea class="form-control font-monospace fast-flow-package-input" id="fast-flow-package" rows="7" placeholder="Paste the completed collection package from ChatGPT here."></textarea>
+          <div class="fast-flow-package-footer">
+            <span class="fast-flow-format-note">The current internal JSON format accepts optional artwork filenames. Titles follow image upload order unless explicit filenames are supplied.</span>
+            <span class="fast-flow-package-state" data-fast-flow-package-state>Waiting for package</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card app-card mb-3" data-fast-flow-edit-section hidden>
+        <div class="card-body p-4">
+          <div class="fast-flow-section-heading">
+            <div>
+              <div class="eyebrow">3. Review and correct</div>
+              <h2 class="h4 mb-1">Collection information</h2>
+              <p class="text-secondary mb-0">These values came from the collection package. Edit only if something needs correction.</p>
+            </div>
+            <span class="status-pill status-approved">Automatically populated</span>
+          </div>
+          <div class="row g-3 mt-1">
+            <div class="col-md-8">
+              <label class="form-label fw-semibold" for="fast-flow-name">Collection Name <span class="text-danger">*</span></label>
+              <input class="form-control" id="fast-flow-name" type="text" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" for="fast-flow-code">Collection Code <span class="text-danger">*</span></label>
+              <input class="form-control text-uppercase" id="fast-flow-code" type="text" maxlength="10" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold" for="fast-flow-subtitle">Subtitle <span class="text-muted fw-normal">(optional)</span></label>
+              <input class="form-control" id="fast-flow-subtitle" type="text">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold" for="fast-flow-description-input">Collection Description</label>
+              <textarea class="form-control" id="fast-flow-description-input" rows="4"></textarea>
+            </div>
+          </div>
+
+          <div class="fast-flow-artwork-editor-heading mt-4">
+            <div>
+              <h3 class="h5 mb-1">Artwork order and titles</h3>
+              <p class="text-secondary mb-0">Titles are matched from the package. Drag rows to change the collection order.</p>
+            </div>
+            <strong data-fast-flow-order-count></strong>
+          </div>
+          <div class="fast-flow-order-list mt-3" data-fast-flow-order-list></div>
+        </div>
+      </section>
+
+      <section class="card app-card mb-3">
+        <div class="card-body p-4">
+          <div class="fast-flow-section-heading">
+            <div><div class="eyebrow">4. Final review</div><h2 class="h4 mb-1">Review the collection</h2></div>
+            <span class="status-pill listing-status-draft" data-fast-flow-status>Waiting for images and collection package</span>
+          </div>
+          <div class="fast-flow-empty-preview mt-3" data-fast-flow-message>Add the artwork images and collection package to build the review.</div>
+          <div class="fast-flow-review mt-3" data-fast-flow-preview hidden>
+            <div class="fast-flow-review-identity">
+              <div>
+                <span class="code-pill" data-fast-flow-review-code>—</span>
+                <h3 class="h4 mb-1 mt-2" data-fast-flow-review-name>Untitled collection</h3>
+                <p class="fast-flow-review-subtitle mb-0" data-fast-flow-review-subtitle hidden></p>
+              </div>
+              <strong data-fast-flow-review-count>0 artworks</strong>
+            </div>
+            <p class="text-secondary mb-0 mt-3" data-fast-flow-review-description>No collection description supplied.</p>
+            <div class="fast-flow-review-artworks mt-3" data-fast-flow-review-artworks></div>
           </div>
         </div>
       </section>
 
       <div class="fast-flow-submit-bar">
-        <div><strong>Final action</strong><span>This creates normal ShangooliOS records. It does not run production or publish anything.</span></div>
-        <button class="btn btn-primary btn-lg" type="submit" data-fast-flow-submit disabled>Import collection</button>
+        <div class="fast-flow-final-copy">
+          <strong>Create normal ShangooliOS records</strong>
+          <span>Creates the collection, artwork records, and attached source images. It does not run certification, production files, mockups, or publishing.</span>
+        </div>
+        <button class="btn btn-primary btn-lg" type="submit" data-fast-flow-submit aria-label="Create collection and import artworks" disabled>Create Collection &amp; Import Artworks</button>
       </div>
     </form>
   </main>
@@ -105,153 +139,409 @@
 (function () {
   const form = document.querySelector('[data-fast-flow-form]');
   if (!form) return;
-  const manifestFile = document.getElementById('fast-flow-manifest-file');
-  const manifest = document.getElementById('fast-flow-manifest');
-  const images = document.getElementById('fast-flow-images');
+  const hiddenManifest = document.getElementById('fast-flow-manifest');
+  const packageInput = document.getElementById('fast-flow-package');
+  const packageFile = document.getElementById('fast-flow-manifest-file');
+  const packageState = form.querySelector('[data-fast-flow-package-state]');
+  const nameInput = document.getElementById('fast-flow-name');
+  const codeInput = document.getElementById('fast-flow-code');
+  const subtitleInput = document.getElementById('fast-flow-subtitle');
+  const descriptionInput = document.getElementById('fast-flow-description-input');
+  const imagesInput = document.getElementById('fast-flow-images');
+  const dropzone = form.querySelector('[data-fast-flow-dropzone]');
+  const resetButton = document.querySelector('[data-fast-flow-reset]');
+  const clearImagesButton = form.querySelector('[data-fast-flow-clear-images]');
+  const selectedCount = form.querySelector('[data-fast-flow-selected-count]');
+  const selectedGrid = form.querySelector('[data-fast-flow-selected-images]');
+  const editSection = form.querySelector('[data-fast-flow-edit-section]');
+  const orderCount = form.querySelector('[data-fast-flow-order-count]');
+  const orderList = form.querySelector('[data-fast-flow-order-list]');
   const status = form.querySelector('[data-fast-flow-status]');
   const message = form.querySelector('[data-fast-flow-message]');
   const preview = form.querySelector('[data-fast-flow-preview]');
-  const code = form.querySelector('[data-fast-flow-code]');
-  const name = form.querySelector('[data-fast-flow-name]');
-  const description = form.querySelector('[data-fast-flow-description]');
-  const count = form.querySelector('[data-fast-flow-count]');
-  const artworkGrid = form.querySelector('[data-fast-flow-artworks]');
-  const submit = form.querySelector('[data-fast-flow-submit]');
+  const reviewCode = form.querySelector('[data-fast-flow-review-code]');
+  const reviewName = form.querySelector('[data-fast-flow-review-name]');
+  const reviewSubtitle = form.querySelector('[data-fast-flow-review-subtitle]');
+  const reviewDescription = form.querySelector('[data-fast-flow-review-description]');
+  const reviewCount = form.querySelector('[data-fast-flow-review-count]');
+  const reviewArtworks = form.querySelector('[data-fast-flow-review-artworks]');
+  const submitButton = form.querySelector('[data-fast-flow-submit]');
+
+  let selectedArtworks = [];
+  let importedPayload = {};
+  let packageLoaded = false;
   let objectUrls = [];
+  let draggedArtworkId = null;
+
+  function filenameOnly(value) {
+    return String(value || '').split(/[\\/]/).pop();
+  }
+
+  function titleFromFilename(filename) {
+    return filenameOnly(filename).replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
 
   function clearObjectUrls() {
     objectUrls.forEach((url) => URL.revokeObjectURL(url));
     objectUrls = [];
   }
 
-  function setState(valid, text) {
-    submit.disabled = !valid;
-    status.textContent = valid ? 'Ready to import' : 'Needs attention';
+  function imageUrl(file) {
+    const url = URL.createObjectURL(file);
+    objectUrls.push(url);
+    return url;
+  }
+
+  function syncImageInput() {
+    const transfer = new DataTransfer();
+    selectedArtworks.forEach((artwork) => transfer.items.add(artwork.file));
+    imagesInput.files = transfer.files;
+  }
+
+  function currentPayload() {
+    const originalCollection = importedPayload.collection || {};
+    return {
+      collection: {
+        ...originalCollection,
+        name: nameInput.value.trim(),
+        code: codeInput.value.trim().toUpperCase(),
+        subtitle: subtitleInput.value.trim(),
+        description: descriptionInput.value.trim(),
+        status: originalCollection.status || 'active',
+        target_artwork_count: selectedArtworks.length
+      },
+      artworks: selectedArtworks.map((artwork) => ({
+        ...(artwork.imported || {}),
+        image: artwork.file.name,
+        title: artwork.title.trim()
+      }))
+    };
+  }
+
+  function updateHiddenManifest() {
+    hiddenManifest.value = JSON.stringify(currentPayload());
+  }
+
+  function setReadiness(valid, text) {
+    submitButton.disabled = !valid;
+    status.textContent = valid ? 'Ready to create' : 'Needs attention';
     status.className = `status-pill ${valid ? 'status-approved' : 'listing-status-draft'}`;
     message.textContent = text;
-    message.className = `alert ${valid ? 'alert-success' : 'alert-warning'} mt-3 mb-0`;
+    message.className = valid ? 'alert alert-success mt-3 mb-0' : 'fast-flow-empty-preview mt-3';
   }
 
-  function addText(parent, tag, value, className) {
-    const element = document.createElement(tag);
-    element.textContent = value;
-    if (className) element.className = className;
-    parent.appendChild(element);
-    return element;
+  function removeArtwork(id) {
+    selectedArtworks = selectedArtworks.filter((artwork) => artwork.id !== id);
+    syncImageInput();
+    render();
   }
 
-  function renderPreview() {
-    clearObjectUrls();
-    artworkGrid.replaceChildren();
-    preview.hidden = true;
-    submit.disabled = true;
-    if (!manifest.value.trim()) {
-      setState(false, 'Add the collection metadata.');
-      return;
-    }
+  function moveArtwork(draggedId, targetId) {
+    if (!draggedId || draggedId === targetId) return;
+    const from = selectedArtworks.findIndex((artwork) => artwork.id === draggedId);
+    const to = selectedArtworks.findIndex((artwork) => artwork.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [moved] = selectedArtworks.splice(from, 1);
+    selectedArtworks.splice(to, 0, moved);
+    syncImageInput();
+    render();
+  }
 
-    let payload;
-    try {
-      payload = JSON.parse(manifest.value);
-    } catch (error) {
-      setState(false, `The metadata is not valid JSON: ${error.message}`);
-      return;
-    }
-    if (!payload.collection || !payload.collection.code || !payload.collection.name) {
-      setState(false, 'The metadata needs a collection code and name.');
-      return;
-    }
-    if (!Array.isArray(payload.artworks) || !payload.artworks.length) {
-      setState(false, 'The metadata needs at least one artwork.');
-      return;
-    }
-
-    const selectedFiles = new Map(
-      Array.from(images.files || []).map((file) => [file.name.toLocaleLowerCase(), file])
-    );
-    const expectedFiles = new Set();
-    const missing = [];
-    const invalidArtwork = [];
-    payload.artworks.forEach((artwork, index) => {
-      if (!artwork || !artwork.title || !artwork.image) {
-        invalidArtwork.push(index + 1);
-        return;
-      }
-      const filename = String(artwork.image).split(/[\\/]/).pop();
-      expectedFiles.add(filename.toLocaleLowerCase());
-      if (!selectedFiles.has(filename.toLocaleLowerCase())) missing.push(filename);
-    });
-    if (invalidArtwork.length) {
-      setState(false, `Artwork ${invalidArtwork.join(', ')} needs both a title and image filename.`);
-      return;
-    }
-    const extra = Array.from(selectedFiles.values())
-      .filter((file) => !expectedFiles.has(file.name.toLocaleLowerCase()))
-      .map((file) => file.name);
-    if (missing.length || extra.length) {
-      const parts = [];
-      if (missing.length) parts.push(`Missing: ${missing.join(', ')}`);
-      if (extra.length) parts.push(`Not in metadata: ${extra.join(', ')}`);
-      setState(false, parts.join(' · '));
-    } else {
-      setState(true, `Ready to create ${payload.artworks.length} artwork${payload.artworks.length === 1 ? '' : 's'} in one collection.`);
-    }
-
-    code.textContent = String(payload.collection.code).toUpperCase();
-    name.textContent = payload.collection.name;
-    description.textContent = payload.collection.description || 'No collection description supplied.';
-    count.textContent = `${payload.artworks.length} artwork${payload.artworks.length === 1 ? '' : 's'}`;
-
-    payload.artworks.forEach((artwork, index) => {
+  function buildSelectedGallery() {
+    selectedGrid.replaceChildren();
+    selectedCount.textContent = selectedArtworks.length
+      ? `${selectedArtworks.length} artwork image${selectedArtworks.length === 1 ? '' : 's'} selected`
+      : 'No artwork images selected';
+    clearImagesButton.hidden = selectedArtworks.length === 0;
+    selectedGrid.hidden = selectedArtworks.length === 0;
+    selectedArtworks.forEach((artwork, index) => {
       const card = document.createElement('article');
-      card.className = 'fast-flow-artwork-card';
-      const filename = String(artwork.image).split(/[\\/]/).pop();
-      const file = selectedFiles.get(filename.toLocaleLowerCase());
+      card.className = 'fast-flow-selected-card';
       const media = document.createElement('div');
-      media.className = 'fast-flow-artwork-media';
-      if (file) {
-        const image = document.createElement('img');
-        const url = URL.createObjectURL(file);
-        objectUrls.push(url);
-        image.src = url;
-        image.alt = artwork.title;
-        media.appendChild(image);
-      } else {
-        addText(media, 'span', 'Image missing', 'text-muted small');
-      }
+      media.className = 'fast-flow-selected-media';
+      const image = document.createElement('img');
+      image.src = imageUrl(artwork.file);
+      image.alt = artwork.title;
+      media.appendChild(image);
+      const number = document.createElement('span');
+      number.className = 'fast-flow-selection-number';
+      number.textContent = String(index + 1);
+      media.appendChild(number);
       card.appendChild(media);
       const body = document.createElement('div');
-      body.className = 'fast-flow-artwork-body';
-      addText(body, 'span', `${index + 1}`, 'code-pill');
-      addText(body, 'h4', artwork.title, 'h6 mb-1');
-      addText(body, 'small', filename, 'text-muted');
-      const coverage = [];
-      if (artwork.description) coverage.push('Description');
-      if (artwork.story) coverage.push('Story');
-      if (artwork.seo && (artwork.seo.title || artwork.seo.tags)) coverage.push('SEO');
-      addText(body, 'div', coverage.length ? coverage.join(' · ') : 'Core record only', 'fast-flow-coverage');
+      body.className = 'fast-flow-selected-body';
+      const filename = document.createElement('strong');
+      filename.textContent = artwork.file.name;
+      body.appendChild(filename);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'fast-flow-remove-image';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Remove ${artwork.file.name}`);
+      remove.addEventListener('click', () => removeArtwork(artwork.id));
+      body.appendChild(remove);
       card.appendChild(body);
-      artworkGrid.appendChild(card);
+      selectedGrid.appendChild(card);
     });
-    preview.hidden = false;
   }
 
-  manifestFile.addEventListener('change', function () {
-    const file = manifestFile.files && manifestFile.files[0];
+  function buildArtworkRows() {
+    orderList.replaceChildren();
+    editSection.hidden = !packageLoaded;
+    orderCount.textContent = `${selectedArtworks.length} artwork${selectedArtworks.length === 1 ? '' : 's'}`;
+    selectedArtworks.forEach((artwork, index) => {
+      const row = document.createElement('div');
+      row.className = 'fast-flow-order-row';
+      row.draggable = true;
+      row.dataset.artworkId = artwork.id;
+      row.addEventListener('dragstart', () => { draggedArtworkId = artwork.id; row.classList.add('is-dragging'); });
+      row.addEventListener('dragend', () => { draggedArtworkId = null; row.classList.remove('is-dragging'); });
+      row.addEventListener('dragover', (event) => { event.preventDefault(); row.classList.add('is-drag-target'); });
+      row.addEventListener('dragleave', () => row.classList.remove('is-drag-target'));
+      row.addEventListener('drop', (event) => { event.preventDefault(); row.classList.remove('is-drag-target'); moveArtwork(draggedArtworkId, artwork.id); });
+
+      const grip = document.createElement('span');
+      grip.className = 'fast-flow-order-grip';
+      grip.textContent = '⋮⋮';
+      grip.title = 'Drag to reorder';
+      row.appendChild(grip);
+      const number = document.createElement('span');
+      number.className = 'fast-flow-order-number';
+      number.textContent = String(index + 1);
+      row.appendChild(number);
+      const thumb = document.createElement('img');
+      thumb.className = 'fast-flow-order-thumb';
+      thumb.src = imageUrl(artwork.file);
+      thumb.alt = '';
+      row.appendChild(thumb);
+      const field = document.createElement('div');
+      field.className = 'fast-flow-order-field';
+      const label = document.createElement('label');
+      label.className = 'form-label small fw-semibold mb-1';
+      label.textContent = 'Artwork title';
+      label.htmlFor = `fast-flow-title-${artwork.id}`;
+      field.appendChild(label);
+      const input = document.createElement('input');
+      input.className = 'form-control';
+      input.id = `fast-flow-title-${artwork.id}`;
+      input.type = 'text';
+      input.required = true;
+      input.value = artwork.title;
+      input.addEventListener('input', () => { artwork.title = input.value; renderReview(); });
+      field.appendChild(input);
+      row.appendChild(field);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-sm btn-outline-secondary';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => removeArtwork(artwork.id));
+      row.appendChild(remove);
+      orderList.appendChild(row);
+    });
+  }
+
+  function renderReview() {
+    const payload = currentPayload();
+    updateHiddenManifest();
+    reviewCode.textContent = payload.collection.code || '—';
+    reviewName.textContent = payload.collection.name || 'Untitled collection';
+    reviewSubtitle.textContent = payload.collection.subtitle || '';
+    reviewSubtitle.hidden = !payload.collection.subtitle;
+    reviewDescription.textContent = payload.collection.description || 'No collection description supplied.';
+    reviewCount.textContent = `${selectedArtworks.length} artwork${selectedArtworks.length === 1 ? '' : 's'}`;
+    reviewArtworks.replaceChildren();
+    selectedArtworks.forEach((artwork, index) => {
+      const item = document.createElement('div');
+      item.className = 'fast-flow-review-artwork';
+      const number = document.createElement('span');
+      number.className = 'fast-flow-order-number';
+      number.textContent = String(index + 1);
+      item.appendChild(number);
+      const image = document.createElement('img');
+      image.src = imageUrl(artwork.file);
+      image.alt = '';
+      item.appendChild(image);
+      const title = document.createElement('strong');
+      title.textContent = artwork.title.trim() || 'Untitled artwork';
+      item.appendChild(title);
+      reviewArtworks.appendChild(item);
+    });
+    preview.hidden = !(packageLoaded || selectedArtworks.length);
+
+    const codeValid = /^[A-Z0-9][A-Z0-9_-]{0,9}$/.test(payload.collection.code);
+    const missingTitles = selectedArtworks.filter((artwork) => !artwork.title.trim()).length;
+    const expectedCount = Array.isArray(importedPayload.artworks) ? importedPayload.artworks.length : 0;
+    const packageCoversImages = packageLoaded && expectedCount === selectedArtworks.length &&
+      selectedArtworks.every((artwork) => artwork.imported && artwork.imported.title);
+    const valid = Boolean(payload.collection.name && codeValid && selectedArtworks.length && !missingTitles && packageCoversImages);
+    if (!packageLoaded && !selectedArtworks.length) {
+      submitButton.disabled = true;
+      status.textContent = 'Waiting for images and collection package';
+      status.className = 'status-pill listing-status-draft';
+      message.textContent = 'Add the artwork images and collection package to build the review.';
+      message.className = 'fast-flow-empty-preview mt-3';
+    } else if (valid) {
+      setReadiness(true, `Ready to create ${selectedArtworks.length} ordered artwork${selectedArtworks.length === 1 ? '' : 's'} in ${payload.collection.name}.`);
+    } else {
+      const needs = [];
+      if (!selectedArtworks.length) needs.push('artwork images');
+      if (!packageLoaded) needs.push('collection package');
+      if (packageLoaded && !payload.collection.name) needs.push('collection name in the package');
+      if (packageLoaded && !codeValid) needs.push('valid collection code');
+      if (packageLoaded && !packageCoversImages) needs.push('one titled package entry for every image');
+      if (missingTitles) needs.push(`${missingTitles} artwork title${missingTitles === 1 ? '' : 's'}`);
+      setReadiness(false, `Still needed: ${needs.join(', ')}.`);
+    }
+  }
+
+  function render() {
+    clearObjectUrls();
+    buildSelectedGallery();
+    buildArtworkRows();
+    renderReview();
+  }
+
+  function matchImportedArtwork(file, index) {
+    const artworks = Array.isArray(importedPayload.artworks) ? importedPayload.artworks : [];
+    return artworks.find((item) => filenameOnly(item.image).toLocaleLowerCase() === file.name.toLocaleLowerCase()) || artworks[index] || null;
+  }
+
+  function rematchArtworks() {
+    const packageArtworks = Array.isArray(importedPayload.artworks) ? importedPayload.artworks : [];
+    const unassigned = selectedArtworks.slice();
+    const packageOrdered = packageArtworks.map((item) => {
+      if (!item.image) return null;
+      const wanted = filenameOnly(item.image).toLocaleLowerCase();
+      const matchIndex = unassigned.findIndex(
+        (artwork) => artwork.file.name.toLocaleLowerCase() === wanted
+      );
+      if (matchIndex < 0) return null;
+      return unassigned.splice(matchIndex, 1)[0];
+    });
+    packageOrdered.forEach((artwork, index) => {
+      if (!artwork && unassigned.length) packageOrdered[index] = unassigned.shift();
+    });
+    selectedArtworks = packageOrdered.filter(Boolean).concat(unassigned);
+    selectedArtworks.forEach((artwork, index) => {
+      const imported = packageArtworks[index] || null;
+      artwork.imported = imported || {};
+      artwork.title = imported && imported.title ? imported.title : artwork.title;
+    });
+  }
+
+  function addFiles(files) {
+    const existingNames = new Set(selectedArtworks.map((artwork) => artwork.file.name.toLocaleLowerCase()));
+    Array.from(files || []).forEach((file) => {
+      if (existingNames.has(file.name.toLocaleLowerCase())) return;
+      const imported = matchImportedArtwork(file, selectedArtworks.length);
+      selectedArtworks.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        file,
+        title: imported && imported.title ? imported.title : titleFromFilename(file.name),
+        imported: imported || {}
+      });
+      existingNames.add(file.name.toLocaleLowerCase());
+    });
+    if (packageLoaded) rematchArtworks();
+    syncImageInput();
+    render();
+  }
+
+  function loadPackageText(text) {
+    const payload = JSON.parse(text);
+    if (!payload || typeof payload !== 'object' || !payload.collection || !Array.isArray(payload.artworks)) {
+      throw new Error('The package needs collection and artworks sections.');
+    }
+    importedPayload = payload;
+    packageLoaded = true;
+    const collection = payload.collection;
+    nameInput.value = collection.name || '';
+    codeInput.value = String(collection.code || '').toUpperCase();
+    subtitleInput.value = collection.subtitle || '';
+    descriptionInput.value = collection.description || '';
+    rematchArtworks();
+    packageState.textContent = `${payload.artworks.length} artwork${payload.artworks.length === 1 ? '' : 's'} loaded`;
+    packageState.className = 'fast-flow-package-state is-ready';
+    render();
+  }
+
+  function parsePackageInput() {
+    const text = packageInput.value.trim();
+    if (!text) {
+      packageLoaded = false;
+      importedPayload = {};
+      packageState.textContent = 'Waiting for package';
+      packageState.className = 'fast-flow-package-state';
+      render();
+      return;
+    }
+    try {
+      loadPackageText(text);
+    } catch (error) {
+      packageLoaded = false;
+      packageState.textContent = 'Package needs attention';
+      packageState.className = 'fast-flow-package-state is-error';
+      setReadiness(false, `The collection package could not be read: ${error.message}`);
+    }
+  }
+
+  packageInput.addEventListener('input', parsePackageInput);
+  packageFile.addEventListener('change', function () {
+    const file = packageFile.files && packageFile.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.addEventListener('load', function () {
-      manifest.value = String(reader.result || '');
-      renderPreview();
+      packageInput.value = String(reader.result || '');
+      try { loadPackageText(packageInput.value); }
+      catch (error) {
+        packageState.textContent = 'Package needs attention';
+        packageState.className = 'fast-flow-package-state is-error';
+        setReadiness(false, `The collection package could not be read: ${error.message}`);
+      }
     });
     reader.readAsText(file);
   });
-  manifest.addEventListener('input', renderPreview);
-  images.addEventListener('change', renderPreview);
-  form.addEventListener('submit', function (event) {
-    if (submit.disabled) event.preventDefault();
+  [nameInput, subtitleInput, descriptionInput].forEach((field) => field.addEventListener('input', renderReview));
+  codeInput.addEventListener('input', function () {
+    codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+    renderReview();
   });
-  if (manifest.value.trim()) renderPreview();
+  imagesInput.addEventListener('change', () => addFiles(imagesInput.files));
+  dropzone.addEventListener('dragover', function (event) { event.preventDefault(); dropzone.classList.add('is-dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('is-dragover'));
+  dropzone.addEventListener('drop', function (event) {
+    event.preventDefault();
+    dropzone.classList.remove('is-dragover');
+    addFiles(event.dataTransfer.files);
+  });
+  clearImagesButton.addEventListener('click', function () {
+    selectedArtworks = [];
+    syncImageInput();
+    render();
+  });
+  resetButton.addEventListener('click', function () {
+    const hasContent = selectedArtworks.length || packageInput.value.trim();
+    if (hasContent && !window.confirm('Clear the current Fast Flow intake and start over?')) return;
+    form.reset();
+    selectedArtworks = [];
+    importedPayload = {};
+    packageLoaded = false;
+    packageState.textContent = 'Waiting for package';
+    packageState.className = 'fast-flow-package-state';
+    render();
+  });
+  form.addEventListener('submit', function (event) {
+    renderReview();
+    if (submitButton.disabled) event.preventDefault();
+  });
+
+  if (hiddenManifest.value.trim()) {
+    packageInput.value = hiddenManifest.value;
+    try { loadPackageText(hiddenManifest.value); }
+    catch (error) { setReadiness(false, `The collection package could not be restored: ${error.message}`); }
+  } else {
+    render();
+  }
 })();
 </script>
 {% endblock %}

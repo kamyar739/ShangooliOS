@@ -59,6 +59,13 @@ assets/collections/*/*/02 Print Files/
 
 # Generated artwork
 assets/collections/**/03 Mockups/
+assets/collections/*/*/artwork.md
+
+# Local marketing artwork
+assets/marketing/*.png
+assets/marketing/*.jpg
+assets/marketing/*.jpeg
+assets/marketing/*.webp
 
 # Database backups
 data/*backup*.db

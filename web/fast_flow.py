@@ -8,6 +8,7 @@ from app.database import create_artwork
 from web.db import (
     create_collection,
     get_artwork,
+    update_artwork_intelligence,
     update_artwork_listing_content,
     upsert_artwork_file,
 )
@@ -37,6 +38,21 @@ def _comma_separated(value, label):
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return ", ".join(item.strip() for item in value if item.strip())
     raise ValueError(f"{label} must be text or a list of text values")
+
+
+def _optional_object(value, label):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return value
+
+
+def _first_present(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
 
 
 def parse_fast_flow_manifest(manifest_text):
@@ -85,9 +101,15 @@ def parse_fast_flow_manifest(manifest_text):
             raise ValueError(f"Image {image} is assigned more than once")
         seen_images.add(image_key)
 
-        seo = item.get("seo") or {}
-        if not isinstance(seo, dict):
-            raise ValueError(f"Artwork {position} SEO must be a JSON object")
+        intelligence = _optional_object(
+            item.get("intelligence"), f"Artwork {position} intelligence"
+        )
+        story_seo = _optional_object(
+            item.get("story_seo"), f"Artwork {position} Story & SEO"
+        )
+        legacy_seo = _optional_object(
+            item.get("seo"), f"Artwork {position} SEO"
+        )
 
         normalized_artworks.append(
             {
@@ -97,17 +119,102 @@ def parse_fast_flow_manifest(manifest_text):
                 ),
                 "description": _optional_text(item.get("description")),
                 "prompt": _optional_text(item.get("prompt")),
-                "listing_content": {
-                    "short_story": _optional_text(item.get("short_story")),
-                    "long_story": _optional_text(item.get("story")),
-                    "etsy_title": _optional_text(seo.get("title")),
-                    "etsy_description": _optional_text(seo.get("description")),
-                    "etsy_tags": _comma_separated(
-                        seo.get("tags"), f"Artwork {position} SEO tags"
+                "intelligence": {
+                    "theme": _optional_text(
+                        _first_present(intelligence.get("theme"), item.get("theme"))
                     ),
-                    "alt_text": _optional_text(seo.get("alt_text")),
+                    "style": _optional_text(
+                        _first_present(intelligence.get("style"), item.get("style"))
+                    ),
+                    "mood": _optional_text(
+                        _first_present(intelligence.get("mood"), item.get("mood"))
+                    ),
+                    "primary_colors": _comma_separated(
+                        _first_present(
+                            intelligence.get("primary_colors"),
+                            item.get("primary_colors"),
+                        ),
+                        f"Artwork {position} primary colors",
+                    ),
+                    "suggested_room": _comma_separated(
+                        _first_present(
+                            intelligence.get("suggested_rooms"),
+                            intelligence.get("suggested_room"),
+                            item.get("suggested_rooms"),
+                            item.get("suggested_room"),
+                        ),
+                        f"Artwork {position} suggested rooms",
+                    ),
+                    "target_customer": _comma_separated(
+                        _first_present(
+                            intelligence.get("target_customer"),
+                            item.get("target_customer"),
+                        ),
+                        f"Artwork {position} target customer",
+                    ),
+                    "ai_model": _optional_text(
+                        _first_present(
+                            intelligence.get("ai_model"), item.get("ai_model")
+                        )
+                    ),
+                    "analysis_notes": _optional_text(
+                        _first_present(
+                            intelligence.get("analysis_notes"),
+                            item.get("analysis_notes"),
+                        )
+                    ),
+                },
+                "listing_content": {
+                    "short_story": _optional_text(
+                        _first_present(
+                            story_seo.get("short_story"), item.get("short_story")
+                        )
+                    ),
+                    "long_story": _optional_text(
+                        _first_present(
+                            story_seo.get("long_story"),
+                            item.get("long_story"),
+                            item.get("story"),
+                        )
+                    ),
+                    "etsy_title": _optional_text(
+                        _first_present(
+                            story_seo.get("etsy_title"),
+                            item.get("etsy_title"),
+                            legacy_seo.get("title"),
+                        )
+                    ),
+                    "etsy_description": _optional_text(
+                        _first_present(
+                            story_seo.get("etsy_description"),
+                            item.get("etsy_description"),
+                            legacy_seo.get("description"),
+                        )
+                    ),
+                    "etsy_tags": _comma_separated(
+                        _first_present(
+                            story_seo.get("etsy_tags"),
+                            item.get("etsy_tags"),
+                            legacy_seo.get("tags"),
+                        ),
+                        f"Artwork {position} SEO tags",
+                    ),
+                    "alt_text": _optional_text(
+                        _first_present(
+                            story_seo.get("image_alt_text"),
+                            story_seo.get("alt_text"),
+                            item.get("image_alt_text"),
+                            item.get("alt_text"),
+                            legacy_seo.get("alt_text"),
+                        )
+                    ),
                     "keywords": _comma_separated(
-                        seo.get("keywords"), f"Artwork {position} SEO keywords"
+                        _first_present(
+                            story_seo.get("keywords"),
+                            item.get("keywords"),
+                            legacy_seo.get("keywords"),
+                        ),
+                        f"Artwork {position} SEO keywords",
                     ),
                 },
             }
@@ -190,6 +297,7 @@ def import_fast_flow_collection(manifest_text, uploads):
         result = create_artwork(
             collection_code=collection_code,
             public_title=item["title"],
+            theme=item["intelligence"]["theme"],
             description=item["description"],
             prompt=item["prompt"],
         )
@@ -201,6 +309,14 @@ def import_fast_flow_collection(manifest_text, uploads):
         finally:
             upload.file.close()
         upsert_artwork_file(artwork_code=artwork_code, **saved)
+
+        intelligence = {
+            key: value
+            for key, value in item["intelligence"].items()
+            if value
+        }
+        if intelligence:
+            update_artwork_intelligence(artwork_code, **intelligence)
 
         listing_content = {
             key: value

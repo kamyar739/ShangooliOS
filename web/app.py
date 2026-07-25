@@ -82,6 +82,7 @@ from web.db import (
     search_artworks,
     set_artwork_production_flags,
     update_artwork,
+    update_artwork_details,
     update_artwork_status,
     update_artwork_intelligence,
     update_artwork_listing_content,
@@ -2665,12 +2666,10 @@ def save_artwork(
                 status_code=status.HTTP_303_SEE_OTHER,
             )
 
-    update_artwork(
+    update_artwork_details(
         artwork_code=artwork_code,
         public_title=public_title,
-        working_title=artwork["working_title"] or "",
-        theme=artwork["theme"] or "",
-        story=description,
+        description=description,
         prompt=prompt,
         status=normalized_status,
     )
