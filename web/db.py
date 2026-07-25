@@ -428,6 +428,14 @@ def ensure_production_schema():
                 conn.execute("ALTER TABLE collections ADD COLUMN etsy_section_name TEXT")
             if "display_order" not in collection_columns:
                 conn.execute("ALTER TABLE collections ADD COLUMN display_order INTEGER")
+            default_collection_prices = (2900, 3400, 3900, 4600, 5800, 7200)
+            for tier, default_price in enumerate(default_collection_prices, start=1):
+                column_name = f"default_price_tier_{tier}_cents"
+                if column_name not in collection_columns:
+                    conn.execute(
+                        f"ALTER TABLE collections ADD COLUMN {column_name} "
+                        f"INTEGER NOT NULL DEFAULT {default_price}"
+                    )
             conn.execute(
                 """
                 UPDATE collections
@@ -742,6 +750,12 @@ def get_collection(collection_code):
             SELECT code, name, status, target_artwork_count, etsy_section_name,
                    cover_image_path, cover_approved,
                    notes AS description, prompt,
+                   default_price_tier_1_cents,
+                   default_price_tier_2_cents,
+                   default_price_tier_3_cents,
+                   default_price_tier_4_cents,
+                   default_price_tier_5_cents,
+                   default_price_tier_6_cents,
                    (SELECT COUNT(*) FROM artworks
                     WHERE collection_id = collections.id) AS artwork_count
             FROM collections
@@ -1295,7 +1309,7 @@ def update_artwork_status(artwork_code, status):
 
 def create_collection(
     code, name, target_artwork_count, status, etsy_section_name=None,
-    description="", prompt="",
+    description="", prompt="", default_prices=None,
 ):
     code = code.strip().upper()
     name = name.strip()
@@ -1312,6 +1326,9 @@ def create_collection(
         raise ValueError("Target artwork count cannot be negative")
     if not normalized_section or len(normalized_section) > 24:
         raise ValueError("Etsy section name must be between 1 and 24 characters")
+    prices = tuple(default_prices or (2900, 3400, 3900, 4600, 5800, 7200))
+    if len(prices) != 6 or any(int(price) <= 0 for price in prices):
+        raise ValueError("Enter a positive default price for every poster size")
 
     allowed_statuses = {"planned", "active", "complete", "paused", "archived"}
 
@@ -1352,9 +1369,15 @@ def create_collection(
                 etsy_section_name,
                 notes,
                 prompt,
+                default_price_tier_1_cents,
+                default_price_tier_2_cents,
+                default_price_tier_3_cents,
+                default_price_tier_4_cents,
+                default_price_tier_5_cents,
+                default_price_tier_6_cents,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 brand["id"],
@@ -1366,6 +1389,7 @@ def create_collection(
                 normalized_section,
                 description.strip() or None,
                 prompt.strip() or None,
+                *prices,
                 normalized_status,
             ),
         )
@@ -1383,6 +1407,7 @@ def update_collection(
     description="",
     prompt="",
     new_code=None,
+    default_prices=None,
 ):
     code = collection_code.strip().upper()
     requested_code = (new_code or code).strip().upper()
@@ -1400,6 +1425,9 @@ def update_collection(
         raise ValueError("Target artwork count cannot be negative")
     if not normalized_section or len(normalized_section) > 24:
         raise ValueError("Etsy section name must be between 1 and 24 characters")
+    prices = tuple(default_prices or (2900, 3400, 3900, 4600, 5800, 7200))
+    if len(prices) != 6 or any(int(price) <= 0 for price in prices):
+        raise ValueError("Enter a positive default price for every poster size")
 
     allowed_statuses = {"planned", "active", "complete", "paused"}
 
@@ -1447,6 +1475,12 @@ def update_collection(
                 etsy_section_name = ?,
                 notes = ?,
                 prompt = ?,
+                default_price_tier_1_cents = ?,
+                default_price_tier_2_cents = ?,
+                default_price_tier_3_cents = ?,
+                default_price_tier_4_cents = ?,
+                default_price_tier_5_cents = ?,
+                default_price_tier_6_cents = ?,
                 status = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE code = ?
@@ -1458,6 +1492,7 @@ def update_collection(
                 normalized_section,
                 description.strip() or None,
                 prompt.strip() or None,
+                *prices,
                 normalized_status,
                 code,
             ),

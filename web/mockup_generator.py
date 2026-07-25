@@ -349,8 +349,12 @@ def _collection(artwork: Image.Image, title: str, template_key: str = DEFAULT_TE
         blend = y / (CANVAS_SIZE[1] - 1)
         color = tuple(round(a + (b - a) * blend) for a, b in zip(top, bottom))
         draw.line((0, y, CANVAS_SIZE[0], y), fill=color)
-    draw.ellipse((-1180, -900, 480, 760), outline="#b54f35", width=24)
-    draw.ellipse((1390, 1450, 2320, 2380), outline="#d18a4a", width=28)
+    # Quiet editorial framing keeps attention on the artwork grid. Decorative
+    # circles previously competed with the collection rather than supporting it.
+    draw.rectangle((0, 0, 34, CANVAS_SIZE[1]), fill="#9e4937")
+    draw.rectangle((34, 0, 48, CANVAS_SIZE[1]), fill="#d6a06f")
+    draw.line((120, 58, 1880, 58), fill="#c79b82", width=3)
+    draw.line((1760, 58, 1880, 58), fill="#9e4937", width=9)
 
     thumbnails = []
     titles = collection_thumbnail_titles or []
@@ -401,7 +405,7 @@ def _collection(artwork: Image.Image, title: str, template_key: str = DEFAULT_TE
 
     draw.line((120, 1515, 1880, 1515), fill="#b98f76", width=3)
     draw.text((120, 1590), "Every Collection Tells a Story.", fill="#281f1b", font=_serif_font(58, bold=True))
-    draw.text((120, 1700), "ORIGINAL ARTWORK  ·  PROFESSIONALLY PRINTED", fill="#554a43", font=_font(25, bold=True))
+    draw.text((120, 1700), "EXCLUSIVE ARTWORK  ·  PROFESSIONALLY PRINTED", fill="#554a43", font=_font(25, bold=True))
     draw.rounded_rectangle((120, 1785, 740, 1875), radius=45, fill="#9e4937")
     draw.text((165, 1812), "etsy.com/shop/ShangooliShop", fill="#fff9f2", font=_font(28, bold=True))
     draw.text((1515, 1818), "SHANGOOLISHOP", fill="#9e4937", font=_font(27, bold=True))

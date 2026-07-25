@@ -86,6 +86,16 @@ Edit {{ collection["name"] }} — ShangooliOS
                         >
                     </div>
 
+                    <details class="collection-pricing-panel mb-3">
+                        <summary><span>Default prices for new listings</span><small>Starting at ${{ '%.2f'|format(collection['default_price_tier_1_cents'] / 100) }}</small></summary>
+                        <div class="collection-pricing-grid">
+                            {% for tier, label in [(1, '11×14 / 14×11'), (2, '12×18 / 18×12'), (3, '16×20 / 20×16'), (4, '18×24 / 24×18'), (5, '20×30 / 30×20'), (6, '24×36 / 36×24')] %}
+                            <label><span>{{ label }}</span><span class="input-group input-group-sm"><span class="input-group-text">$</span><input class="form-control" name="price_tier_{{ tier }}" type="number" min="0.01" step="0.01" value="{{ '%.2f'|format(collection['default_price_tier_' ~ tier ~ '_cents'] / 100) }}" required></span></label>
+                            {% endfor %}
+                        </div>
+                        <p>Changes apply only to Printify products created afterward. Existing Printify and Etsy prices are never changed.</p>
+                    </details>
+
                     <div class="mb-3">
                         <label for="etsy_section_name" class="form-label">Etsy Section Name</label>
                         <input id="etsy_section_name" name="etsy_section_name" type="text"

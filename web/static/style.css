@@ -1429,6 +1429,18 @@ body.is-waiting {
     overflow: hidden;
 }
 
+.artwork-card .code-pill,
+.artwork-card .status-pill {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 0.6rem;
+    justify-content: center;
+    line-height: 1;
+    padding: 0.28rem 0.45rem;
+    white-space: nowrap;
+}
+
 .artwork-card-media {
     aspect-ratio: 4 / 3;
     background: #eef0f5;
@@ -2326,6 +2338,48 @@ body.is-waiting {
 .collection-create-modal .modal-footer {
     border-color: #e7e5f1;
     padding: 1rem 1.15rem;
+}
+
+.collection-pricing-panel {
+    background: #f7f6fb;
+    border: 1px solid #dfdcea;
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.85rem;
+}
+
+.collection-pricing-panel summary {
+    align-items: center;
+    color: var(--brand-dark);
+    cursor: pointer;
+    display: flex;
+    font-weight: 750;
+    justify-content: space-between;
+}
+
+.collection-pricing-panel summary small,
+.collection-pricing-panel > p {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+}
+
+.collection-pricing-panel > p {
+    margin: 0.75rem 0 0;
+}
+
+.collection-pricing-grid {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 0.85rem;
+}
+
+.collection-pricing-grid label > span:first-child {
+    color: var(--muted);
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
 }
 
 .collection-create-modal .modal-body {

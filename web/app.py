@@ -370,7 +370,8 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         and item["printify_product_id"] and item["external_listing_id"]
     ), None)
     printify_profile = _printify_profile_for_orientation(
-        production["orientation"] if production else ""
+        production["orientation"] if production else "",
+        artwork["collection_code"],
     )
     context = {
         "artwork": artwork,
@@ -1203,7 +1204,8 @@ def listing_page(request: Request, listing_id: int):
     printify_state = validate_printify_product(listing)
     production = get_artwork_production(listing["artwork_code"])
     automatic_profile = _printify_profile_for_orientation(
-        production["orientation"] if production else ""
+        production["orientation"] if production else "",
+        listing["collection_code"],
     )
     available_printify_roles = {
         item["role"] for item in _printify_file_options(listing)
@@ -1605,12 +1607,12 @@ HORIZONTAL_PRINTIFY_PROFILE = {
     "provider_id": 99,
     "provider_name": "Printify Choice",
     "variants": (
-        (43163, '14″ x 11″ / Matte', 2500),
-        (43166, '18″ x 12″ / Matte', 2800),
-        (43169, '20″ x 16″ / Matte', 3200),
-        (43172, '24″ x 18″ / Matte', 3800),
-        (43175, '30″ x 20″ / Matte', 4800),
-        (43178, '36″ x 24″ / Matte', 5800),
+        (43163, '14″ x 11″ / Matte', 2900),
+        (43166, '18″ x 12″ / Matte', 3400),
+        (43169, '20″ x 16″ / Matte', 3900),
+        (43172, '24″ x 18″ / Matte', 4600),
+        (43175, '30″ x 20″ / Matte', 5800),
+        (43178, '36″ x 24″ / Matte', 7200),
     ),
 }
 
@@ -1621,21 +1623,37 @@ VERTICAL_PRINTIFY_PROFILE = {
     "provider_id": 99,
     "provider_name": "Printify Choice",
     "variants": (
-        (43135, '11″ x 14″ / Matte', 2500),
-        (43138, '12″ x 18″ / Matte', 2800),
-        (43141, '16″ x 20″ / Matte', 3200),
-        (43144, '18″ x 24″ / Matte', 3800),
-        (43147, '20″ x 30″ / Matte', 4800),
-        (43150, '24″ x 36″ / Matte', 5800),
+        (43135, '11″ x 14″ / Matte', 2900),
+        (43138, '12″ x 18″ / Matte', 3400),
+        (43141, '16″ x 20″ / Matte', 3900),
+        (43144, '18″ x 24″ / Matte', 4600),
+        (43147, '20″ x 30″ / Matte', 5800),
+        (43150, '24″ x 36″ / Matte', 7200),
     ),
 }
 
 
-def _printify_profile_for_orientation(orientation):
-    return {
+def _printify_profile_for_orientation(orientation, collection_code=None):
+    profile = {
         "horizontal": HORIZONTAL_PRINTIFY_PROFILE,
         "vertical": VERTICAL_PRINTIFY_PROFILE,
     }.get((orientation or "").strip().lower())
+    if profile is None or not collection_code:
+        return profile
+    collection, _, _ = get_collection(collection_code)
+    if collection is None:
+        return profile
+    prices = [
+        collection[f"default_price_tier_{tier}_cents"]
+        for tier in range(1, 7)
+    ]
+    return {
+        **profile,
+        "variants": tuple(
+            (variant_id, title, prices[index])
+            for index, (variant_id, title, _) in enumerate(profile["variants"])
+        ),
+    }
 
 
 @app.post("/listings/{listing_id}/printify/prepare")
@@ -1655,7 +1673,8 @@ def prepare_printify_product_post(
         raise HTTPException(status_code=400, detail="Complete listing readiness first")
     production = get_artwork_production(listing["artwork_code"])
     profile = _printify_profile_for_orientation(
-        production["orientation"] if production else ""
+        production["orientation"] if production else "",
+        listing["collection_code"],
     )
     if profile is None:
         raise HTTPException(
@@ -2066,6 +2085,12 @@ def create_collection_post(
     etsy_section_name: str = Form(""),
     description: str = Form(""),
     prompt: str = Form(""),
+    price_tier_1: str = Form("29.00"),
+    price_tier_2: str = Form("34.00"),
+    price_tier_3: str = Form("39.00"),
+    price_tier_4: str = Form("46.00"),
+    price_tier_5: str = Form("58.00"),
+    price_tier_6: str = Form("72.00"),
 ):
     collection_code = create_collection(
         code=code,
@@ -2075,6 +2100,12 @@ def create_collection_post(
         etsy_section_name=etsy_section_name,
         description=description,
         prompt=prompt,
+        default_prices=tuple(
+            _price_to_cents(value) for value in (
+                price_tier_1, price_tier_2, price_tier_3,
+                price_tier_4, price_tier_5, price_tier_6,
+            )
+        ),
     )
 
     return RedirectResponse(
@@ -2126,6 +2157,12 @@ def edit_collection_post(
     etsy_section_name: str = Form(""),
     description: str = Form(""),
     prompt: str = Form(""),
+    price_tier_1: str = Form("29.00"),
+    price_tier_2: str = Form("34.00"),
+    price_tier_3: str = Form("39.00"),
+    price_tier_4: str = Form("46.00"),
+    price_tier_5: str = Form("58.00"),
+    price_tier_6: str = Form("72.00"),
 ):
     updated_code = update_collection(
         collection_code=collection_code,
@@ -2136,6 +2173,12 @@ def edit_collection_post(
         etsy_section_name=etsy_section_name,
         description=description,
         prompt=prompt,
+        default_prices=tuple(
+            _price_to_cents(value) for value in (
+                price_tier_1, price_tier_2, price_tier_3,
+                price_tier_4, price_tier_5, price_tier_6,
+            )
+        ),
     )
 
     return RedirectResponse(
