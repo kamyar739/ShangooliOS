@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Fast Flow — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "fast_flow" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content workflow-compact">
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Collection import</div>
+        <h1 class="display-6 fw-bold">Fast Flow</h1>
+        <p class="text-muted mb-0">Import a completed collection, then continue with the existing manual production workflow.</p>
+      </div>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger"><strong>Import stopped.</strong> {{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/fast-flow/import" enctype="multipart/form-data" data-fast-flow-form data-long-operation>
+      <section class="card app-card mb-3">
+        <div class="card-body p-4">
+          <div class="fast-flow-section-heading">
+            <div><div class="eyebrow">1. Metadata</div><h2 class="h4 mb-1">Choose or paste the collection manifest</h2></div>
+            <span class="status-pill listing-status-draft">Nothing is created yet</span>
+          </div>
+          <p class="text-secondary">Use the structured JSON prepared with ChatGPT. The artwork order in the manifest becomes the collection order.</p>
+          <div class="alert alert-light border py-2 small">This metadata format is an internal Fast Flow MVP detail and may change after we test real collection imports.</div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="fast-flow-manifest-file">Metadata file</label>
+            <input class="form-control" id="fast-flow-manifest-file" type="file" accept=".json,application/json">
+            <div class="form-text">Selecting a JSON file fills the editable metadata area below.</div>
+          </div>
+          <div>
+            <label class="form-label fw-semibold" for="fast-flow-manifest">Collection metadata</label>
+            <textarea class="form-control font-monospace" id="fast-flow-manifest" name="manifest" rows="15" required placeholder='Paste the completed collection JSON here.'>{{ manifest_text }}</textarea>
+          </div>
+          <details class="mt-3">
+            <summary class="fw-semibold">Show the MVP metadata format</summary>
+            <pre class="fast-flow-example mt-3">{
+  "collection": {
+    "code": "DUE",
+    "name": "The Duende Collection",
+    "description": "A six-part emotional journey.",
+    "prompt": "Shared collection prompt.",
+    "etsy_section_name": "Duende",
+    "status": "active"
+  },
+  "artworks": [
+    {
+      "image": "surrender.png",
+      "title": "Surrender",
+      "description": "Artwork description.",
+      "prompt": "Artwork-specific prompt.",
+      "story": "The complete artwork story.",
+      "seo": {
+        "title": "Customer-facing Etsy title",
+        "description": "Customer-facing Etsy description.",
+        "tags": ["flamenco wall art", "expressive art"],
+        "alt_text": "Description of the visible artwork.",
+        "keywords": ["flamenco", "wall art"]
+      }
+    }
+  ]
+}</pre>
+          </details>
+        </div>
+      </section>
+
+      <section class="card app-card mb-3">
+        <div class="card-body p-4">
+          <div class="eyebrow">2. Approved images</div>
+          <h2 class="h4 mb-1">Choose every artwork image</h2>
+          <p class="text-secondary">Filenames must match the <code>image</code> values in the metadata. Images are attached as source artwork; production approval remains in the existing Quality step.</p>
+          <input class="form-control" id="fast-flow-images" name="images" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" multiple required>
+        </div>
+      </section>
+
+      <section class="card app-card mb-3">
+        <div class="card-body p-4">
+          <div class="fast-flow-section-heading">
+            <div><div class="eyebrow">3. Preview</div><h2 class="h4 mb-1">Review what will be created</h2></div>
+            <span class="status-pill listing-status-draft" data-fast-flow-status>Waiting for metadata and images</span>
+          </div>
+          <div class="alert alert-light border mt-3 mb-0" data-fast-flow-message>Select the metadata and artwork images to build the preview.</div>
+          <div class="fast-flow-preview mt-3" data-fast-flow-preview hidden>
+            <div class="fast-flow-collection-summary">
+              <div><span class="code-pill" data-fast-flow-code></span><h3 class="h4 mb-1" data-fast-flow-name></h3><p class="text-secondary mb-0" data-fast-flow-description></p></div>
+              <strong data-fast-flow-count></strong>
+            </div>
+            <div class="fast-flow-artwork-grid mt-3" data-fast-flow-artworks></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="fast-flow-submit-bar">
+        <div><strong>Final action</strong><span>This creates normal ShangooliOS records. It does not run production or publish anything.</span></div>
+        <button class="btn btn-primary btn-lg" type="submit" data-fast-flow-submit disabled>Import collection</button>
+      </div>
+    </form>
+  </main>
+</div>
+
+<script>
+(function () {
+  const form = document.querySelector('[data-fast-flow-form]');
+  if (!form) return;
+  const manifestFile = document.getElementById('fast-flow-manifest-file');
+  const manifest = document.getElementById('fast-flow-manifest');
+  const images = document.getElementById('fast-flow-images');
+  const status = form.querySelector('[data-fast-flow-status]');
+  const message = form.querySelector('[data-fast-flow-message]');
+  const preview = form.querySelector('[data-fast-flow-preview]');
+  const code = form.querySelector('[data-fast-flow-code]');
+  const name = form.querySelector('[data-fast-flow-name]');
+  const description = form.querySelector('[data-fast-flow-description]');
+  const count = form.querySelector('[data-fast-flow-count]');
+  const artworkGrid = form.querySelector('[data-fast-flow-artworks]');
+  const submit = form.querySelector('[data-fast-flow-submit]');
+  let objectUrls = [];
+
+  function clearObjectUrls() {
+    objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    objectUrls = [];
+  }
+
+  function setState(valid, text) {
+    submit.disabled = !valid;
+    status.textContent = valid ? 'Ready to import' : 'Needs attention';
+    status.className = `status-pill ${valid ? 'status-approved' : 'listing-status-draft'}`;
+    message.textContent = text;
+    message.className = `alert ${valid ? 'alert-success' : 'alert-warning'} mt-3 mb-0`;
+  }
+
+  function addText(parent, tag, value, className) {
+    const element = document.createElement(tag);
+    element.textContent = value;
+    if (className) element.className = className;
+    parent.appendChild(element);
+    return element;
+  }
+
+  function renderPreview() {
+    clearObjectUrls();
+    artworkGrid.replaceChildren();
+    preview.hidden = true;
+    submit.disabled = true;
+    if (!manifest.value.trim()) {
+      setState(false, 'Add the collection metadata.');
+      return;
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(manifest.value);
+    } catch (error) {
+      setState(false, `The metadata is not valid JSON: ${error.message}`);
+      return;
+    }
+    if (!payload.collection || !payload.collection.code || !payload.collection.name) {
+      setState(false, 'The metadata needs a collection code and name.');
+      return;
+    }
+    if (!Array.isArray(payload.artworks) || !payload.artworks.length) {
+      setState(false, 'The metadata needs at least one artwork.');
+      return;
+    }
+
+    const selectedFiles = new Map(
+      Array.from(images.files || []).map((file) => [file.name.toLocaleLowerCase(), file])
+    );
+    const expectedFiles = new Set();
+    const missing = [];
+    const invalidArtwork = [];
+    payload.artworks.forEach((artwork, index) => {
+      if (!artwork || !artwork.title || !artwork.image) {
+        invalidArtwork.push(index + 1);
+        return;
+      }
+      const filename = String(artwork.image).split(/[\\/]/).pop();
+      expectedFiles.add(filename.toLocaleLowerCase());
+      if (!selectedFiles.has(filename.toLocaleLowerCase())) missing.push(filename);
+    });
+    if (invalidArtwork.length) {
+      setState(false, `Artwork ${invalidArtwork.join(', ')} needs both a title and image filename.`);
+      return;
+    }
+    const extra = Array.from(selectedFiles.values())
+      .filter((file) => !expectedFiles.has(file.name.toLocaleLowerCase()))
+      .map((file) => file.name);
+    if (missing.length || extra.length) {
+      const parts = [];
+      if (missing.length) parts.push(`Missing: ${missing.join(', ')}`);
+      if (extra.length) parts.push(`Not in metadata: ${extra.join(', ')}`);
+      setState(false, parts.join(' · '));
+    } else {
+      setState(true, `Ready to create ${payload.artworks.length} artwork${payload.artworks.length === 1 ? '' : 's'} in one collection.`);
+    }
+
+    code.textContent = String(payload.collection.code).toUpperCase();
+    name.textContent = payload.collection.name;
+    description.textContent = payload.collection.description || 'No collection description supplied.';
+    count.textContent = `${payload.artworks.length} artwork${payload.artworks.length === 1 ? '' : 's'}`;
+
+    payload.artworks.forEach((artwork, index) => {
+      const card = document.createElement('article');
+      card.className = 'fast-flow-artwork-card';
+      const filename = String(artwork.image).split(/[\\/]/).pop();
+      const file = selectedFiles.get(filename.toLocaleLowerCase());
+      const media = document.createElement('div');
+      media.className = 'fast-flow-artwork-media';
+      if (file) {
+        const image = document.createElement('img');
+        const url = URL.createObjectURL(file);
+        objectUrls.push(url);
+        image.src = url;
+        image.alt = artwork.title;
+        media.appendChild(image);
+      } else {
+        addText(media, 'span', 'Image missing', 'text-muted small');
+      }
+      card.appendChild(media);
+      const body = document.createElement('div');
+      body.className = 'fast-flow-artwork-body';
+      addText(body, 'span', `${index + 1}`, 'code-pill');
+      addText(body, 'h4', artwork.title, 'h6 mb-1');
+      addText(body, 'small', filename, 'text-muted');
+      const coverage = [];
+      if (artwork.description) coverage.push('Description');
+      if (artwork.story) coverage.push('Story');
+      if (artwork.seo && (artwork.seo.title || artwork.seo.tags)) coverage.push('SEO');
+      addText(body, 'div', coverage.length ? coverage.join(' · ') : 'Core record only', 'fast-flow-coverage');
+      card.appendChild(body);
+      artworkGrid.appendChild(card);
+    });
+    preview.hidden = false;
+  }
+
+  manifestFile.addEventListener('change', function () {
+    const file = manifestFile.files && manifestFile.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.addEventListener('load', function () {
+      manifest.value = String(reader.result || '');
+      renderPreview();
+    });
+    reader.readAsText(file);
+  });
+  manifest.addEventListener('input', renderPreview);
+  images.addEventListener('change', renderPreview);
+  form.addEventListener('submit', function (event) {
+    if (submit.disabled) event.preventDefault();
+  });
+  if (manifest.value.trim()) renderPreview();
+})();
+</script>
+{% endblock %}

@@ -113,6 +113,7 @@ from web.etsy_sync import (
     sync_etsy_listing,
 )
 from web.file_intake import save_uploaded_file
+from web.fast_flow import import_fast_flow_collection
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
 from web.ai_upscaler import candidate_path, upscale_candidate
@@ -920,6 +921,41 @@ def recently_updated_page(request: Request):
         request=request,
         name="recently_updated.html",
         context=get_dashboard(),
+    )
+
+
+@app.get("/fast-flow")
+def fast_flow_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="fast_flow.html",
+        context={"error": None, "manifest_text": ""},
+    )
+
+
+@app.post("/fast-flow/import")
+def fast_flow_import_post(
+    request: Request,
+    manifest: str = Form(...),
+    images: list[UploadFile] = File(...),
+):
+    try:
+        result = import_fast_flow_collection(manifest, images)
+    except ValueError as error:
+        for upload in images:
+            upload.file.close()
+        return templates.TemplateResponse(
+            request=request,
+            name="fast_flow.html",
+            context={"error": str(error), "manifest_text": manifest},
+            status_code=400,
+        )
+    return RedirectResponse(
+        url=(
+            f"/collections?collection={result['collection_code']}"
+            f"&fast_flow_imported={len(result['artwork_codes'])}"
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

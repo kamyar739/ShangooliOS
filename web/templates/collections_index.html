@@ -9,6 +9,7 @@
       <div><div class="eyebrow">Catalog</div><h1 class="display-6 fw-bold">Collections</h1><p class="text-muted mb-0">Organize artwork into focused storefront collections.</p></div>
       <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-collection-modal">+ New collection</button>
     </div>
+    {% if request.query_params.get('fast_flow_imported') %}<div class="alert alert-success"><strong>Fast Flow import complete.</strong> Created {{ request.query_params.get('fast_flow_imported') }} artwork{% if request.query_params.get('fast_flow_imported') != '1' %}s{% endif %}. The collection is ready for the existing manual workflow.</div>{% endif %}
     {% if request.query_params.get('etsy_collection_paused') is not none %}<div class="alert alert-success">{{ request.query_params.get('etsy_collection_paused') }} Etsy listing{% if request.query_params.get('etsy_collection_paused') != '1' %}s{% endif %} paused. The ShangooliOS and Printify records were preserved.</div>{% endif %}
     {% if request.query_params.get('etsy_collection_reactivated') is not none %}<div class="alert alert-success">{{ request.query_params.get('etsy_collection_reactivated') }} Etsy listing{% if request.query_params.get('etsy_collection_reactivated') != '1' %}s{% endif %} reactivated.</div>{% endif %}
     {% if request.query_params.get('etsy_collection_error') %}<div class="alert alert-warning"><strong>Some listings need attention.</strong> Completed listings remain saved. {{ request.query_params.get('etsy_collection_error') }}</div>{% endif %}
