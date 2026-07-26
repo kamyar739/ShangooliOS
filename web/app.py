@@ -115,6 +115,22 @@ from web.etsy_sync import (
 )
 from web.file_intake import save_uploaded_file
 from web.fast_flow import import_fast_flow_collection
+from web.collection_production import (
+    STATE_LABELS,
+    collection_production_overview,
+    run_collection_production,
+)
+from web.collection_review import (
+    approve_artwork_for_collection,
+    approve_many,
+    collection_review_overview,
+    regenerate_selected_ratio_sets,
+    send_artwork_back,
+)
+from web.publish_readiness import (
+    collection_publish_readiness,
+    prepare_missing_collection_drafts,
+)
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
 from web.ai_upscaler import candidate_path, upscale_candidate
@@ -2167,6 +2183,200 @@ def collection_page(request: Request, collection_code: str):
             "collection_sequence": build_collection_sequence(collection, artworks),
             "archived_artworks": archived_artworks,
         },
+    )
+
+
+@app.get("/collections/{collection_code}/production")
+def collection_production_page(request: Request, collection_code: str):
+    try:
+        collection, items, latest_run = collection_production_overview(
+            collection_code
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_production.html",
+        context={
+            "collection": collection,
+            "items": items,
+            "latest_run": latest_run,
+            "state_labels": STATE_LABELS,
+        },
+    )
+
+
+@app.post("/collections/{collection_code}/production/run")
+def run_collection_production_post(
+    collection_code: str,
+    source_approval_confirmed: bool = Form(False),
+):
+    try:
+        run_collection_production(
+            collection_code,
+            source_approval_confirmed=source_approval_confirmed,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/collections/{collection_code.upper()}/production?ran=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/collections/{collection_code}/production/retry")
+def retry_collection_production_post(collection_code: str):
+    try:
+        run_collection_production(
+            collection_code,
+            source_approval_confirmed=True,
+            retry_failed=True,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=f"/collections/{collection_code.upper()}/production?retried=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/collections/{collection_code}/review")
+def collection_review_page(request: Request, collection_code: str):
+    try:
+        collection, items, visual_review_complete = collection_review_overview(
+            collection_code
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_review.html",
+        context={
+            "collection": collection,
+            "items": items,
+            "visual_review_complete": visual_review_complete,
+        },
+    )
+
+
+@app.post("/collections/{collection_code}/review/{artwork_code}/approve")
+def approve_collection_artwork_post(collection_code: str, artwork_code: str):
+    try:
+        approve_artwork_for_collection(collection_code, artwork_code)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/collections/{collection_code.upper()}/review?approved={artwork_code.upper()}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/collections/{collection_code}/review/{artwork_code}/correct")
+def send_collection_artwork_back_post(
+    collection_code: str,
+    artwork_code: str,
+    correction_note: str = Form(""),
+):
+    artwork = get_artwork(artwork_code)
+    if artwork is None or artwork["collection_code"] != collection_code.upper():
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    send_artwork_back(artwork_code, correction_note)
+    return RedirectResponse(
+        f"/collections/{collection_code.upper()}/review?correction={artwork_code.upper()}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/collections/{collection_code}/review/selected")
+async def approve_selected_collection_artwork_post(
+    collection_code: str, request: Request
+):
+    form = await request.form()
+    selected = [str(value) for value in form.getlist("artwork_codes")]
+    if not selected:
+        raise HTTPException(status_code=400, detail="Select at least one artwork")
+    result = approve_many(collection_code, selected)
+    return RedirectResponse(
+        f"/collections/{collection_code.upper()}/review"
+        f"?approved_count={len(result['approved'])}&skipped_count={len(result['skipped'])}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/collections/{collection_code}/review/eligible")
+def approve_all_eligible_collection_artwork_post(collection_code: str):
+    result = approve_many(collection_code, [])
+    return RedirectResponse(
+        f"/collections/{collection_code.upper()}/review"
+        f"?approved_count={len(result['approved'])}&skipped_count={len(result['skipped'])}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/collections/{collection_code}/review/ratios/regenerate")
+async def regenerate_selected_collection_ratios_post(
+    collection_code: str, request: Request
+):
+    form = await request.form()
+    selected = [str(value) for value in form.getlist("artwork_codes")]
+    if not selected:
+        raise HTTPException(status_code=400, detail="Select at least one artwork")
+    result = regenerate_selected_ratio_sets(collection_code, selected)
+    params = {}
+    if result["successes"]:
+        params["ratio_success"] = ", ".join(result["successes"])
+    if result["failures"]:
+        params["ratio_failure"] = " | ".join(
+            f"{item['artwork_code']}: {item['message']}"
+            for item in result["failures"]
+        )
+    return RedirectResponse(
+        f"/collections/{collection_code.upper()}/review?{urlencode(params)}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/collections/{collection_code}/publish-readiness")
+def collection_publish_readiness_page(
+    request: Request, collection_code: str
+):
+    try:
+        collection, items, counts, ready, latest_run = (
+            collection_publish_readiness(collection_code)
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="publish_readiness.html",
+        context={
+            "collection": collection,
+            "items": items,
+            "counts": counts,
+            "collection_ready": ready,
+            "latest_run": latest_run,
+        },
+    )
+
+
+@app.post("/collections/{collection_code}/publish-readiness/prepare-drafts")
+def prepare_collection_listing_drafts_post(collection_code: str):
+    try:
+        result = prepare_missing_collection_drafts(collection_code)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    params = {
+        "draft_created": ",".join(result["created"]),
+        "draft_existing": ",".join(result["existing"]),
+        "draft_failed": " | ".join(
+            f"{item['artwork_code']}: {item['message']}"
+            for item in result["failed"]
+        ),
+    }
+    return RedirectResponse(
+        f"/collections/{collection_code.upper()}/publish-readiness?"
+        f"{urlencode(params)}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

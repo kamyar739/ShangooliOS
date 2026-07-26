@@ -12,7 +12,7 @@
         rel="stylesheet"
     >
     <link
-        href="{{ url_for('static', path='style.css') }}?v=20260725-fast-flow-5"
+        href="{{ url_for('static', path='style.css') }}?v=20260726-publish-readiness"
         rel="stylesheet"
     >
 </head>
@@ -30,6 +30,7 @@
         <div class="app-wait-card">
             <div class="app-wait-spinner" aria-hidden="true"><span>S</span></div>
             <strong data-app-wait-message>Working…</strong>
+            <span class="app-wait-elapsed" data-app-wait-elapsed>Elapsed 0:00</span>
             <small>Please keep this page open.</small>
         </div>
     </div>
@@ -52,16 +53,33 @@
     (function () {
       const overlay = document.querySelector('[data-app-wait]');
       const message = overlay && overlay.querySelector('[data-app-wait-message]');
+      const elapsed = overlay && overlay.querySelector('[data-app-wait-elapsed]');
       let timer;
       let stageTimer;
+      let elapsedTimer;
+      let waitStartedAt;
+      function updateElapsed() {
+        if (!elapsed || !waitStartedAt) return;
+        const totalSeconds = Math.floor((Date.now() - waitStartedAt) / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        elapsed.textContent = `Elapsed ${minutes}:${seconds}`;
+      }
       function revealWait(label) {
         if (message) message.textContent = label || 'Working…';
+        waitStartedAt = Date.now();
+        updateElapsed();
+        clearInterval(elapsedTimer);
+        elapsedTimer = setInterval(updateElapsed, 1000);
         overlay.hidden = false;
         document.body.classList.add('is-waiting');
       }
       function hideWait() {
         clearTimeout(timer);
         clearInterval(stageTimer);
+        clearInterval(elapsedTimer);
+        waitStartedAt = null;
+        if (elapsed) elapsed.textContent = 'Elapsed 0:00';
         overlay.hidden = true;
         document.body.classList.remove('is-waiting');
       }

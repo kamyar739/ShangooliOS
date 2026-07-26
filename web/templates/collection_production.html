@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Produce Collection — {{ collection['name'] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
+  <div class="mb-3">
+    <a class="context-nav-link" href="/collections?collection={{ collection['code'] }}">← Back to {{ collection['name'] }}</a>
+  </div>
+
+  <header class="page-header collection-production-header mb-4">
+    <div>
+      <div class="eyebrow">COLLECTION PRODUCTION</div>
+      <h1 class="display-6 fw-bold mb-2">Produce Collection</h1>
+      <p class="text-muted mb-0">{{ collection['name'] }} · {{ items|length }} artwork{% if items|length != 1 %}s{% endif %}</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="#production-exceptions">Review exceptions</a>
+      <a class="btn btn-success" href="/collections/{{ collection['code'] }}/review">Review Collection</a>
+      {% if latest_run %}
+      <form method="post" action="/collections/{{ collection['code'] }}/production/retry" data-long-operation>
+        <button class="btn btn-outline-primary" type="submit">Retry failed work</button>
+      </form>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if request.query_params.get('ran') or request.query_params.get('retried') %}
+  <div class="alert alert-success">Safe internal production work finished. Review the results below.</div>
+  {% endif %}
+
+  <section class="card app-card mb-4">
+    <div class="card-body p-4">
+      <div class="row g-3 align-items-center">
+        <div class="col-lg">
+          <div class="eyebrow">PREFLIGHT</div>
+          <h2 class="h4 mb-2">Ready to process safely</h2>
+          <p class="text-muted mb-0">Existing files, approvals, metadata, listings, and prices are preserved. Passing originals are used as-is; eligible low-quality originals are enhanced 4× locally. Nothing is sent to Printify or Etsy.</p>
+        </div>
+        <div class="col-lg-auto">
+          <form method="post" action="/collections/{{ collection['code'] }}/production/run" data-long-operation data-wait-stages="Checking sources|Enhancing eligible artwork|Building print files|Creating missing mockups|Finishing collection">
+            <label class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" name="source_approval_confirmed" value="true" required>
+              <span class="form-check-label">These uploaded originals are the intended artwork inputs.</span>
+            </label>
+            <button class="btn btn-primary btn-lg w-100" type="submit">{% if latest_run %}Continue safe work{% else %}Produce Collection{% endif %}</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card app-card mb-4">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0 collection-production-table">
+        <thead><tr>
+          <th>Artwork</th><th>Source</th><th>Certification</th><th>Print master</th>
+          <th>Ratio files</th><th>Mockups</th><th>Metadata</th><th>Local listing</th>
+          <th>Result</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for item in items %}
+          <tr class="production-row production-row-{{ item['overall_status'] }}">
+            <td><strong>{{ item['public_title'] }}</strong><small>{{ item['artwork_code'] }}{% if item['source_used'] %} · {{ '4× enhanced' if item['source_used'] == 'ai_upscale_4x' else 'original source' }}{% endif %}</small></td>
+            {% for key in ['source_status', 'certification_status', 'print_master_status', 'ratio_status', 'mockup_status', 'metadata_status', 'listing_status'] %}
+            <td><span class="production-state state-{{ item[key] }}">{{ state_labels.get(item[key], item[key]|replace('_', ' ')|title) }}</span></td>
+            {% endfor %}
+            <td><span class="production-state state-{{ item['overall_status'] }}">{{ state_labels.get(item['overall_status'], item['overall_status']|replace('_', ' ')|title) }}</span></td>
+            <td><a class="btn btn-sm btn-outline-secondary" href="/artworks/{{ item['artwork_code'] }}">Open</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="10"><div class="empty-state">This collection has no active artwork.</div></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="production-exceptions" class="card app-card">
+    <div class="card-body p-4">
+      <div class="eyebrow">EXCEPTIONS</div>
+      <h2 class="h4 mb-3">Work needing attention</h2>
+      <div class="list-group list-group-flush">
+      {% for item in items if item['error_message'] %}
+        <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+          <div><strong>{{ item['artwork_code'] }} — {{ item['public_title'] }}</strong><p class="text-muted mb-0">{{ item['error_message'] }}</p></div>
+          <a class="btn btn-sm btn-outline-primary align-self-center" href="/artworks/{{ item['artwork_code'] }}">Review artwork</a>
+        </div>
+      {% else %}
+        <p class="text-muted mb-0">No current exceptions.</p>
+      {% endfor %}
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+{% endblock %}

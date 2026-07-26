@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Publish Readiness — {{ collection['name'] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
+  <div class="mb-3">
+    <a class="context-nav-link" href="/collections/{{ collection['code'] }}/review">← Back to Collection Review</a>
+  </div>
+
+  <header class="page-header mb-4">
+    <div>
+      <div class="eyebrow">PUBLISH READINESS</div>
+      <h1 class="display-6 fw-bold mb-2">Ready for Printify</h1>
+      <p class="text-muted mb-0">{{ collection['name'] }} · Final local checks before any external publishing.</p>
+    </div>
+    <span class="collection-ready-badge {% if collection_ready %}is-ready{% endif %}">
+      {% if collection_ready %}Ready for Printify{% else %}Action required{% endif %}
+    </span>
+  </header>
+
+  {% if request.query_params.get('draft_created') %}
+  <div class="alert alert-success"><strong>Drafts created:</strong> {{ request.query_params.get('draft_created') }}.</div>
+  {% endif %}
+  {% if request.query_params.get('draft_existing') %}
+  <div class="alert alert-secondary"><strong>Existing listings preserved:</strong> {{ request.query_params.get('draft_existing') }}.</div>
+  {% endif %}
+  {% if request.query_params.get('draft_failed') %}
+  <div class="alert alert-danger"><strong>Draft preparation needs attention:</strong> {{ request.query_params.get('draft_failed') }}</div>
+  {% endif %}
+
+  <section class="publish-summary-grid mb-4" aria-label="Collection readiness summary">
+    <div class="publish-summary-card"><span>Total</span><strong>{{ counts['total'] }}</strong></div>
+    <div class="publish-summary-card is-ready"><span>Ready</span><strong>{{ counts['ready'] }}</strong></div>
+    <div class="publish-summary-card is-blocked"><span>Blocked</span><strong>{{ counts['blocked'] }}</strong></div>
+    <div class="publish-summary-card is-review"><span>Needs review</span><strong>{{ counts['needs_review'] }}</strong></div>
+    <div class="publish-summary-card is-printify"><span>On Printify</span><strong>{{ counts['printify_linked'] }}</strong></div>
+    <div class="publish-summary-card is-etsy"><span>Linked to Etsy</span><strong>{{ counts['etsy_linked'] }}</strong></div>
+  </section>
+
+  <section class="card app-card publish-readiness-actions mb-4">
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <div>
+        <strong>Prepare missing local drafts</strong>
+        <div class="small text-muted">Creates only missing drafts from approved prepared content and the collection price. Existing listings remain untouched.</div>
+      </div>
+      <form method="post" action="/collections/{{ collection['code'] }}/publish-readiness/prepare-drafts">
+        <button class="btn btn-primary" type="submit">Prepare Missing Drafts</button>
+      </form>
+    </div>
+  </section>
+
+  <div class="publish-readiness-list">
+  {% for item in items %}
+    <article class="card app-card publish-readiness-artwork status-{{ item['primary_status'] }} mb-3">
+      <div class="card-body">
+        <div class="publish-readiness-heading">
+          <div>
+            <div class="eyebrow">{{ item['artwork_code'] }}</div>
+            <h2 class="h5 mb-1">{{ item['public_title'] }}</h2>
+            <span class="small text-muted">Production: {{ item['production_status']|replace('_', ' ')|title }}</span>
+          </div>
+          <span class="publish-primary-status status-{{ item['primary_status'] }}">{{ item['status_label'] }}</span>
+        </div>
+
+        <div class="publish-check-grid mt-3">
+          <div class="publish-check-group">
+            <span>Source & master</span>
+            <strong class="{{ 'text-success' if item['source_exists'] and item['master_exists'] else 'text-danger' }}">{{ 'Files ready' if item['source_exists'] and item['master_exists'] else 'Files missing' }}</strong>
+            <small>Source {{ 'approved' if item['source_approved'] else 'review needed' }} · Master {{ 'approved' if item['master_approved'] else 'review needed' }}</small>
+          </div>
+          <div class="publish-check-group">
+            <span>Ratio files</span>
+            <strong class="{{ 'text-success' if item['ratios_exist'] else 'text-danger' }}">{{ 'Complete' if item['ratios_exist'] else 'Incomplete' }}</strong>
+            <small>{{ 'Approved' if item['ratios_approved'] else 'Approval needed' }}</small>
+          </div>
+          <div class="publish-check-group">
+            <span>Listing images</span>
+            <strong class="{{ 'text-success' if item['mockups_exist'] else 'text-danger' }}">{{ 'Complete' if item['mockups_exist'] else 'Incomplete' }}</strong>
+            <small>{{ 'Approved' if item['mockups_approved'] else 'Approval needed' }}</small>
+          </div>
+          <div class="publish-check-group">
+            <span>Local listing</span>
+            <strong>{{ item['listing_status']|title }}</strong>
+            <small>Title {{ 'ready' if item['title_ready'] else 'missing' }} · Description {{ 'ready' if item['description_ready'] else 'missing' }}</small>
+          </div>
+          <div class="publish-check-group">
+            <span>SEO & accessibility</span>
+            <strong class="{{ 'text-success' if item['tags_ready'] and item['alt_text_ready'] else 'text-danger' }}">{{ 'Ready' if item['tags_ready'] and item['alt_text_ready'] else 'Incomplete' }}</strong>
+            <small>Tags {{ 'ready' if item['tags_ready'] else 'missing' }} · Alt text {{ 'ready' if item['alt_text_ready'] else 'missing' }}</small>
+          </div>
+          <div class="publish-check-group">
+            <span>Price</span>
+            <strong class="{{ 'text-success' if item['price_ready'] else 'text-danger' }}">${{ '%.2f'|format(item['price_cents'] / 100) }}</strong>
+            <small>{% if item['listing_exists'] %}Existing listing price{% else %}Collection default{% endif %}</small>
+          </div>
+          <div class="publish-check-group">
+            <span>External state</span>
+            <strong>{% if item['etsy_listing_id'] %}Etsy linked{% elif item['printify_product_id'] %}Printify created{% else %}Not sent{% endif %}</strong>
+            <small>Printify ID {{ item['printify_product_id'] or '—' }} · Etsy ID {{ item['etsy_listing_id'] or '—' }}</small>
+          </div>
+          <div class="publish-check-group">
+            <span>Story</span>
+            <strong>{{ 'Available' if item['story_ready'] else 'Optional' }}</strong>
+            <small>The published description is checked separately.</small>
+          </div>
+        </div>
+
+        {% if item['blockers'] or item['review_items'] or item['warnings'] %}
+        <div class="publish-readiness-notes mt-3">
+          {% if item['blockers'] %}<div class="publish-note is-blocker"><strong>Blockers</strong><ul>{% for message in item['blockers'] %}<li>{{ message }}</li>{% endfor %}</ul></div>{% endif %}
+          {% if item['review_items'] %}<div class="publish-note is-review"><strong>Needs review</strong><ul>{% for message in item['review_items'] %}<li>{{ message }}</li>{% endfor %}</ul></div>{% endif %}
+          {% if item['warnings'] %}<div class="publish-note is-warning"><strong>Notes</strong><ul>{% for message in item['warnings'] %}<li>{{ message }}</li>{% endfor %}</ul></div>{% endif %}
+        </div>
+        {% endif %}
+
+        <div class="publish-readiness-footer mt-3">
+          <span class="small text-muted">{% if item['primary_status'] in ['etsy_linked', 'printify_linked'] %}Protected from duplicate submission.{% elif item['primary_status'] == 'ready' %}All local publishing requirements pass.{% else %}Resolve only the items shown above.{% endif %}</span>
+          <div class="d-flex gap-2">
+            {% if item['listing_id'] %}<a class="btn btn-sm btn-outline-secondary" href="/listings/{{ item['listing_id'] }}">Open listing</a>{% endif %}
+            {% if item['blockers'] or item['review_items'] %}<a class="btn btn-sm btn-outline-primary" href="/artworks/{{ item['artwork_code'] }}">Open artwork</a>{% endif %}
+          </div>
+        </div>
+      </div>
+    </article>
+  {% else %}
+    <div class="empty-state">This collection has no active artwork intended for publishing.</div>
+  {% endfor %}
+  </div>
+
+  <section class="card app-card mt-4">
+    <div class="card-body p-4">
+      <div class="eyebrow">NEXT INTEGRATION</div>
+      <h2 class="h4 mb-2">{% if collection_ready %}Collection is locally ready{% else %}Finish the local checks first{% endif %}</h2>
+      <p class="text-muted mb-0">{% if collection_ready %}Every active artwork is ready or already linked externally. Printify submission will be added in the next sprint.{% else %}No files are sent externally from this page. Resolve the listed blockers and approvals, then return here.{% endif %}</p>
+    </div>
+  </section>
+</main>
+</div>
+{% endblock %}

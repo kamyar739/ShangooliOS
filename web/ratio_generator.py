@@ -51,10 +51,11 @@ def generate_ratio_output(
     ratio: str,
     mode: str,
     overwrite: bool,
+    destination_folder: Path | None = None,
 ) -> dict:
     ratio_width, ratio_height = parse_ratio(ratio)
     workspace = get_artwork_folder(artwork)
-    destination_folder = workspace / "02 Print Files"
+    destination_folder = destination_folder or workspace / "02 Print Files"
     destination_folder.mkdir(parents=True, exist_ok=True)
 
     ratio_slug = _ratio_slug(ratio)

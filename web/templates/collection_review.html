@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Review Collection — {{ collection['name'] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
+  <div class="mb-3"><a class="context-nav-link" href="/collections?collection={{ collection['code'] }}">← Back to {{ collection['name'] }}</a></div>
+  <header class="page-header mb-4">
+    <div>
+      <div class="eyebrow">COLLECTION REVIEW</div>
+      <h1 class="display-6 fw-bold mb-2">Review Collection</h1>
+      <p class="text-muted mb-0">{{ collection['name'] }} · Review generated print files and listing images together.</p>
+    </div>
+    <span class="collection-ready-badge {% if visual_review_complete %}is-ready{% endif %}">
+      {% if visual_review_complete %}Visual Review Complete{% else %}Review in progress{% endif %}
+    </span>
+  </header>
+
+  {% if request.query_params.get('approved_count') %}
+  <div class="alert alert-success">{{ request.query_params.get('approved_count') }} eligible artwork approved.{% if request.query_params.get('skipped_count') != '0' %} {{ request.query_params.get('skipped_count') }} skipped because they need attention.{% endif %}</div>
+  {% elif request.query_params.get('approved') %}
+  <div class="alert alert-success">{{ request.query_params.get('approved') }} approved.</div>
+  {% elif request.query_params.get('correction') %}
+  <div class="alert alert-warning">{{ request.query_params.get('correction') }} was sent back without deleting its generated files.</div>
+  {% endif %}
+  {% if request.query_params.get('ratio_success') %}
+  <div class="alert alert-success"><strong>Ratio sets regenerated:</strong> {{ request.query_params.get('ratio_success') }}. Their ratio approval was cleared for review.</div>
+  {% endif %}
+  {% if request.query_params.get('ratio_failure') %}
+  <div class="alert alert-danger"><strong>Ratio regeneration failures:</strong> {{ request.query_params.get('ratio_failure') }}</div>
+  {% endif %}
+
+  <section class="collection-review-toolbar card app-card mb-4">
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <div><strong>Select artwork to approve together.</strong><div class="small text-muted">Only artwork passing the current validation rules will be approved.</div></div>
+      <div class="d-flex flex-wrap gap-2">
+        <form id="review-selection-form" method="post" action="/collections/{{ collection['code'] }}/review/selected">
+          <button class="btn btn-outline-primary" type="submit">Approve Selected</button>
+          <button class="btn btn-outline-warning" type="submit"
+                  formaction="/collections/{{ collection['code'] }}/review/ratios/regenerate"
+                  data-regenerate-ratios disabled>Regenerate Ratio Sets</button>
+        </form>
+        <form method="post" action="/collections/{{ collection['code'] }}/review/eligible">
+          <button class="btn btn-success" type="submit">Approve All Eligible</button>
+        </form>
+        <form method="post" action="/collections/{{ collection['code'] }}/production/run" data-long-operation>
+          <input type="hidden" name="source_approval_confirmed" value="true">
+          <button class="btn btn-outline-secondary" type="submit">Continue Safe Production</button>
+        </form>
+        <a class="btn btn-primary" href="/collections/{{ collection['code'] }}/publish-readiness">Continue to Publish Readiness</a>
+        <a class="btn btn-outline-secondary" href="#review-exceptions">Review Exceptions</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="collection-review-list">
+  {% for item in items %}
+    <article class="card app-card collection-review-artwork mb-4 state-{{ item['display_state'] }}">
+      <div class="card-body p-4">
+        <div class="collection-review-artwork-heading">
+          <label class="collection-review-select">
+            <input class="form-check-input" type="checkbox" name="artwork_codes" value="{{ item['artwork_code'] }}" form="review-selection-form" data-review-selection>
+            <span class="visually-hidden">Select {{ item['public_title'] }}</span>
+          </label>
+          <div class="flex-grow-1">
+            <div class="eyebrow">{{ item['artwork_code'] }}</div>
+            <h2 class="h4 mb-1">{{ item['public_title'] }}</h2>
+            <div class="small text-muted">Source: {{ item['source_status'] }}</div>
+          </div>
+          <span class="review-state-pill state-{{ item['display_state'] }}">
+            {% if item['display_state'] == 'ready' %}Ready to review
+            {% elif item['display_state'] == 'needs_correction' %}Needs correction
+            {% elif item['display_state'] == 'not_generated' %}Not yet generated
+            {% else %}{{ item['display_state']|title }}{% endif %}
+          </span>
+        </div>
+
+        {% if item['source_warnings'] %}
+        <div class="review-info-note mt-3"><strong>Quality notes:</strong> {{ item['source_warnings']|join(' ') }}</div>
+        {% endif %}
+        {% if item['correction_note'] %}
+        <div class="alert alert-warning py-2 mt-3 mb-0"><strong>Correction requested:</strong> {{ item['correction_note'] }}</div>
+        {% endif %}
+
+        <div class="collection-review-section mt-4">
+          <div class="collection-review-section-heading"><div><h3 class="h6 mb-0">Required ratio files</h3><small>{{ 'Approved' if item['visually_approved'] else 'Review crops before approval' }}</small></div><a href="/artworks/{{ item['artwork_code'] }}?step=print" class="review-manage-link">Manage ratio files <span aria-hidden="true">→</span></a></div>
+          <div class="collection-review-ratio-grid">
+          {% for ratio in item['ratio_items'] %}
+            <div class="review-preview-card">
+              {% if ratio['exists'] %}<img src="/artworks/{{ item['artwork_code'] }}/files/view?role={{ ratio['role'] }}" alt="{{ item['public_title'] }} {{ ratio['ratio'] }} ratio">{% else %}<div class="review-preview-missing">Missing</div>{% endif %}
+              <div class="review-preview-caption ratio-preview-caption"><strong>{{ ratio['ratio'] }}</strong></div>
+            </div>
+          {% endfor %}
+          </div>
+        </div>
+
+        <div class="collection-review-section mt-4">
+          <div class="collection-review-section-heading"><div><h3 class="h6 mb-0">Listing mockups</h3><small>Shown in the saved marketplace order.</small></div><a href="/artworks/{{ item['artwork_code'] }}?step=mockups" class="review-manage-link">Manage mockups <span aria-hidden="true">→</span></a></div>
+          <div class="collection-review-mockup-track">
+          {% for mockup in item['mockup_items'] %}
+            <div class="review-preview-card mockup-preview">
+              {% if mockup['exists'] %}<img src="/artworks/{{ item['artwork_code'] }}/files/view?role={{ mockup['role'] }}" alt="{{ item['public_title'] }} {{ mockup['slot'] }} mockup">{% else %}<div class="review-preview-missing">Missing</div>{% endif %}
+              <div class="review-preview-caption"><strong>{{ mockup['slot']|replace('_', ' ')|title }}</strong>
+              {% if mockup['exists'] %}<form method="post" action="/artworks/{{ item['artwork_code'] }}/mockups/{{ mockup['slot'] }}/generate" data-long-operation><button class="btn btn-sm btn-link p-0" type="submit" aria-label="Regenerate {{ mockup['slot']|replace('_', ' ') }} mockup" title="Regenerate mockup">Redo</button></form>{% endif %}</div>
+            </div>
+          {% endfor %}
+          </div>
+        </div>
+
+        <div class="collection-review-footer mt-4">
+          <div>
+            {% if item['blockers'] %}<strong class="text-danger">Blocked</strong><ul class="review-blocker-list">{% for blocker in item['blockers'] %}<li>{{ blocker }}</li>{% endfor %}</ul>
+            {% else %}<strong class="text-success">All required production checks pass.</strong>{% endif %}
+          </div>
+          <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-sm btn-outline-secondary" href="/artworks/{{ item['artwork_code'] }}">Open Artwork</a>
+            <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="collapse" data-bs-target="#correction-{{ item['artwork_code'] }}">Send Back for Correction</button>
+            <form method="post" action="/collections/{{ collection['code'] }}/review/{{ item['artwork_code'] }}/approve">
+              <button class="btn btn-sm btn-success" type="submit" {% if not item['eligible'] or item['approved'] %}disabled{% endif %}>{% if item['approved'] %}Approved ✓{% else %}Approve Artwork{% endif %}</button>
+            </form>
+          </div>
+        </div>
+        <div class="collapse mt-3" id="correction-{{ item['artwork_code'] }}">
+          <form class="correction-form" method="post" action="/collections/{{ collection['code'] }}/review/{{ item['artwork_code'] }}/correct">
+            <label class="form-label small fw-semibold">What needs correction?</label>
+            <div class="input-group"><input class="form-control" name="correction_note" placeholder="Describe the crop, mockup, or file that needs attention"><button class="btn btn-warning" type="submit">Send Back</button></div>
+          </form>
+        </div>
+      </div>
+    </article>
+  {% else %}
+    <div class="empty-state">This collection has no artwork to review.</div>
+  {% endfor %}
+  </div>
+
+  <section id="review-exceptions" class="card app-card">
+    <div class="card-body p-4"><div class="eyebrow">EXCEPTIONS</div><h2 class="h4 mb-3">Artwork needing attention</h2>
+    {% for item in items if item['blockers'] or item['display_state'] in ['needs_correction', 'failed'] %}
+      <div class="d-flex justify-content-between gap-3 border-top py-3"><div><strong>{{ item['artwork_code'] }} — {{ item['public_title'] }}</strong><div class="small text-muted">{{ item['blockers']|join(' · ') or item['correction_note'] }}</div></div><a class="btn btn-sm btn-outline-primary align-self-center" href="/artworks/{{ item['artwork_code'] }}">Review</a></div>
+    {% else %}<p class="text-muted mb-0">No unresolved exceptions.</p>{% endfor %}
+    </div>
+  </section>
+  <script>
+  (() => {
+    const selections = [...document.querySelectorAll('[data-review-selection]')];
+    const regenerate = document.querySelector('[data-regenerate-ratios]');
+    const update = () => { if (regenerate) regenerate.disabled = !selections.some(item => item.checked); };
+    selections.forEach(item => item.addEventListener('change', update));
+    update();
+  })();
+  </script>
+</main>
+</div>
+{% endblock %}

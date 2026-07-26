@@ -385,6 +385,58 @@ def ensure_production_schema():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS collection_production_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                collection_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                source_approval_confirmed INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                completed_at TEXT,
+                FOREIGN KEY (collection_id) REFERENCES collections(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS collection_production_run_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                artwork_id INTEGER NOT NULL,
+                source_status TEXT NOT NULL DEFAULT 'pending',
+                certification_status TEXT NOT NULL DEFAULT 'pending',
+                print_master_status TEXT NOT NULL DEFAULT 'pending',
+                ratio_status TEXT NOT NULL DEFAULT 'pending',
+                mockup_status TEXT NOT NULL DEFAULT 'pending',
+                metadata_status TEXT NOT NULL DEFAULT 'pending',
+                listing_status TEXT NOT NULL DEFAULT 'pending',
+                overall_status TEXT NOT NULL DEFAULT 'pending',
+                source_used TEXT,
+                error_message TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (run_id) REFERENCES collection_production_runs(id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (artwork_id) REFERENCES artworks(id),
+                UNIQUE (run_id, artwork_id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_collection_production_runs_collection "
+            "ON collection_production_runs(collection_id, id)"
+        )
+        run_item_columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(collection_production_run_items)"
+            )
+        }
+        if "source_used" not in run_item_columns:
+            conn.execute(
+                "ALTER TABLE collection_production_run_items ADD COLUMN source_used TEXT"
+            )
         listing_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(listings)").fetchall()
         }
@@ -446,6 +498,14 @@ def ensure_production_schema():
                     ELSE substr(name, 1, 24)
                 END
                 WHERE etsy_section_name IS NULL OR trim(etsy_section_name) = ''
+                """
+            )
+            conn.execute(
+                """
+                UPDATE collections
+                SET name = 'Duende – A Flamenco Collection',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE code = 'DUE' AND name = 'The Duende Collection'
                 """
             )
 
@@ -935,6 +995,107 @@ def get_artwork(artwork_code):
         ).fetchone()
 
 
+def create_collection_production_run(collection_code, source_approval_confirmed):
+    with get_connection() as conn:
+        collection = conn.execute(
+            "SELECT id FROM collections WHERE code = ?",
+            (collection_code.strip().upper(),),
+        ).fetchone()
+        if collection is None:
+            raise ValueError("Collection not found")
+        cursor = conn.execute(
+            """
+            INSERT INTO collection_production_runs (
+                collection_id, status, source_approval_confirmed
+            ) VALUES (?, 'running', ?)
+            """,
+            (collection["id"], int(bool(source_approval_confirmed))),
+        )
+        run_id = cursor.lastrowid
+        conn.execute(
+            """
+            INSERT INTO collection_production_run_items (run_id, artwork_id)
+            SELECT ?, id FROM artworks
+            WHERE collection_id = ? AND status != 'retired'
+            """,
+            (run_id, collection["id"]),
+        )
+        conn.commit()
+        return run_id
+
+
+def get_collection_production_run(collection_code):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT r.*
+            FROM collection_production_runs AS r
+            JOIN collections AS c ON c.id = r.collection_id
+            WHERE c.code = ?
+            ORDER BY r.id DESC
+            LIMIT 1
+            """,
+            (collection_code.strip().upper(),),
+        ).fetchone()
+
+
+def get_collection_production_run_items(run_id):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT i.*, a.artwork_code, a.public_title
+            FROM collection_production_run_items AS i
+            JOIN artworks AS a ON a.id = i.artwork_id
+            WHERE i.run_id = ?
+            ORDER BY a.sequence_number, a.artwork_code
+            """,
+            (run_id,),
+        ).fetchall()
+
+
+def update_collection_production_run_item(run_id, artwork_code, **states):
+    allowed = {
+        "source_status", "certification_status", "print_master_status",
+        "ratio_status", "mockup_status", "metadata_status", "listing_status",
+        "overall_status", "error_message",
+        "source_used",
+    }
+    updates = {key: value for key, value in states.items() if key in allowed}
+    if not updates:
+        return
+    assignments = ", ".join(f"{key} = ?" for key in updates)
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE collection_production_run_items
+            SET {assignments}, updated_at = CURRENT_TIMESTAMP
+            WHERE run_id = ? AND artwork_id = (
+                SELECT id FROM artworks WHERE artwork_code = ?
+            )
+            """,
+            (*updates.values(), run_id, artwork_code.strip().upper()),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Production run item not found")
+        conn.commit()
+
+
+def finish_collection_production_run(run_id, status):
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE collection_production_runs
+            SET status = ?, updated_at = CURRENT_TIMESTAMP,
+                completed_at = CASE
+                    WHEN ? IN ('complete', 'needs_review', 'failed')
+                    THEN CURRENT_TIMESTAMP ELSE completed_at END
+            WHERE id = ?
+            """,
+            (status, status, run_id),
+        )
+        conn.commit()
+
+
 def get_artwork_production(artwork_code):
     with get_connection() as conn:
         production = conn.execute(
@@ -1066,6 +1227,39 @@ def upsert_artwork_file(
                 stored_filename,
                 original_filename,
             ),
+        )
+        conn.commit()
+
+
+def replace_artwork_ratio_assignments(artwork_code, assignments):
+    """Atomically point every required ratio role at a completed replacement set."""
+    rows = list(assignments)
+    with get_connection() as conn:
+        artwork = conn.execute(
+            "SELECT id FROM artworks WHERE artwork_code = ?",
+            (artwork_code.strip().upper(),),
+        ).fetchone()
+        if artwork is None:
+            raise ValueError("Artwork not found")
+        conn.executemany(
+            """
+            INSERT INTO artwork_files (
+                artwork_id, role, relative_path, stored_filename,
+                original_filename
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(artwork_id, role) DO UPDATE SET
+                relative_path = excluded.relative_path,
+                stored_filename = excluded.stored_filename,
+                original_filename = excluded.original_filename,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            [
+                (
+                    artwork["id"], row["role"], row["relative_path"],
+                    row["stored_filename"], row["original_filename"],
+                )
+                for row in rows
+            ],
         )
         conn.commit()
 
@@ -1987,7 +2181,9 @@ def list_mockup_scenes(*, orientation=None):
                 """
                 SELECT * FROM mockup_scenes
                 WHERE active = 1 AND orientation IN (?, 'any')
-                ORDER BY room_type, name
+                ORDER BY room_type,
+                         CASE WHEN name LIKE 'Shangooli Default · %' THEN 0 ELSE 1 END,
+                         name
                 """,
                 (orientation,),
             ).fetchall()
@@ -1995,7 +2191,9 @@ def list_mockup_scenes(*, orientation=None):
             """
             SELECT * FROM mockup_scenes
             WHERE active = 1
-            ORDER BY room_type, name
+            ORDER BY room_type,
+                     CASE WHEN name LIKE 'Shangooli Default · %' THEN 0 ELSE 1 END,
+                     name
             """
         ).fetchall()
 
@@ -2202,6 +2400,22 @@ def get_artwork_listing_content(artwork_code):
             FROM artwork_listing_content WHERE artwork_id = ?
             """,
             (artwork["id"],),
+        ).fetchone()
+
+
+def find_artwork_listing_content(artwork_code):
+    """Read prepared listing content without creating a placeholder row."""
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT lc.short_story, lc.long_story, lc.etsy_title,
+                   lc.etsy_description, lc.etsy_tags, lc.alt_text,
+                   lc.keywords, lc.generated_at
+            FROM artwork_listing_content AS lc
+            JOIN artworks AS a ON a.id = lc.artwork_id
+            WHERE a.artwork_code = ?
+            """,
+            (artwork_code.upper(),),
         ).fetchone()
 
 
