@@ -29,6 +29,12 @@
   {% if request.query_params.get('ratio_failure') %}
   <div class="alert alert-danger"><strong>Ratio regeneration failures:</strong> {{ request.query_params.get('ratio_failure') }}</div>
   {% endif %}
+  {% if request.query_params.get('collection_card_success') %}
+  <div class="alert alert-success"><strong>Collection cards refreshed:</strong> {{ request.query_params.get('collection_card_success') }}. Review and approve their updated mockup sets.</div>
+  {% endif %}
+  {% if request.query_params.get('collection_card_failure') %}
+  <div class="alert alert-danger"><strong>Collection card refresh failures:</strong> {{ request.query_params.get('collection_card_failure') }}</div>
+  {% endif %}
 
   <section class="collection-review-toolbar card app-card mb-4">
     <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -39,6 +45,9 @@
           <button class="btn btn-outline-warning" type="submit"
                   formaction="/collections/{{ collection['code'] }}/review/ratios/regenerate"
                   data-regenerate-ratios disabled>Regenerate Ratio Sets</button>
+          <button class="btn btn-outline-primary" type="submit"
+                  formaction="/collections/{{ collection['code'] }}/review/collection-cards/refresh"
+                  data-refresh-collection-cards disabled>Refresh Collection Cards</button>
         </form>
         <form method="post" action="/collections/{{ collection['code'] }}/review/eligible">
           <button class="btn btn-success" type="submit">Approve All Eligible</button>
@@ -95,7 +104,7 @@
         </div>
 
         <div class="collection-review-section mt-4">
-          <div class="collection-review-section-heading"><div><h3 class="h6 mb-0">Listing mockups</h3><small>Shown in the saved marketplace order.</small></div><a href="/artworks/{{ item['artwork_code'] }}?step=mockups" class="review-manage-link">Manage mockups <span aria-hidden="true">→</span></a></div>
+          <div class="collection-review-section-heading"><div><h3 class="h6 mb-0">Listing mockups</h3><small>Shown in the saved marketplace order.{% if item['collection_card_stale'] %} <strong class="text-warning">Collection card needs refresh.</strong>{% endif %}</small></div><a href="/artworks/{{ item['artwork_code'] }}?step=mockups" class="review-manage-link">Manage mockups <span aria-hidden="true">→</span></a></div>
           <div class="collection-review-mockup-track">
           {% for mockup in item['mockup_items'] %}
             <div class="review-preview-card mockup-preview">
@@ -144,7 +153,12 @@
   (() => {
     const selections = [...document.querySelectorAll('[data-review-selection]')];
     const regenerate = document.querySelector('[data-regenerate-ratios]');
-    const update = () => { if (regenerate) regenerate.disabled = !selections.some(item => item.checked); };
+    const refreshCards = document.querySelector('[data-refresh-collection-cards]');
+    const update = () => {
+      const noneSelected = !selections.some(item => item.checked);
+      if (regenerate) regenerate.disabled = noneSelected;
+      if (refreshCards) refreshCards.disabled = noneSelected;
+    };
     selections.forEach(item => item.addEventListener('change', update));
     update();
   })();

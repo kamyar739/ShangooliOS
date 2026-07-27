@@ -10,11 +10,12 @@ from web.db import (
 def ensure_local_listing_draft(collection, artwork_code, content=None):
     """Return an existing listing unchanged or create one from prepared content."""
     existing = list(get_artwork_listings(artwork_code))
-    if existing:
+    active = [listing for listing in existing if listing["status"] != "archived"]
+    if active:
         return {
             "status": "existing",
-            "listing_id": existing[0]["id"],
-            "listing": existing[0],
+            "listing_id": active[0]["id"],
+            "listing": active[0],
         }
 
     prepared = content or find_artwork_listing_content(artwork_code)

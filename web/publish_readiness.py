@@ -38,23 +38,21 @@ def _listing_for_readiness(artwork_code):
     listings = list(get_artwork_listings(artwork_code))
     if not listings:
         return None
+    current = [
+        listing for listing in listings if listing["status"] != "archived"
+    ]
+    candidates = current or listings
     return next(
         (
-            listing for listing in listings
+            listing for listing in candidates
             if str(listing["external_listing_id"] or "").strip()
         ),
         next(
             (
-                listing for listing in listings
+                listing for listing in candidates
                 if str(listing["printify_product_id"] or "").strip()
             ),
-            next(
-                (
-                    listing for listing in listings
-                    if listing["status"] != "archived"
-                ),
-                listings[0],
-            ),
+            candidates[0],
         ),
     )
 

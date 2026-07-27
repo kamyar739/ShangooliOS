@@ -1188,6 +1188,38 @@ def get_artwork_file_assignments(artwork_code):
         ).fetchall()
 
 
+def get_collection_branding_revision(collection_code):
+    """Return the newest collection identity/source change timestamp."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT MAX(changed_at) AS changed_at
+            FROM (
+                SELECT updated_at AS changed_at
+                FROM collections
+                WHERE code = ?
+                UNION ALL
+                SELECT a.updated_at
+                FROM artworks AS a
+                JOIN collections AS c ON c.id = a.collection_id
+                WHERE c.code = ?
+                UNION ALL
+                SELECT f.updated_at
+                FROM artwork_files AS f
+                JOIN artworks AS a ON a.id = f.artwork_id
+                JOIN collections AS c ON c.id = a.collection_id
+                WHERE c.code = ? AND f.role = 'source'
+            )
+            """,
+            (
+                collection_code.upper(),
+                collection_code.upper(),
+                collection_code.upper(),
+            ),
+        ).fetchone()
+        return row["changed_at"] if row else None
+
+
 def upsert_artwork_file(
     artwork_code,
     role,
@@ -2719,6 +2751,131 @@ def get_artwork_listings(artwork_code):
             """,
             (artwork_code.upper(),),
         ).fetchall()
+
+
+def restart_collection_records_for_replacement(collection_code):
+    """Archive current listings and clear source-derived production records.
+
+    Creative metadata and source assignments are intentionally preserved.
+    A fresh local draft is created from the newest current listing so edited
+    copy and pricing survive without carrying external publication identity.
+    """
+    with get_connection() as conn:
+        collection = conn.execute(
+            "SELECT id FROM collections WHERE code = ? AND status != 'archived'",
+            (collection_code.upper(),),
+        ).fetchone()
+        if collection is None:
+            raise ValueError("Collection not found")
+        artworks = conn.execute(
+            """
+            SELECT id, artwork_code
+            FROM artworks
+            WHERE collection_id = ? AND status != 'retired'
+            ORDER BY sequence_number, artwork_code
+            """,
+            (collection["id"],),
+        ).fetchall()
+        results = []
+        for artwork in artworks:
+            listings = conn.execute(
+                """
+                SELECT *
+                FROM listings
+                WHERE artwork_id = ?
+                ORDER BY status = 'archived', updated_at DESC, id DESC
+                """,
+                (artwork["id"],),
+            ).fetchall()
+            current = next(
+                (row for row in listings if row["status"] != "archived"),
+                listings[0] if listings else None,
+            )
+            if current is None:
+                raise ValueError(
+                    f"{artwork['artwork_code']} has no local listing to preserve"
+                )
+            archived_ids = []
+            for listing in listings:
+                if listing["status"] != "archived":
+                    conn.execute(
+                        """
+                        UPDATE listings
+                        SET status = 'archived', updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (listing["id"],),
+                    )
+                    archived_ids.append(listing["id"])
+            cursor = conn.execute(
+                """
+                INSERT INTO listings (
+                    artwork_id, marketplace, product, title, description, tags,
+                    price_cents, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')
+                """,
+                (
+                    artwork["id"], current["marketplace"], current["product"],
+                    current["title"], current["description"], current["tags"],
+                    current["price_cents"],
+                ),
+            )
+            conn.execute(
+                """
+                DELETE FROM artwork_files
+                WHERE artwork_id = ?
+                  AND (role = 'print_master' OR role LIKE 'ratio:%'
+                       OR role LIKE 'mockup:%')
+                """,
+                (artwork["id"],),
+            )
+            conn.execute(
+                "DELETE FROM artwork_certification WHERE artwork_id = ?",
+                (artwork["id"],),
+            )
+            conn.execute(
+                "DELETE FROM print_master_certification WHERE artwork_id = ?",
+                (artwork["id"],),
+            )
+            conn.execute(
+                """
+                UPDATE artwork_production
+                SET original_approved = 0, print_master_ready = 0,
+                    ratio_exports_ready = 0, mockups_ready = 0,
+                    ai_enhanced_at = NULL,
+                    ai_enhanced_original_width = NULL,
+                    ai_enhanced_original_height = NULL,
+                    ai_enhanced_width = NULL, ai_enhanced_height = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE artwork_id = ?
+                """,
+                (artwork["id"],),
+            )
+            conn.execute(
+                """
+                UPDATE artwork_mockup_sets
+                SET generated_at = NULL, approved_at = NULL
+                WHERE artwork_id = ?
+                """,
+                (artwork["id"],),
+            )
+            conn.execute(
+                """
+                UPDATE artworks
+                SET status = CASE WHEN status = 'listed' THEN 'production'
+                                  ELSE status END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (artwork["id"],),
+            )
+            results.append({
+                "artwork_code": artwork["artwork_code"],
+                "archived_listing_ids": archived_ids,
+                "new_listing_id": cursor.lastrowid,
+            })
+        conn.commit()
+        return results
 
 
 def get_listing(listing_id):

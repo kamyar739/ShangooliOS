@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Publication Results — {{ collection['name'] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
+  <header class="page-header mb-4">
+    <div>
+      <div class="eyebrow">{{ 'RECOVERY RESULTS' if mode == 'recovery' else 'PUBLICATION RESULTS' }}</div>
+      <h1 class="display-6 fw-bold mb-2">{{ 'Etsy Recovery Results' if mode == 'recovery' else 'Publish Request Results' }}</h1>
+      <p class="text-muted mb-0">{{ collection['name'] }} · Each artwork was processed independently and saved immediately.</p>
+    </div>
+  </header>
+  {% for result in results %}
+  <article class="card app-card collection-printify-result result-{{ result['outcome'] }} mb-3">
+    <div class="card-body">
+      <div class="eyebrow">{{ result['artwork_code'] }}</div>
+      <h2 class="h5 mb-1">{{ result['title'] }}</h2>
+      <strong class="collection-printify-result-label">{{ result['label'] }}</strong>
+      <p class="small text-muted mb-0 mt-1">{{ result['message'] }}</p>
+    </div>
+  </article>
+  {% endfor %}
+  <div class="d-flex gap-2 mt-4">
+    <a class="btn btn-primary" href="/collections/{{ collection['code'] }}/publish/recover">Check Etsy Status</a>
+    <a class="btn btn-outline-secondary" href="/collections/{{ collection['code'] }}/publish">Return to Publication Review</a>
+  </div>
+</main>
+</div>
+{% endblock %}

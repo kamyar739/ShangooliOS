@@ -11,6 +11,7 @@ from PIL import Image
 from app import database
 from web import db
 from web.app import app
+from web.fast_flow import apply_fast_flow_metadata
 
 
 def image_bytes(color):
@@ -65,27 +66,42 @@ class FastFlowTests(unittest.TestCase):
                     "title": "First",
                     "description": "First artwork description.",
                     "prompt": "First artwork prompt.",
-                    "story": "First long story.",
-                    "seo": {
-                        "title": "First expressive wall art",
-                        "description": "First Etsy description.",
-                        "tags": ["expressive art", "wall decor"],
-                        "alt_text": "A red expressive artwork.",
-                        "keywords": ["red art", "movement"],
-                    },
+                    "theme": "First theme.",
+                    "style": "First style.",
+                    "mood": "First mood.",
+                    "colors": ["red", "gold"],
+                    "rooms": ["Living room"],
+                    "customer": ["Art collectors"],
+                    "ai_model": "OpenAI image generation model",
+                    "analysis_notes": "Prepared from the collection package.",
+                    "short_story": "First short story.",
+                    "long_story": "First long story.",
+                    "seo_title": "First expressive wall art",
+                    "seo_description": "First Etsy description.",
+                    "seo_tags": ["expressive art", "wall decor"],
+                    "alt_text": "A red expressive artwork.",
+                    "keywords": ["red art", "movement"],
                 },
                 {
                     "image": "second.png",
                     "title": "Second",
                     "description": "Second artwork description.",
                     "prompt": "Second artwork prompt.",
-                    "story": "Second long story.",
-                    "seo": {
-                        "title": "Second expressive wall art",
-                        "description": "Second Etsy description.",
-                        "tags": ["figurative art", "wall print"],
-                        "alt_text": "A blue expressive artwork.",
-                    },
+                    "theme": "Second theme.",
+                    "style": "Second style.",
+                    "mood": "Second mood.",
+                    "colors": ["blue", "silver"],
+                    "rooms": ["Bedroom"],
+                    "customer": ["Modern decor shoppers"],
+                    "ai_model": "OpenAI image generation model",
+                    "analysis_notes": "Prepared from the collection package.",
+                    "short_story": "Second short story.",
+                    "long_story": "Second long story.",
+                    "seo_title": "Second expressive wall art",
+                    "seo_description": "Second Etsy description.",
+                    "seo_tags": ["figurative art", "wall print"],
+                    "alt_text": "A blue expressive artwork.",
+                    "keywords": ["blue art", "movement"],
                 },
             ],
         }
@@ -96,7 +112,7 @@ class FastFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Fast Flow", response.text)
         self.assertIn('href="/fast-flow"', response.text)
-        self.assertIn("internal JSON format", response.text)
+        self.assertIn("A complete package is required", response.text)
         self.assertIn("Choose the approved artwork images", response.text)
         self.assertIn("Add the collection details", response.text)
         self.assertIn("Review the collection", response.text)
@@ -182,6 +198,8 @@ class FastFlowTests(unittest.TestCase):
             "collection": {
                 "code": "RCH",
                 "name": "The Rich Collection",
+                "description": "A complete test collection.",
+                "prompt": "Shared rich test prompt.",
             },
             "artworks": [
                 {
@@ -267,6 +285,75 @@ class FastFlowTests(unittest.TestCase):
         self.assertIn("Missing artwork image: second.png", response.text)
         collection, _, _ = db.get_collection("FLW")
         self.assertIsNone(collection)
+
+    def test_fast_flow_rejects_an_incomplete_package_before_creating_records(self):
+        package = self.manifest()
+        del package["artworks"][0]["analysis_notes"]
+
+        response = self.client.post(
+            "/fast-flow/import",
+            data={"manifest": json.dumps(package)},
+            files=[
+                ("images", ("first.png", image_bytes("#9f2f2f"), "image/png")),
+                ("images", ("second.png", image_bytes("#263f80"), "image/png")),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Artwork 1 analysis notes is required", response.text)
+        collection, _, _ = db.get_collection("FLW")
+        self.assertIsNone(collection)
+
+    def test_fast_flow_rejects_etsy_tags_over_twenty_characters_before_creating_records(self):
+        package = self.manifest()
+        package["artworks"][0]["seo_tags"] = [
+            "this Etsy tag is definitely too long"
+        ]
+
+        response = self.client.post(
+            "/fast-flow/import",
+            data={"manifest": json.dumps(package)},
+            files=[
+                ("images", ("first.png", image_bytes("#9f2f2f"), "image/png")),
+                ("images", ("second.png", image_bytes("#263f80"), "image/png")),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("20 characters or fewer", response.text)
+        collection, _, _ = db.get_collection("FLW")
+        self.assertIsNone(collection)
+
+    def test_complete_package_can_enrich_existing_fast_flow_collection_without_touching_source(self):
+        imported = self.client.post(
+            "/fast-flow/import",
+            data={"manifest": json.dumps(self.manifest())},
+            files=[
+                ("images", ("first.png", image_bytes("#9f2f2f"), "image/png")),
+                ("images", ("second.png", image_bytes("#263f80"), "image/png")),
+            ],
+            follow_redirects=False,
+        )
+        self.assertEqual(imported.status_code, 303)
+        before = db.get_artwork_file_assignments("FLW-001")
+
+        package = self.manifest()
+        package["artworks"][0]["description"] = "Corrected factual description."
+        package["artworks"][0]["long_story"] = "Corrected emotional narrative."
+        package["artworks"][0].pop("image")
+        package["artworks"][1].pop("image")
+        result = apply_fast_flow_metadata("FLW", json.dumps(package))
+
+        self.assertEqual(result["artwork_codes"], ["FLW-001", "FLW-002"])
+        self.assertEqual(
+            db.get_artwork("FLW-001")["description"],
+            "Corrected factual description.",
+        )
+        self.assertEqual(
+            db.get_artwork_listing_content("FLW-001")["long_story"],
+            "Corrected emotional narrative.",
+        )
+        self.assertEqual(db.get_artwork_file_assignments("FLW-001"), before)
 
 
 if __name__ == "__main__":

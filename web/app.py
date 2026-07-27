@@ -124,12 +124,34 @@ from web.collection_review import (
     approve_artwork_for_collection,
     approve_many,
     collection_review_overview,
+    refresh_selected_collection_cards,
     regenerate_selected_ratio_sets,
     send_artwork_back,
 )
 from web.publish_readiness import (
     collection_publish_readiness,
     prepare_missing_collection_drafts,
+)
+from web.collection_printify import (
+    automatic_printify_profile,
+    collection_printify_overview,
+    create_automatic_printify_draft,
+    create_selected_printify_drafts,
+    printify_file_options,
+)
+from web.collection_publish import (
+    collection_publication_overview,
+    collection_recovery_overview,
+    publish_selected_listings,
+    recover_selected_listings,
+)
+from web.collection_replacement import (
+    replacement_restart_overview,
+    restart_collection_with_replacement_sources,
+)
+from web.listing_publication import (
+    recover_listing_publication,
+    request_listing_publication,
 )
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
@@ -142,6 +164,7 @@ from web.mockup_generator import (
     generate_mockups,
     generate_scene_mockup,
 )
+from web.mockup_tasks import build_mockup_artwork_payload
 from web.marketplace_export import build_listing_export, inspect_listing_export
 from web.printify import validate_printify_product
 from web.printify_handoff import build_printify_handoff, inspect_printify_handoff
@@ -295,27 +318,40 @@ def _mockup_sets_for_artwork(orientation):
 
 
 def _mockup_artwork_payload(artwork) -> dict:
-    payload = dict(artwork)
-    _, collection_artworks, _ = get_collection(artwork["collection_code"])
-    thumbnail_paths = []
-    thumbnail_titles = []
-    for item in collection_artworks:
-        item_artwork = get_artwork(item["artwork_code"])
-        assignments = {
-            row["role"]: row
-            for row in get_artwork_file_assignments(item["artwork_code"])
-        }
-        if assignments.get("source"):
-            try:
-                thumbnail_paths.append(
-                    resolve_assigned_file(item_artwork, assignments["source"])
-                )
-                thumbnail_titles.append(item["public_title"])
-            except ValueError:
-                pass
-    payload["collection_thumbnail_paths"] = thumbnail_paths
-    payload["collection_thumbnail_titles"] = thumbnail_titles
-    return payload
+    return build_mockup_artwork_payload(artwork)
+
+
+def _listing_external_change_state(listing, assignments, mockup_set_state):
+    if not listing or listing["status"] != "published" or not listing["external_listing_id"]:
+        return {"source": False, "etsy_images": False}
+    synced_at = listing["etsy_last_synced_at"]
+    source = next(
+        (item for item in assignments if item["role"] == "source"), None
+    )
+    source_changed = bool(
+        source
+        and source["updated_at"]
+        and (not synced_at or source["updated_at"] > synced_at)
+    )
+    latest_mockup_at = max(
+        (
+            item["updated_at"] for item in assignments
+            if item["role"].startswith("mockup:") and item["updated_at"]
+        ),
+        default=None,
+    )
+    approved_at = (
+        mockup_set_state["approved_at"] if mockup_set_state else None
+    )
+    etsy_images_changed = bool(
+        approved_at
+        and (
+            not synced_at
+            or approved_at > synced_at
+            or (latest_mockup_at and latest_mockup_at > synced_at)
+        )
+    )
+    return {"source": source_changed, "etsy_images": etsy_images_changed}
 
 
 def _artwork_context(artwork_code: str, active_stage="details", **extra):
@@ -365,7 +401,14 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
             item["scene_candidates"] = candidates
             item["selected_scene_id"] = candidates[0]["id"] if candidates else None
 
-    artwork_listings = get_artwork_listings(artwork_code)
+    mockup_set_state = get_artwork_mockup_set_state(artwork_code)
+    artwork_listings = [dict(item) for item in get_artwork_listings(artwork_code)]
+    for item in artwork_listings:
+        changes = _listing_external_change_state(
+            item, assignments, mockup_set_state
+        )
+        item["source_update_required"] = changes["source"]
+        item["etsy_images_need_sync"] = changes["etsy_images"]
     artwork_intelligence = get_artwork_intelligence(artwork_code)
     collection, collection_artworks, _ = get_collection(artwork["collection_code"])
     artwork_position = next(
@@ -416,11 +459,15 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         "mockup_sets": _mockup_sets_for_artwork(
             production["orientation"] if production else "any"
         ),
-        "mockup_set_state": get_artwork_mockup_set_state(artwork_code),
+        "mockup_set_state": mockup_set_state,
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
         "print_master_manifest": load_print_master_manifest(artwork),
-        "ai_upscale_candidate": candidate_path(artwork).is_file(),
+        # A second click can finish after the approved 4× source is saved.
+        # It is only a stale temporary candidate, never a new review state.
+        "ai_upscale_candidate": bool(
+            not production["ai_enhanced_at"] and candidate_path(artwork).is_file()
+        ),
         "auto_update_listing": auto_update_listing,
         "printify_profile": printify_profile,
         "previous_artwork": previous_artwork,
@@ -487,6 +534,11 @@ def _workflow_navigation(
         (item for item in listings if item["status"] == "published" and item["external_listing_id"]),
         None,
     )
+    external_changes = _listing_external_change_state(
+        live_listing, assignments, mockup_set_state
+    )
+    external_update_required = external_changes["source"]
+    etsy_image_update_required = external_changes["etsy_images"]
 
     def stage(key, label, state, complete=False):
         labels = {
@@ -538,23 +590,34 @@ def _workflow_navigation(
         ),
         stage(
             "listing", "Listing",
-            "complete" if listing else "not_started",
-            bool(listing),
+            "unpublished_changes" if external_update_required
+            else "complete" if listing else "not_started",
+            bool(listing and not external_update_required),
         ),
         stage(
             "printify", "Printify",
-            "complete" if listing and listing["printify_product_id"]
+            "unpublished_changes" if external_update_required
+            else "complete" if listing and listing["printify_product_id"]
             else "in_progress" if listing
             else "not_started",
-            bool(listing and listing["printify_product_id"]),
+            bool(listing and listing["printify_product_id"] and not external_update_required),
         ),
         stage(
             "publish", "Publish",
-            "published" if live_listing and all_current and live_listing["etsy_last_synced_at"]
-            else "unpublished_changes" if live_listing
+            "published" if (
+                live_listing and all_current and live_listing["etsy_last_synced_at"]
+                and not external_update_required and not etsy_image_update_required
+            )
+            else "unpublished_changes" if (
+                live_listing
+                and (external_update_required or etsy_image_update_required or not all_current)
+            )
             else "in_progress" if listing and listing["printify_product_id"]
             else "not_started",
-            bool(live_listing and all_current and live_listing["etsy_last_synced_at"]),
+            bool(
+                live_listing and all_current and live_listing["etsy_last_synced_at"]
+                and not external_update_required and not etsy_image_update_required
+            ),
         ),
     ]
     normalized_active = {"etsy": "publish"}.get(active_stage, active_stage)
@@ -1568,21 +1631,7 @@ def save_printify_product_post(
 
 
 def _printify_file_options(listing):
-    workspace = get_artwork_folder(listing)
-    options = []
-    for assignment in get_artwork_file_assignments(listing["artwork_code"]):
-        role = assignment["role"]
-        if role == "print_master" or role.startswith("ratio:"):
-            path = workspace / assignment["relative_path"]
-            if path.is_file():
-                options.append(
-                    {
-                        "role": role,
-                        "label": role.replace("ratio:", "Ratio ").replace("print_master", "Print-ready file"),
-                        "path": path,
-                    }
-                )
-    return options
+    return printify_file_options(listing)
 
 
 @app.get("/listings/{listing_id}/printify/create")
@@ -1653,60 +1702,14 @@ def create_printify_page(
     )
 
 
-HORIZONTAL_PRINTIFY_PROFILE = {
-    "orientation": "horizontal",
-    "product_name": "Matte Horizontal Posters",
-    "blueprint_id": 284,
-    "provider_id": 99,
-    "provider_name": "Printify Choice",
-    "variants": (
-        (43163, '14″ x 11″ / Matte', 2900),
-        (43166, '18″ x 12″ / Matte', 3400),
-        (43169, '20″ x 16″ / Matte', 3900),
-        (43172, '24″ x 18″ / Matte', 4600),
-        (43175, '30″ x 20″ / Matte', 5800),
-        (43178, '36″ x 24″ / Matte', 7200),
-    ),
-}
-
-VERTICAL_PRINTIFY_PROFILE = {
-    "orientation": "vertical",
-    "product_name": "Matte Vertical Posters",
-    "blueprint_id": 282,
-    "provider_id": 99,
-    "provider_name": "Printify Choice",
-    "variants": (
-        (43135, '11″ x 14″ / Matte', 2900),
-        (43138, '12″ x 18″ / Matte', 3400),
-        (43141, '16″ x 20″ / Matte', 3900),
-        (43144, '18″ x 24″ / Matte', 4600),
-        (43147, '20″ x 30″ / Matte', 5800),
-        (43150, '24″ x 36″ / Matte', 7200),
-    ),
-}
-
-
 def _printify_profile_for_orientation(orientation, collection_code=None):
-    profile = {
-        "horizontal": HORIZONTAL_PRINTIFY_PROFILE,
-        "vertical": VERTICAL_PRINTIFY_PROFILE,
-    }.get((orientation or "").strip().lower())
-    if profile is None or not collection_code:
-        return profile
+    if not collection_code:
+        return None
     collection, _, _ = get_collection(collection_code)
-    if collection is None:
-        return profile
-    prices = [
-        collection[f"default_price_tier_{tier}_cents"]
-        for tier in range(1, 7)
-    ]
-    return {
-        **profile,
-        "variants": tuple(
-            (variant_id, title, prices[index])
-            for index, (variant_id, title, _) in enumerate(profile["variants"])
-        ),
-    }
+    return (
+        automatic_printify_profile(collection, orientation)
+        if collection is not None else None
+    )
 
 
 @app.post("/listings/{listing_id}/printify/prepare")
@@ -1738,54 +1741,14 @@ def prepare_printify_product_post(
     if api is None:
         raise HTTPException(status_code=400, detail="Printify API is not configured")
 
-    file_options = {item["role"]: item for item in _printify_file_options(listing)}
     try:
-        providers = api.list_providers(profile["blueprint_id"])
-        provider = next(
-            item for item in providers
-            if item["id"] == profile["provider_id"]
-            and item["title"] == profile["provider_name"]
-        )
-        variants = {
-            item["id"]: item
-            for item in api.list_variants(profile["blueprint_id"], provider["id"])
-        }
-        selections = []
-        for variant_id, expected_title, price_cents in profile["variants"]:
-            variant = variants.get(variant_id)
-            if not variant or variant.get("is_available") is False:
-                raise ValueError(f"Printify size is unavailable: {expected_title}")
-            if variant.get("title") != expected_title:
-                raise ValueError(f"Printify changed the catalog size: {expected_title}")
-            role = ratio_role_for_variant(expected_title)
-            if role not in file_options:
-                raise ValueError(f"Missing prepared file for {expected_title}: {role}")
-            selections.append({
-                "variant_id": variant_id,
-                "title": expected_title,
-                "cost_cents": None,
-                "price_cents": price_cents,
-                "path": file_options[role]["path"],
-            })
-        result = create_printify_product(
+        create_automatic_printify_draft(
             api,
+            collection=get_collection(listing["collection_code"])[0],
             listing=listing,
-            blueprint_id=profile["blueprint_id"],
-            provider_id=provider["id"],
-            provider_name=provider["title"],
-            selections=selections,
+            before_save=lambda: clear_inactive_etsy_link(listing_id),
         )
-        product = result["product"]
-        clear_inactive_etsy_link(listing_id)
-        save_printify_product(
-            listing_id,
-            product_url=result["product_url"],
-            product_id=str(product["id"]),
-            provider=result["provider"],
-            sizes=result["sizes"],
-            base_cost_cents=result["base_cost_cents"],
-        )
-    except (StopIteration, ValueError, PrintifyAPIError) as error:
+    except (ValueError, PrintifyAPIError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse(
         url=f"/listings/{listing_id}?printify_created=1&automatic=1#one-click-printify",
@@ -1957,26 +1920,12 @@ def publish_printify_product_post(listing_id: int):
     listing = get_listing(listing_id)
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
-    readiness = get_listing_readiness(listing_id)
-    if not readiness["ready"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Complete the listing readiness checklist before publishing",
-        )
-    printify = validate_printify_product(listing)
-    if not printify["ready"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Create or save the Printify product before publishing",
-        )
     api = PrintifyAPI.from_env()
     if api is None:
         raise HTTPException(status_code=400, detail="Printify API is not configured")
-    try:
-        api.publish_product(listing["printify_product_id"])
-        mark_printify_publish_requested(listing_id)
-    except (PrintifyAPIError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    result = request_listing_publication(listing_id, api=api)
+    if result["outcome"] != "requested":
+        raise HTTPException(status_code=400, detail=result["message"])
     return RedirectResponse(
         url=f"/listings/{listing_id}?printify_published=1",
         status_code=status.HTTP_303_SEE_OTHER,
@@ -1995,71 +1944,15 @@ def recover_listing_publication_post(listing_id: int):
     if api is None:
         raise HTTPException(status_code=400, detail="Printify API is not configured")
 
-    try:
-        product = api.get_product(listing["printify_product_id"])
-        product_title = (product.get("title") or listing["title"] or "").strip().casefold()
-        external_id = str(listing["external_listing_id"] or "").strip()
-
-        if not external_id:
-            candidates = find_etsy_candidates(listing)
-            exact = [
-                item for item in candidates
-                if (item.get("title") or "").strip().casefold() in {
-                    product_title, (listing["title"] or "").strip().casefold()
-                }
-            ]
-            if len(exact) == 1:
-                external_id = str(exact[0]["listing_id"])
-                link_etsy_listing(listing_id, external_id)
-                record_etsy_state(listing_id, exact[0].get("state", ""))
-                listing = get_listing(listing_id)
-            elif len(exact) > 1:
-                message = "More than one Etsy listing matches. Choose the correct listing on the Etsy publishing page."
-                record_publishing_recovery(listing_id, "needs_review", message)
-                return RedirectResponse(
-                    f"/listings/{listing_id}?recovery_checked=1",
-                    status_code=status.HTTP_303_SEE_OTHER,
-                )
-            else:
-                if listing["printify_publish_requested_at"]:
-                    message = "Printify is confirmed; Etsy has not returned a matching listing yet. Wait briefly, then check again."
-                    stage = "waiting_for_etsy"
-                else:
-                    message = "The Printify draft is confirmed. It has not been sent to Etsy, so no publish action was repeated."
-                    stage = "printify_draft_confirmed"
-                record_publishing_recovery(listing_id, stage, message)
-                return RedirectResponse(
-                    f"/listings/{listing_id}?recovery_checked=1",
-                    status_code=status.HTTP_303_SEE_OTHER,
-                )
-
-        listing = get_listing(listing_id)
-        remote = get_etsy_listing(external_id)
-        if str(remote.get("shop_id", "")) != str(etsy_config()["shop_id"]):
-            raise ValueError("The linked Etsy listing belongs to a different shop")
-        record_etsy_state(listing_id, remote.get("state", ""))
-        preview = build_etsy_sync_preview(get_listing(listing_id))
-        if preview.get("changed_count"):
-            result = sync_etsy_listing(get_listing(listing_id))
-            mark_etsy_synced(listing_id, result.get("state", ""))
-            message = "Recovered the Etsy link and synchronized the ShangooliOS title, description, tags, images, and section. Final Etsy review remains."
-        else:
-            mark_etsy_synced(listing_id, remote.get("state", ""))
-            message = "Printify and Etsy are linked and already synchronized. Final Etsy review remains."
-        record_publishing_recovery(listing_id, "etsy_ready_for_review", message)
-    except (EtsyAPIError, PrintifyAPIError, KeyError, ValueError) as failure:
-        failure_text = str(failure)
-        normalized_failure = failure_text.casefold()
-        if "http 409" in normalized_failure and "being edited by another process" in normalized_failure:
-            record_publishing_recovery(
-                listing_id, "waiting_for_etsy",
-                "The Etsy listing was found and linked, but Printify is still finishing its setup. Nothing needs to be repeated. Wait briefly, then check status again.",
-            )
-        else:
-            record_publishing_recovery(
-                listing_id, "recovery_failed",
-                f"Recovery stopped safely: {failure_text}",
-            )
+    recover_listing_publication(
+        listing_id,
+        api=api,
+        find_candidates=find_etsy_candidates,
+        get_remote_listing=get_etsy_listing,
+        get_config=etsy_config,
+        build_preview=build_etsy_sync_preview,
+        sync_listing=sync_etsy_listing,
+    )
     return RedirectResponse(
         f"/listings/{listing_id}?recovery_checked=1",
         status_code=status.HTTP_303_SEE_OTHER,
@@ -2206,6 +2099,50 @@ def collection_production_page(request: Request, collection_code: str):
     )
 
 
+@app.get("/collections/{collection_code}/replacement-restart")
+def collection_replacement_restart_page(
+    request: Request, collection_code: str
+):
+    try:
+        collection, items, blockers = replacement_restart_overview(
+            collection_code
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_replacement_restart.html",
+        context={
+            "collection": collection,
+            "items": items,
+            "blockers": blockers,
+        },
+    )
+
+
+@app.post("/collections/{collection_code}/replacement-restart")
+def collection_replacement_restart_post(
+    collection_code: str,
+    sources_confirmed: bool = Form(False),
+    archive_confirmed: bool = Form(False),
+):
+    try:
+        restart_collection_with_replacement_sources(
+            collection_code,
+            sources_confirmed=sources_confirmed,
+            archive_confirmed=archive_confirmed,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        url=(
+            f"/collections/{collection_code.upper()}/production"
+            "?replacement_restarted=1"
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/collections/{collection_code}/production/run")
 def run_collection_production_post(
     collection_code: str,
@@ -2336,6 +2273,29 @@ async def regenerate_selected_collection_ratios_post(
     )
 
 
+@app.post("/collections/{collection_code}/review/collection-cards/refresh")
+async def refresh_selected_collection_cards_post(
+    collection_code: str, request: Request
+):
+    form = await request.form()
+    selected = [str(value) for value in form.getlist("artwork_codes")]
+    if not selected:
+        raise HTTPException(status_code=400, detail="Select at least one artwork")
+    result = refresh_selected_collection_cards(collection_code, selected)
+    params = {}
+    if result["successes"]:
+        params["collection_card_success"] = ", ".join(result["successes"])
+    if result["failures"]:
+        params["collection_card_failure"] = " | ".join(
+            f"{item['artwork_code']}: {item['message']}"
+            for item in result["failures"]
+        )
+    return RedirectResponse(
+        f"/collections/{collection_code.upper()}/review?{urlencode(params)}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.get("/collections/{collection_code}/publish-readiness")
 def collection_publish_readiness_page(
     request: Request, collection_code: str
@@ -2377,6 +2337,123 @@ def prepare_collection_listing_drafts_post(collection_code: str):
         f"/collections/{collection_code.upper()}/publish-readiness?"
         f"{urlencode(params)}",
         status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/collections/{collection_code}/printify")
+def collection_printify_review_page(
+    request: Request, collection_code: str
+):
+    try:
+        collection, eligible, protected = collection_printify_overview(
+            collection_code
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_printify_review.html",
+        context={
+            "collection": collection,
+            "eligible": eligible,
+            "protected": protected,
+            "configuration_source": printify_configuration_source(),
+        },
+    )
+
+
+@app.post("/collections/{collection_code}/printify")
+async def create_collection_printify_drafts_post(
+    request: Request, collection_code: str
+):
+    form = await request.form()
+    selected = [str(value) for value in form.getlist("artwork_codes")]
+    confirmed = str(form.get("confirmed", "")).lower() in {
+        "1", "true", "on", "yes"
+    }
+    try:
+        collection, results = create_selected_printify_drafts(
+            collection_code, selected, confirmed=confirmed
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_printify_results.html",
+        context={"collection": collection, "results": results},
+    )
+
+
+@app.get("/collections/{collection_code}/publish")
+def collection_publish_review_page(request: Request, collection_code: str):
+    try:
+        collection, items = collection_publication_overview(collection_code)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_publish_review.html",
+        context={"collection": collection, "items": items},
+    )
+
+
+@app.post("/collections/{collection_code}/publish")
+async def collection_publish_post(request: Request, collection_code: str):
+    form = await request.form()
+    selected = [str(value) for value in form.getlist("listing_ids")]
+    confirmed = str(form.get("confirmed", "")).lower() in {
+        "1", "true", "on", "yes"
+    }
+    try:
+        collection, results = publish_selected_listings(
+            collection_code, selected, confirmed=confirmed
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_publish_results.html",
+        context={
+            "collection": collection,
+            "results": results,
+            "mode": "publish",
+        },
+    )
+
+
+@app.get("/collections/{collection_code}/publish/recover")
+def collection_publish_recovery_page(request: Request, collection_code: str):
+    try:
+        collection, items = collection_recovery_overview(collection_code)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_publish_recovery.html",
+        context={"collection": collection, "items": items},
+    )
+
+
+@app.post("/collections/{collection_code}/publish/recover")
+async def collection_publish_recovery_post(
+    request: Request, collection_code: str
+):
+    form = await request.form()
+    selected = [str(value) for value in form.getlist("listing_ids")]
+    try:
+        collection, results = recover_selected_listings(
+            collection_code, selected
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request=request,
+        name="collection_publish_results.html",
+        context={
+            "collection": collection,
+            "results": results,
+            "mode": "recovery",
+        },
     )
 
 

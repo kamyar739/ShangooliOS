@@ -56,7 +56,7 @@
           <label class="form-label fw-semibold mt-3" for="fast-flow-package">Paste collection package</label>
           <textarea class="form-control font-monospace fast-flow-package-input" id="fast-flow-package" rows="7" placeholder="Paste the completed collection package from ChatGPT here."></textarea>
           <div class="fast-flow-package-footer">
-            <span class="fast-flow-format-note">The current internal JSON format accepts optional artwork filenames. Titles follow image upload order unless explicit filenames are supplied.</span>
+            <span class="fast-flow-format-note">A complete package is required: collection description and prompt, plus factual details, intelligence, story, SEO, and accessibility details for every artwork. Filenames remain optional; titles follow image upload order unless filenames are supplied.</span>
             <span class="fast-flow-package-state" data-fast-flow-package-state>Waiting for package</span>
           </div>
         </div>
@@ -175,6 +175,55 @@
 
   function filenameOnly(value) {
     return String(value || '').split(/[\\/]/).pop();
+  }
+
+  function firstPresent(...values) {
+    return values.find((value) => value !== undefined && value !== null && String(value).trim());
+  }
+
+  function hasValue(value) {
+    return Array.isArray(value) ? value.some((item) => String(item || '').trim()) : Boolean(String(value || '').trim());
+  }
+
+  function packageMissingFields(payload) {
+    const missing = [];
+    const collection = payload.collection || {};
+    ['code', 'name', 'description', 'prompt'].forEach((field) => {
+      if (!hasValue(collection[field])) missing.push(`collection ${field.replace('_', ' ')}`);
+    });
+    (payload.artworks || []).forEach((artwork, index) => {
+      const intelligence = artwork.intelligence || {};
+      const storySeo = artwork.story_seo || artwork.seo || {};
+      const etsyTags = firstPresent(storySeo.etsy_tags, artwork.etsy_tags, artwork.seo_tags, storySeo.tags);
+      const fields = [
+        ['title', artwork.title], ['description', artwork.description], ['prompt', artwork.prompt],
+        ['theme', firstPresent(intelligence.theme, artwork.theme)],
+        ['style', firstPresent(intelligence.style, artwork.style)],
+        ['mood', firstPresent(intelligence.mood, artwork.mood)],
+        ['colors', firstPresent(intelligence.primary_colors, artwork.primary_colors, artwork.colors)],
+        ['suggested rooms', firstPresent(intelligence.suggested_rooms, intelligence.suggested_room, artwork.suggested_rooms, artwork.suggested_room, artwork.rooms)],
+        ['target customer', firstPresent(intelligence.target_customer, artwork.target_customer, artwork.customer)],
+        ['AI model', firstPresent(intelligence.ai_model, artwork.ai_model)],
+        ['analysis notes', firstPresent(intelligence.analysis_notes, artwork.analysis_notes)],
+        ['short story', firstPresent(storySeo.short_story, artwork.short_story)],
+        ['long story', firstPresent(storySeo.long_story, artwork.long_story, artwork.story)],
+        ['Etsy title', firstPresent(storySeo.etsy_title, artwork.etsy_title, artwork.seo_title, storySeo.title)],
+        ['Etsy description', firstPresent(storySeo.etsy_description, artwork.etsy_description, artwork.seo_description, storySeo.description)],
+        ['Etsy tags', etsyTags],
+        ['image alt text', firstPresent(storySeo.image_alt_text, storySeo.alt_text, artwork.image_alt_text, artwork.alt_text)],
+        ['keywords', firstPresent(storySeo.keywords, artwork.keywords)],
+      ];
+      fields.forEach(([field, value]) => {
+        if (!hasValue(value)) missing.push(`artwork ${index + 1} ${field}`);
+      });
+      const tags = Array.isArray(etsyTags) ? etsyTags : String(etsyTags || '').split(',');
+      tags.map((tag) => String(tag).trim()).filter(Boolean).forEach((tag) => {
+        if (tag.length > 20) {
+          missing.push(`artwork ${index + 1} Etsy tag over 20 characters: ${tag}`);
+        }
+      });
+    });
+    return missing;
   }
 
   function titleFromFilename(filename) {
@@ -452,6 +501,15 @@
     if (!payload || typeof payload !== 'object' || !payload.collection || !Array.isArray(payload.artworks)) {
       throw new Error('The package needs collection and artworks sections.');
     }
+    if (!payload.artworks.length) {
+      throw new Error('The package needs at least one artwork.');
+    }
+    const missing = packageMissingFields(payload);
+    if (missing.length) {
+      const preview = missing.slice(0, 5).join(', ');
+      const remainder = missing.length > 5 ? `, and ${missing.length - 5} more` : '';
+      throw new Error(`Complete the package before continuing. Missing: ${preview}${remainder}.`);
+    }
     importedPayload = payload;
     packageLoaded = true;
     const collection = payload.collection;
@@ -460,7 +518,7 @@
     subtitleInput.value = collection.subtitle || '';
     descriptionInput.value = collection.description || '';
     rematchArtworks();
-    packageState.textContent = `${payload.artworks.length} artwork${payload.artworks.length === 1 ? '' : 's'} loaded`;
+    packageState.textContent = `${payload.artworks.length} complete artwork entr${payload.artworks.length === 1 ? 'y' : 'ies'} loaded`;
     packageState.className = 'fast-flow-package-state is-ready';
     render();
   }

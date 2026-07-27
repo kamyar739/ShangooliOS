@@ -16,6 +16,14 @@ class PrintifyAPIError(RuntimeError):
     pass
 
 
+class PrintifyAPIConnectionError(PrintifyAPIError):
+    """The remote result may be unknown because the connection was interrupted."""
+
+
+class PrintifyProductCreationUnknown(PrintifyAPIError):
+    """Printify may have created a product even though no response was received."""
+
+
 class PrintifyPublishPending(RuntimeError):
     pass
 
@@ -213,9 +221,17 @@ class PrintifyAPI:
                     "Printify did not accept the token. Paste the complete newly generated "
                     "token without spaces or quotes."
                 ) from error
-            raise PrintifyAPIError(f"Printify returned HTTP {error.code}: {detail[:300]}") from error
+            error_type = (
+                PrintifyAPIConnectionError
+                if error.code >= 500 else PrintifyAPIError
+            )
+            raise error_type(
+                f"Printify returned HTTP {error.code}: {detail[:300]}"
+            ) from error
         except (URLError, TimeoutError) as error:
-            raise PrintifyAPIError(f"Could not reach Printify: {error}") from error
+            raise PrintifyAPIConnectionError(
+                f"Could not reach Printify: {error}"
+            ) from error
         return json.loads(body) if body else {}
 
     def list_blueprints(self):
@@ -413,7 +429,13 @@ def create_printify_product(
             for image_id, variant_ids in areas_by_image.items()
         ],
     }
-    product = api.create_product(payload)
+    try:
+        product = api.create_product(payload)
+    except PrintifyAPIConnectionError as error:
+        raise PrintifyProductCreationUnknown(
+            "Printify did not confirm whether the product was created. "
+            "Check Printify before trying again."
+        ) from error
     known_costs = [
         selection["cost_cents"]
         for selection in selections

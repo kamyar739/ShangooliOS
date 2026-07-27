@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Publish Collection — {{ collection['name'] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
+  <div class="mb-3"><a class="context-nav-link" href="/collections/{{ collection['code'] }}/publish-readiness">← Back to Publish Readiness</a></div>
+  <header class="page-header mb-4">
+    <div>
+      <div class="eyebrow">ETSY PUBLICATION</div>
+      <h1 class="display-6 fw-bold mb-2">Publish Collection</h1>
+      <p class="text-muted mb-0">{{ collection['name'] }} · Review the existing Printify products before sending them to Etsy.</p>
+    </div>
+    <a class="btn btn-outline-primary" href="/collections/{{ collection['code'] }}/publish/recover">Recovery Status</a>
+  </header>
+
+  <div class="alert alert-secondary"><strong>Review only.</strong> Opening this page does not contact Printify or Etsy.</div>
+
+  <form method="post" action="/collections/{{ collection['code'] }}/publish" data-long-operation>
+    <div class="collection-publish-list">
+    {% for item in items %}
+      {% set listing = item['listing'] %}
+      <article class="card app-card collection-publish-item mb-3 {% if not item['selectable'] %}is-protected{% endif %}">
+        <div class="card-body">
+          <div class="collection-publish-row">
+            <label class="collection-publish-selection">
+              <input type="checkbox" name="listing_ids" value="{{ listing['id'] if listing else '' }}" {% if item['selectable'] %}checked{% else %}disabled{% endif %}>
+              <span class="collection-printify-thumb"><img src="/artworks/{{ item['artwork_code'] }}/files/view?role=source" alt="{{ item['public_title'] }} thumbnail"></span>
+              <span><small>{{ item['artwork_code'] }}</small><strong>{{ item['public_title'] }}</strong></span>
+            </label>
+            <span class="collection-publish-status is-{{ item['display_class'] }}"><span aria-hidden="true">{{ item['display_icon'] }}</span> {{ item['display_status'] }}</span>
+            <div class="collection-publish-state">
+              <span><small>Printify request</small><strong>{% if not listing %}No draft{% else %}{{ 'Submitted' if listing['printify_publish_requested_at'] else 'Not submitted' }}{% endif %}</strong></span>
+              <span><small>Etsy</small><strong>{% if not listing %}Not linked{% else %}{{ listing['etsy_state'] or ('Linked' if listing['external_listing_id'] else 'Not linked') }}{% endif %}</strong></span>
+              <span><small>Recovery</small><strong>{% if not listing %}Not available{% else %}{{ (listing['publishing_recovery_stage'] or 'Not started')|replace('_', ' ')|title }}{% endif %}</strong></span>
+            </div>
+          </div>
+          <div class="collection-publish-meta">
+            <span>Printify product: {{ listing['printify_product_id'] if listing and listing['printify_product_id'] else 'Not created' }}</span>
+            {% if listing and listing['printify_product_url'] %}<a href="{{ listing['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Open Printify ↗</a>{% endif %}
+          </div>
+          {% if not item['selectable'] %}<p class="small text-muted mb-0 mt-2">{{ item['protection'] }}</p>{% endif %}
+        </div>
+      </article>
+    {% else %}
+      <div class="empty-state">No active artwork has a usable Printify product yet.</div>
+    {% endfor %}
+    </div>
+
+    <section class="card app-card collection-printify-confirm mt-4">
+      <div class="card-body">
+        <div class="eyebrow">FINAL CONFIRMATION</div>
+        <h2 class="h4 mt-2">Send the selected products?</h2>
+        <label class="form-check d-flex gap-2 align-items-start mt-3">
+          <input class="form-check-input" type="checkbox" name="confirmed" required>
+          <span>Send the selected Printify products to the connected Etsy sales channel. Etsy listing creation may take time, and ShangooliOS may need to recover and synchronize the listings afterward.</span>
+        </label>
+        <button class="btn btn-primary mt-3" type="submit">Publish Selected Products</button>
+      </div>
+    </section>
+  </form>
+</main>
+</div>
+{% endblock %}

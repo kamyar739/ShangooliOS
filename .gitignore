@@ -42,6 +42,8 @@ __pycache__/
 # Production database
 # -----------------------------
 data/shangooli.db
+data/shangoolios.db
+data/shangooli.before-*.db
 data/mockup_scenes/
 
 # -----------------------------
@@ -56,6 +58,7 @@ data/mockup_scenes/
 # Local artwork production files
 assets/collections/*/*/01 Source Artwork/
 assets/collections/*/*/02 Print Files/
+assets/collections/**/99 Archive/
 
 # Generated artwork
 assets/collections/**/03 Mockups/

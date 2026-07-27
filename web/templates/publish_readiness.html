@@ -130,9 +130,18 @@
 
   <section class="card app-card mt-4">
     <div class="card-body p-4">
-      <div class="eyebrow">NEXT INTEGRATION</div>
-      <h2 class="h4 mb-2">{% if collection_ready %}Collection is locally ready{% else %}Finish the local checks first{% endif %}</h2>
-      <p class="text-muted mb-0">{% if collection_ready %}Every active artwork is ready or already linked externally. Printify submission will be added in the next sprint.{% else %}No files are sent externally from this page. Resolve the listed blockers and approvals, then return here.{% endif %}</p>
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div>
+          <div class="eyebrow">NEXT STEP</div>
+          <h2 class="h4 mb-2">{% if counts['ready'] %}Review Printify drafts{% elif counts['printify_linked'] %}Publish through Printify to Etsy{% elif collection_ready %}Collection is already connected{% else %}Finish the local checks first{% endif %}</h2>
+          <p class="text-muted mb-0">{% if counts['ready'] %}Review the product, sizes, prices, and print files before creating unpublished Printify products.{% elif counts['printify_linked'] %}Review the protected Printify products and explicitly choose which ones to send to the connected Etsy channel.{% elif collection_ready %}Every active artwork is already linked externally.{% else %}No files are sent externally from this page. Resolve the listed blockers and approvals, then return here.{% endif %}</p>
+        </div>
+        {% if counts['ready'] %}
+        <a class="btn btn-primary" href="/collections/{{ collection['code'] }}/printify">Review Printify Drafts →</a>
+        {% elif counts['printify_linked'] %}
+        <a class="btn btn-primary" href="/collections/{{ collection['code'] }}/publish">Publish to Etsy →</a>
+        {% endif %}
+      </div>
     </div>
   </section>
 </main>

@@ -197,6 +197,80 @@ class ListingTests(unittest.TestCase):
         self.assertIn("Back to listings", response.text)
         self.assertIn('href="/artworks/CEL-001"', response.text)
 
+    def test_approved_mockup_set_has_clear_noninteractive_state(self):
+        mockup_set = next(
+            row for row in db.list_mockup_sets() if row["name"] == "Etsy Standard"
+        )
+        db.upsert_artwork_file(
+            "CEL-001", "mockup:hero", "hero.jpg", "hero.jpg", "hero.jpg"
+        )
+        db.record_artwork_mockup_set_generated("CEL-001", mockup_set["id"])
+        db.approve_artwork_mockup_set("CEL-001", mockup_set["id"])
+        response = self.client.get("/artworks/CEL-001?step=mockups")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Approved ✓", response.text)
+        self.assertNotIn("Set approved ✓", response.text)
+
+    def test_approved_mockup_change_surfaces_etsy_only_sync(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="published",
+        )
+        db.save_printify_product(
+            listing_id, product_url="https://printify.com/product/existing",
+            product_id="printify-existing", provider="Provider",
+            sizes="12x18", base_cost_cents=1200,
+        )
+        db.link_etsy_listing(listing_id, "123456789")
+        db.upsert_artwork_file(
+            "CEL-001", "source", "source.png", "source.png", "source.png"
+        )
+        db.upsert_artwork_file(
+            "CEL-001", "mockup:collection",
+            "collection.jpg", "collection.jpg", "collection.jpg",
+        )
+        mockup_set = next(
+            row for row in db.list_mockup_sets() if row["name"] == "Etsy Standard"
+        )
+        db.record_artwork_mockup_set_generated("CEL-001", mockup_set["id"])
+        db.approve_artwork_mockup_set("CEL-001", mockup_set["id"])
+        db.set_artwork_production_flags(
+            "CEL-001", mockups_ready=True
+        )
+        with db.get_connection() as connection:
+            artwork_id = connection.execute(
+                "SELECT id FROM artworks WHERE artwork_code='CEL-001'"
+            ).fetchone()["id"]
+            connection.execute(
+                "UPDATE artwork_files SET updated_at='2026-01-01 00:00:00' "
+                "WHERE artwork_id=? AND role='source'",
+                (artwork_id,),
+            )
+            connection.execute(
+                "UPDATE artwork_files SET updated_at='2026-03-01 00:00:00' "
+                "WHERE artwork_id=? AND role='mockup:collection'",
+                (artwork_id,),
+            )
+            connection.execute(
+                "UPDATE artwork_mockup_sets SET approved_at='2026-03-01 00:00:00' "
+                "WHERE artwork_id=?",
+                (artwork_id,),
+            )
+            connection.execute(
+                "UPDATE listings SET etsy_last_synced_at='2026-02-01 00:00:00', "
+                "etsy_state='active' WHERE id=?",
+                (listing_id,),
+            )
+            connection.commit()
+
+        response = self.client.get("/artworks/CEL-001?step=listing")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Etsy images need sync", response.text)
+        self.assertIn("Preview Etsy image changes", response.text)
+        self.assertIn("Sync updated Etsy images", response.text)
+        self.assertIn("Unpublished changes", response.text)
+
     def test_listings_page_can_pause_and_reactivate_etsy_sales(self):
         listing_id = db.create_listing(
             "CEL-001", marketplace="Etsy", product="Poster",
@@ -690,6 +764,56 @@ class ListingReadinessTests(ListingTests):
         self.assertIn("Sent to Etsy", page.text)
         self.assertIn("Finish reviewing the listing on Etsy", page.text)
 
+    def test_printify_publish_route_rejects_a_repeated_request(self):
+        class FakeAPI:
+            def publish_product(self, product_id):
+                raise AssertionError("A submitted product must not be republished")
+
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        self._save_printify(listing_id)
+        db.mark_printify_publish_requested(listing_id)
+        with patch("web.app.PrintifyAPI.from_env", return_value=FakeAPI()):
+            response = self.client.post(
+                f"/listings/{listing_id}/printify/publish",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already exists", response.text)
+
+    def test_printify_publish_route_persists_an_uncertain_outcome(self):
+        from web.printify_api import PrintifyAPIConnectionError
+
+        class FakeAPI:
+            def get_product(self, product_id):
+                return {"id": product_id}
+
+            def publish_product(self, product_id):
+                raise PrintifyAPIConnectionError("timed out")
+
+        self._complete_listing_readiness()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        self._save_printify(listing_id)
+        with patch("web.app.PrintifyAPI.from_env", return_value=FakeAPI()):
+            response = self.client.post(
+                f"/listings/{listing_id}/printify/publish",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 400)
+        listing = db.get_listing(listing_id)
+        self.assertEqual(
+            listing["publishing_recovery_stage"], "publish_outcome_unknown"
+        )
+        self.assertIn("Verify", listing["publishing_recovery_message"])
+
     def test_recovery_waits_without_repeating_publish(self):
         class FakeAPI:
             def get_product(self, product_id):
@@ -759,6 +883,62 @@ class ListingReadinessTests(ListingTests):
         self.assertEqual(listing["external_listing_id"], "987654")
         self.assertEqual(listing["publishing_recovery_stage"], "etsy_ready_for_review")
         sync.assert_called_once()
+
+    def test_recovery_ignores_matching_archived_etsy_listing(self):
+        class FakeAPI:
+            def get_product(self, product_id):
+                return {"id": product_id, "title": "Unbound Poster"}
+
+        self._complete_listing_readiness()
+        old_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Old description",
+            tags="one, two", price_cents=3995, status="archived",
+        )
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE listings SET external_listing_id='111111' WHERE id=?",
+                (old_id,),
+            )
+            connection.commit()
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="ready",
+        )
+        self._save_printify(listing_id)
+        db.mark_printify_publish_requested(listing_id)
+        old_remote = {
+            "listing_id": 111111, "title": "Unbound Poster",
+            "shop_id": 42, "state": "inactive",
+        }
+        new_remote = {
+            "listing_id": 222222, "title": "Unbound Poster",
+            "shop_id": 42, "state": "draft",
+        }
+        with (
+            patch("web.app.PrintifyAPI.from_env", return_value=FakeAPI()),
+            patch(
+                "web.app.find_etsy_candidates",
+                return_value=[old_remote, new_remote],
+            ),
+            patch("web.app.get_etsy_listing", return_value=new_remote),
+            patch("web.app.etsy_config", return_value={"shop_id": "42"}),
+            patch(
+                "web.app.build_etsy_sync_preview",
+                return_value={"changed_count": 0},
+            ),
+        ):
+            response = self.client.post(
+                f"/listings/{listing_id}/publishing/recover",
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["external_listing_id"], "222222")
+        self.assertEqual(
+            listing["publishing_recovery_stage"], "etsy_ready_for_review"
+        )
 
     def test_recovery_treats_etsy_edit_lock_as_waiting(self):
         from web.etsy_api import EtsyAPIError

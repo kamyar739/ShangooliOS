@@ -108,7 +108,10 @@ def _live_states(collection, artwork):
     )
     metadata_valid, missing_metadata, _ = _metadata_check(code)
     metadata_status = "complete" if metadata_valid else "blocked"
-    listings = list(get_artwork_listings(code))
+    listings = [
+        listing for listing in get_artwork_listings(code)
+        if listing["status"] != "archived"
+    ]
     if listings:
         listing_status = "complete"
     elif not collection["default_price_tier_1_cents"]:
@@ -200,7 +203,10 @@ def _process_artwork(run_id, collection, artwork):
 
         metadata_valid, missing, content = _metadata_check(code)
         states["metadata_status"] = "complete" if metadata_valid else "blocked"
-        listings = list(get_artwork_listings(code))
+        listings = [
+            listing for listing in get_artwork_listings(code)
+            if listing["status"] != "archived"
+        ]
         if listings:
             states["listing_status"] = "complete"
         elif not collection["default_price_tier_1_cents"]:

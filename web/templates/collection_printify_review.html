@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Review Printify Drafts — {{ collection['name'] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
+  <div class="mb-3">
+    <a class="context-nav-link" href="/collections/{{ collection['code'] }}/publish-readiness">← Back to Publish Readiness</a>
+  </div>
+
+  <header class="page-header mb-4">
+    <div>
+      <div class="eyebrow">PRINTIFY DRAFT REVIEW</div>
+      <h1 class="display-6 fw-bold mb-2">Review Printify Drafts</h1>
+      <p class="text-muted mb-0">{{ collection['name'] }} · Select the locally ready artwork to create as unpublished products.</p>
+    </div>
+    <span class="collection-ready-badge {% if configuration_source %}is-ready{% endif %}">
+      {% if configuration_source %}Printify connected{% else %}Connection required{% endif %}
+    </span>
+  </header>
+
+  <div class="alert alert-light border mb-4">
+    <strong>Review only.</strong> Opening this page does not contact Printify or Etsy.
+  </div>
+
+  <form method="post" action="/collections/{{ collection['code'] }}/printify" data-long-operation>
+    <div class="collection-printify-list">
+    {% for item in eligible %}
+      <article class="card app-card collection-printify-item mb-3">
+        <div class="card-body">
+          <div class="collection-printify-heading">
+            <label class="collection-printify-selection">
+              <input class="form-check-input" type="checkbox" name="artwork_codes" value="{{ item['artwork_code'] }}" checked>
+              <span class="collection-printify-thumb"><img src="/artworks/{{ item['artwork_code'] }}/files/view?role=source" alt="{{ item['public_title'] }} thumbnail"></span>
+              <span><span class="eyebrow">{{ item['artwork_code'] }}</span><strong>{{ item['public_title'] }}</strong><small>{{ item['orientation']|title }}</small></span>
+            </label>
+            <span class="publish-primary-status status-ready">Ready</span>
+          </div>
+          {% if item['profile'] %}
+          <div class="collection-printify-specs mt-3">
+            <div><span>Product</span><strong>{{ item['profile']['product_name'] }}</strong></div>
+            <div><span>Blueprint</span><strong>{{ item['profile']['blueprint_id'] }}</strong></div>
+            <div><span>Print provider</span><strong>{{ item['profile']['provider_name'] }}</strong><small>ID {{ item['profile']['provider_id'] }}</small></div>
+            <div><span>Current state</span><strong>Not sent</strong></div>
+          </div>
+          <div class="collection-printify-variants mt-3">
+            {% for variant in item['variants'] %}
+            <div>
+              <strong>{{ variant['title'].split(' / ')[0] }}</strong>
+              <span>${{ '%.2f'|format(variant['price_cents'] / 100) }}</span>
+              <small>{{ variant['ratio_role']|replace('ratio:', 'Ratio ') }}</small>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="small text-muted mt-3"><strong>Product title:</strong> {{ item['listing']['title'] }}</div>
+          <div class="small text-muted mt-1"><strong>Description:</strong> {{ item['listing']['description']|truncate(180) }}</div>
+          {% else %}
+          <div class="alert alert-warning mt-3 mb-0">No automatic product profile is available for this orientation.</div>
+          {% endif %}
+        </div>
+      </article>
+    {% else %}
+      <div class="empty-state mb-4">No artwork is currently eligible for a new Printify draft.</div>
+    {% endfor %}
+    </div>
+
+    {% if protected %}
+    <section class="card app-card mt-4">
+      <div class="card-body">
+        <div class="eyebrow">PROTECTED PRODUCTS</div>
+        <h2 class="h5 mb-3">Already connected</h2>
+        <div class="collection-printify-protected">
+          {% for item in protected %}
+          <div>
+            <span><strong>{{ item['artwork_code'] }} · {{ item['public_title'] }}</strong><small>{{ item['status_label'] }}</small></span>
+            {% if item['listing']['printify_product_url'] %}<a href="{{ item['listing']['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Open Printify ↗</a>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if eligible %}
+    <section class="card app-card collection-printify-confirm mt-4">
+      <div class="card-body p-4">
+        <div class="eyebrow">FINAL CONFIRMATION</div>
+        <h2 class="h4 mb-2">Create the selected drafts?</h2>
+        <p class="text-muted">Products are created one at a time. Existing Printify products are protected and nothing is sent to Etsy.</p>
+        <div class="form-check mb-3">
+          <input class="form-check-input" id="confirm-printify-collection" name="confirmed" type="checkbox" value="true" required>
+          <label class="form-check-label" for="confirm-printify-collection">Create unpublished products in the connected Printify shop. Nothing will be published to Etsy.</label>
+        </div>
+        <button class="btn btn-primary" type="submit" {% if not configuration_source %}disabled{% endif %}>Create Selected Printify Drafts</button>
+        {% if not configuration_source %}<div class="small text-danger mt-2">Connect Printify before creating products.</div>{% endif %}
+      </div>
+    </section>
+    {% endif %}
+  </form>
+</main>
+</div>
+{% endblock %}

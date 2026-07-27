@@ -29,6 +29,10 @@ from web.etsy_validation import (
     parse_tags,
 )
 from web.mockup_generator import GENERATED_SLOTS
+from web.mockup_tasks import (
+    collection_branding_is_stale,
+    regenerate_collection_branding_card,
+)
 from web.production_tasks import QUALITY_THRESHOLD
 from web.production_tasks import regenerate_ratio_set
 
@@ -178,6 +182,9 @@ def artwork_review_state(collection, artwork, run_item=None):
         "quality_exception": production_error,
         "ratio_items": ratio_items,
         "mockup_items": mockup_items,
+        "collection_card_stale": collection_branding_is_stale(
+            collection["code"], code
+        ),
         "all_ratios": all_ratios,
         "all_mockups": all_mockups,
         "metadata_blockers": metadata_blockers,
@@ -300,6 +307,28 @@ def approve_many(collection_code, artwork_codes):
         except Exception:
             failed.append(item["artwork_code"])
     return {"approved": approved, "skipped": skipped, "failed": failed}
+
+
+def refresh_selected_collection_cards(collection_code, artwork_codes):
+    collection, artworks, _ = get_collection(collection_code)
+    if collection is None:
+        raise ValueError("Collection not found")
+    requested = {code.strip().upper() for code in artwork_codes if code.strip()}
+    allowed = {
+        artwork["artwork_code"] for artwork in artworks
+        if artwork["artwork_code"] in requested
+    }
+    successes, failures = [], []
+    for artwork_code in sorted(allowed):
+        try:
+            regenerate_collection_branding_card(artwork_code)
+            successes.append(artwork_code)
+        except Exception as error:
+            failures.append({
+                "artwork_code": artwork_code,
+                "message": str(error),
+            })
+    return {"successes": successes, "failures": failures}
 
 
 def regenerate_selected_ratio_sets(collection_code, artwork_codes):

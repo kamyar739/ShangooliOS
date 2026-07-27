@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Restart {{ collection["name"] }} — ShangooliOS{% endblock %}
+
+{% block content %}
+<div class="workflow-shell">
+{% include "components/collection_sidebar.html" %}
+<main class="workflow-stage-content">
+    <div class="mb-4">
+        <a href="/collections/{{ collection['code'] }}" class="context-nav-link">
+            <span aria-hidden="true">←</span> Back to {{ collection["name"] }}
+        </a>
+    </div>
+
+    <div class="page-header mb-4">
+        <div>
+            <div class="eyebrow">Replacement artwork</div>
+            <h1 class="display-6 fw-bold mb-2">Restart Production</h1>
+            <p class="text-muted mb-0">
+                {{ collection["name"] }} · Preserve the writing and pricing,
+                then rebuild every image-derived asset.
+            </p>
+        </div>
+    </div>
+
+    <div class="alert alert-warning">
+        Current local listings and their Printify/Etsy IDs will be archived for
+        reference. Nothing is deleted and no external service is contacted.
+    </div>
+
+    <section class="card app-card mb-4">
+        <div class="card-body p-4">
+            <h2 class="h4 mb-3">What will happen</h2>
+            <ul class="mb-0">
+                <li>Keep titles, descriptions, stories, SEO, order, and prices.</li>
+                <li>Keep the newly uploaded source images.</li>
+                <li>Archive old print files, ratio files, mockups, and publication records.</li>
+                <li>Create clean local drafts without Printify or Etsy IDs.</li>
+                <li>Return the collection to Production for a fresh safe run.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="card app-card mb-4">
+        <div class="card-body p-4">
+            <h2 class="h4 mb-3">Replacement sources</h2>
+            <div class="replacement-source-list">
+            {% for item in items %}
+                <div class="replacement-source-row">
+                    <div>
+                        <strong>{{ item["artwork_code"] }} — {{ item["public_title"] }}</strong>
+                        <div class="text-muted small">{{ item["source_filename"] or "No source" }}</div>
+                    </div>
+                    <span class="status-badge {{ 'status-ready' if item['source_ok'] else 'status-blocked' }}">
+                        {{ "Readable" if item["source_ok"] else "Blocked" }}
+                    </span>
+                </div>
+            {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    {% if blockers %}
+    <div class="alert alert-danger">
+        <strong>Restart blocked.</strong>
+        <ul class="mb-0 mt-2">{% for blocker in blockers %}<li>{{ blocker }}</li>{% endfor %}</ul>
+    </div>
+    {% else %}
+    <form method="post" action="/collections/{{ collection['code'] }}/replacement-restart" class="card app-card replacement-confirmation">
+        <div class="card-body p-4">
+            <div class="eyebrow">Final confirmation</div>
+            <h2 class="h4 mb-3">Restart this collection safely?</h2>
+            <label class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="sources_confirmed" required>
+                <span class="form-check-label">
+                    I confirm these newly uploaded images are the intended final
+                    originals and I have commercial rights to use them.
+                </span>
+            </label>
+            <label class="form-check mb-4">
+                <input class="form-check-input" type="checkbox" name="archive_confirmed" required>
+                <span class="form-check-label">
+                    Archive the current publication records and rebuild all
+                    image-derived production assets.
+                </span>
+            </label>
+            <button type="submit" class="btn btn-danger">
+                Restart Production with Replacement Artwork
+            </button>
+        </div>
+    </form>
+    {% endif %}
+</main>
+</div>
+{% endblock %}

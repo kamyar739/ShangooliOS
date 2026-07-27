@@ -8,8 +8,11 @@ from app.database import create_artwork
 from web.db import (
     create_collection,
     get_artwork,
+    get_collection,
+    update_artwork_details,
     update_artwork_intelligence,
     update_artwork_listing_content,
+    update_collection,
     upsert_artwork_file,
 )
 from web.file_intake import ALLOWED_EXTENSIONS, save_uploaded_file
@@ -40,6 +43,17 @@ def _comma_separated(value, label):
     raise ValueError(f"{label} must be text or a list of text values")
 
 
+def _etsy_tags(value, label):
+    tags = [tag.strip() for tag in _comma_separated(value, label).split(",") if tag.strip()]
+    over_limit = [tag for tag in tags if len(tag) > 20]
+    if over_limit:
+        raise ValueError(
+            f"{label} must use 20 characters or fewer per tag: "
+            + ", ".join(over_limit)
+        )
+    return ", ".join(tags)
+
+
 def _optional_object(value, label):
     if value is None:
         return {}
@@ -55,7 +69,11 @@ def _first_present(*values):
     return None
 
 
-def parse_fast_flow_manifest(manifest_text):
+def _required_metadata(value, label):
+    return _required_text(value, label)
+
+
+def parse_fast_flow_manifest(manifest_text, *, require_images=True):
     try:
         payload = json.loads(manifest_text)
     except json.JSONDecodeError as error:
@@ -79,6 +97,12 @@ def parse_fast_flow_manifest(manifest_text):
             "Collection code must be 1–10 letters, numbers, underscores, or hyphens"
         )
     name = _required_text(collection_payload.get("name"), "Collection name")
+    description = _required_metadata(
+        collection_payload.get("description"), "Collection description"
+    )
+    prompt = _required_metadata(
+        collection_payload.get("prompt"), "Collection prompt"
+    )
     status = _optional_text(collection_payload.get("status") or "active").lower()
     if status not in {"planned", "active", "complete", "paused"}:
         raise ValueError("Collection status must be planned, active, complete, or paused")
@@ -88,18 +112,20 @@ def parse_fast_flow_manifest(manifest_text):
     for position, item in enumerate(artwork_payloads, start=1):
         if not isinstance(item, dict):
             raise ValueError(f"Artwork {position} must be a JSON object")
-        image = Path(
-            _required_text(item.get("image"), f"Artwork {position} image")
-        ).name
-        if Path(image).suffix.lower() not in FAST_FLOW_IMAGE_EXTENSIONS:
-            allowed = ", ".join(sorted(FAST_FLOW_IMAGE_EXTENSIONS))
-            raise ValueError(
-                f"Artwork {position} image must use one of these formats: {allowed}"
-            )
-        image_key = image.casefold()
-        if image_key in seen_images:
-            raise ValueError(f"Image {image} is assigned more than once")
-        seen_images.add(image_key)
+        image = Path(_optional_text(item.get("image"))).name
+        if require_images:
+            image = Path(
+                _required_text(item.get("image"), f"Artwork {position} image")
+            ).name
+            if Path(image).suffix.lower() not in FAST_FLOW_IMAGE_EXTENSIONS:
+                allowed = ", ".join(sorted(FAST_FLOW_IMAGE_EXTENSIONS))
+                raise ValueError(
+                    f"Artwork {position} image must use one of these formats: {allowed}"
+                )
+            image_key = image.casefold()
+            if image_key in seen_images:
+                raise ValueError(f"Image {image} is assigned more than once")
+            seen_images.add(image_key)
 
         intelligence = _optional_object(
             item.get("intelligence"), f"Artwork {position} intelligence"
@@ -117,105 +143,118 @@ def parse_fast_flow_manifest(manifest_text):
                 "title": _required_text(
                     item.get("title"), f"Artwork {position} title"
                 ),
-                "description": _optional_text(item.get("description")),
-                "prompt": _optional_text(item.get("prompt")),
+                "description": _required_metadata(
+                    item.get("description"), f"Artwork {position} description"
+                ),
+                "prompt": _required_metadata(
+                    item.get("prompt"), f"Artwork {position} prompt"
+                ),
                 "intelligence": {
-                    "theme": _optional_text(
+                    "theme": _required_metadata(
                         _first_present(intelligence.get("theme"), item.get("theme"))
+                        , f"Artwork {position} theme"
                     ),
-                    "style": _optional_text(
+                    "style": _required_metadata(
                         _first_present(intelligence.get("style"), item.get("style"))
+                        , f"Artwork {position} style"
                     ),
-                    "mood": _optional_text(
+                    "mood": _required_metadata(
                         _first_present(intelligence.get("mood"), item.get("mood"))
+                        , f"Artwork {position} mood"
                     ),
-                    "primary_colors": _comma_separated(
+                    "primary_colors": _required_metadata(_comma_separated(
                         _first_present(
                             intelligence.get("primary_colors"),
                             item.get("primary_colors"),
+                            item.get("colors"),
                         ),
                         f"Artwork {position} primary colors",
-                    ),
-                    "suggested_room": _comma_separated(
+                    ), f"Artwork {position} primary colors"),
+                    "suggested_room": _required_metadata(_comma_separated(
                         _first_present(
                             intelligence.get("suggested_rooms"),
                             intelligence.get("suggested_room"),
                             item.get("suggested_rooms"),
                             item.get("suggested_room"),
+                            item.get("rooms"),
                         ),
                         f"Artwork {position} suggested rooms",
-                    ),
-                    "target_customer": _comma_separated(
+                    ), f"Artwork {position} suggested rooms"),
+                    "target_customer": _required_metadata(_comma_separated(
                         _first_present(
                             intelligence.get("target_customer"),
                             item.get("target_customer"),
+                            item.get("customer"),
                         ),
                         f"Artwork {position} target customer",
-                    ),
-                    "ai_model": _optional_text(
+                    ), f"Artwork {position} target customer"),
+                    "ai_model": _required_metadata(
                         _first_present(
                             intelligence.get("ai_model"), item.get("ai_model")
-                        )
+                        ), f"Artwork {position} AI model"
                     ),
-                    "analysis_notes": _optional_text(
+                    "analysis_notes": _required_metadata(
                         _first_present(
                             intelligence.get("analysis_notes"),
                             item.get("analysis_notes"),
-                        )
+                        ), f"Artwork {position} analysis notes"
                     ),
                 },
                 "listing_content": {
-                    "short_story": _optional_text(
+                    "short_story": _required_metadata(
                         _first_present(
                             story_seo.get("short_story"), item.get("short_story")
-                        )
+                        ), f"Artwork {position} short story"
                     ),
-                    "long_story": _optional_text(
+                    "long_story": _required_metadata(
                         _first_present(
                             story_seo.get("long_story"),
                             item.get("long_story"),
                             item.get("story"),
-                        )
+                        ), f"Artwork {position} long story"
                     ),
-                    "etsy_title": _optional_text(
+                    "etsy_title": _required_metadata(
                         _first_present(
                             story_seo.get("etsy_title"),
                             item.get("etsy_title"),
+                            item.get("seo_title"),
                             legacy_seo.get("title"),
-                        )
+                        ), f"Artwork {position} Etsy title"
                     ),
-                    "etsy_description": _optional_text(
+                    "etsy_description": _required_metadata(
                         _first_present(
                             story_seo.get("etsy_description"),
                             item.get("etsy_description"),
+                            item.get("seo_description"),
                             legacy_seo.get("description"),
-                        )
+                        ), f"Artwork {position} Etsy description"
                     ),
-                    "etsy_tags": _comma_separated(
+                    "etsy_tags": _required_metadata(_etsy_tags(
                         _first_present(
                             story_seo.get("etsy_tags"),
                             item.get("etsy_tags"),
+                            item.get("seo_tags"),
                             legacy_seo.get("tags"),
                         ),
                         f"Artwork {position} SEO tags",
-                    ),
-                    "alt_text": _optional_text(
+                    ), f"Artwork {position} Etsy tags"),
+                    "alt_text": _required_metadata(
                         _first_present(
                             story_seo.get("image_alt_text"),
                             story_seo.get("alt_text"),
                             item.get("image_alt_text"),
                             item.get("alt_text"),
                             legacy_seo.get("alt_text"),
-                        )
+                        ), f"Artwork {position} image alt text"
                     ),
-                    "keywords": _comma_separated(
+                    "keywords": _required_metadata(_comma_separated(
                         _first_present(
                             story_seo.get("keywords"),
                             item.get("keywords"),
                             legacy_seo.get("keywords"),
                         ),
                         f"Artwork {position} SEO keywords",
-                    ),
+                    ), f"Artwork {position} SEO keywords"),
                 },
             }
         )
@@ -232,8 +271,8 @@ def parse_fast_flow_manifest(manifest_text):
         "collection": {
             "code": code,
             "name": name,
-            "description": _optional_text(collection_payload.get("description")),
-            "prompt": _optional_text(collection_payload.get("prompt")),
+            "description": description,
+            "prompt": prompt,
             "etsy_section_name": _optional_text(
                 collection_payload.get("etsy_section_name")
             ),
@@ -331,3 +370,45 @@ def import_fast_flow_collection(manifest_text, uploads):
         "collection_code": collection_code,
         "artwork_codes": created_artworks,
     }
+
+
+def apply_fast_flow_metadata(collection_code, manifest_text):
+    """Apply a complete package to an already-imported collection without touching files."""
+    package = parse_fast_flow_manifest(manifest_text, require_images=False)
+    collection = package["collection"]
+    code = collection_code.strip().upper()
+    if collection["code"] != code:
+        raise ValueError("Collection package code does not match this collection")
+
+    existing_collection, artworks, _ = get_collection(code)
+    if existing_collection is None:
+        raise ValueError("Collection not found")
+    if len(artworks) != len(package["artworks"]):
+        raise ValueError("Collection package artwork count does not match this collection")
+
+    update_collection(
+        code,
+        collection["name"],
+        len(artworks),
+        collection["status"],
+        etsy_section_name=collection["etsy_section_name"] or collection["name"],
+        description=collection["description"],
+        prompt=collection["prompt"],
+        default_prices=tuple(
+            existing_collection[f"default_price_tier_{tier}_cents"]
+            for tier in range(1, 7)
+        ),
+    )
+    for artwork, metadata in zip(artworks, package["artworks"]):
+        artwork_code = artwork["artwork_code"]
+        update_artwork_details(
+            artwork_code,
+            public_title=metadata["title"],
+            description=metadata["description"],
+            prompt=metadata["prompt"],
+            status=artwork["status"],
+        )
+        update_artwork_intelligence(artwork_code, **metadata["intelligence"])
+        update_artwork_listing_content(artwork_code, **metadata["listing_content"])
+
+    return {"collection_code": code, "artwork_codes": [a["artwork_code"] for a in artworks]}

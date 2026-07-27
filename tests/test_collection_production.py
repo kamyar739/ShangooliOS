@@ -15,8 +15,13 @@ from web.collection_review import (
     approve_artwork_for_collection,
     approve_many,
     collection_review_overview,
+    refresh_selected_collection_cards,
     regenerate_selected_ratio_sets,
     send_artwork_back,
+)
+from web.mockup_tasks import (
+    collection_branding_is_stale,
+    regenerate_collection_branding_card,
 )
 from web.production_tasks import ensure_source_certification, regenerate_ratio_set
 
@@ -465,6 +470,128 @@ class CollectionProductionTests(unittest.TestCase):
         self.assertEqual(
             unselected.call_args.args[0]["artwork_code"], "DUE-001"
         )
+
+    def _collection_card_workspace(self, artwork_code):
+        workspace = Path(self.temporary.name) / artwork_code
+        source = workspace / "01 Source Artwork" / "source.png"
+        source.parent.mkdir(parents=True)
+        Image.new("RGB", (400, 600), "red").save(source)
+        card = workspace / "03 Mockups" / "collection.jpg"
+        card.parent.mkdir(parents=True)
+        card.write_bytes(b"previous-card")
+        db.upsert_artwork_file(
+            artwork_code, "source", str(source.relative_to(workspace)),
+            source.name, source.name,
+        )
+        db.upsert_artwork_file(
+            artwork_code, "mockup:collection", str(card.relative_to(workspace)),
+            card.name, card.name,
+        )
+        mockup_set = next(
+            row for row in db.list_mockup_sets() if row["name"] == "Etsy Standard"
+        )
+        db.record_artwork_mockup_set_generated(artwork_code, mockup_set["id"])
+        db.approve_artwork_mockup_set(artwork_code, mockup_set["id"])
+        db.set_artwork_production_flags(
+            artwork_code, ratio_exports_ready=True, mockups_ready=True
+        )
+        return workspace, card
+
+    def test_collection_card_batch_refreshes_selected_artwork_only(self):
+        with patch(
+            "web.collection_review.regenerate_collection_branding_card"
+        ) as refresh:
+            result = refresh_selected_collection_cards("DUE", ["DUE-001"])
+        self.assertEqual(result["successes"], ["DUE-001"])
+        self.assertEqual(result["failures"], [])
+        refresh.assert_called_once_with("DUE-001")
+
+    def test_collection_card_refresh_preserves_external_state_and_clears_approval(self):
+        workspace, old_card = self._collection_card_workspace("DUE-001")
+        listing_id = db.create_listing(
+            "DUE-001", marketplace="Etsy", product="Poster",
+            title="Existing", description="Keep", tags="keep",
+            price_cents=4777, status="published",
+        )
+        with db.get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE listings
+                SET printify_product_id='printify-existing',
+                    external_listing_id='etsy-existing',
+                    etsy_state='active'
+                WHERE id=?
+                """,
+                (listing_id,),
+            )
+            connection.commit()
+
+        def generate(**kwargs):
+            path = kwargs["output_folder"] / "collection.jpg"
+            path.write_bytes(b"new-card")
+            return {
+                "path": path, "stored_filename": "collection.jpg",
+                "original_filename": "collection.jpg",
+            }
+
+        with (
+            patch("web.mockup_tasks.get_artwork_folder", return_value=workspace),
+            patch("web.ratio_generator.get_artwork_folder", return_value=workspace),
+            patch("web.mockup_tasks.generate_listing_image", side_effect=generate),
+        ):
+            regenerate_collection_branding_card("DUE-001")
+
+        self.assertEqual(old_card.read_bytes(), b"new-card")
+        production = db.get_artwork_production("DUE-001")
+        self.assertFalse(production["mockups_ready"])
+        self.assertTrue(production["ratio_exports_ready"])
+        self.assertIsNone(
+            db.get_artwork_mockup_set_state("DUE-001")["approved_at"]
+        )
+        listing = db.get_listing(listing_id)
+        self.assertEqual(listing["price_cents"], 4777)
+        self.assertEqual(listing["printify_product_id"], "printify-existing")
+        self.assertEqual(listing["external_listing_id"], "etsy-existing")
+
+    def test_failed_collection_card_refresh_preserves_previous_file_and_approval(self):
+        workspace, old_card = self._collection_card_workspace("DUE-001")
+        with (
+            patch("web.mockup_tasks.get_artwork_folder", return_value=workspace),
+            patch("web.ratio_generator.get_artwork_folder", return_value=workspace),
+            patch(
+                "web.mockup_tasks.generate_listing_image",
+                side_effect=ValueError("simulated failure"),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "simulated failure"):
+                regenerate_collection_branding_card("DUE-001")
+        self.assertEqual(old_card.read_bytes(), b"previous-card")
+        self.assertTrue(db.get_artwork_production("DUE-001")["mockups_ready"])
+        self.assertIsNotNone(
+            db.get_artwork_mockup_set_state("DUE-001")["approved_at"]
+        )
+
+    def test_collection_card_staleness_tracks_collection_source_changes(self):
+        self._collection_card_workspace("DUE-001")
+        with db.get_connection() as connection:
+            artwork_id = connection.execute(
+                "SELECT id FROM artworks WHERE artwork_code='DUE-001'"
+            ).fetchone()["id"]
+            connection.execute(
+                "UPDATE artwork_files SET updated_at='2026-01-01 00:00:00' "
+                "WHERE artwork_id=? AND role='mockup:collection'",
+                (artwork_id,),
+            )
+            connection.execute(
+                "UPDATE artwork_files SET updated_at='2026-02-01 00:00:00' "
+                "WHERE artwork_id=? AND role='source'",
+                (artwork_id,),
+            )
+            connection.commit()
+        self.assertTrue(collection_branding_is_stale("DUE", "DUE-001"))
+        response = self.client.get("/collections/DUE/review")
+        self.assertIn("Collection card needs refresh", response.text)
+        self.assertIn("Refresh Collection Cards", response.text)
 
 
 class SourcePreparationTests(unittest.TestCase):

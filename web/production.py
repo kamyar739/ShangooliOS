@@ -12,7 +12,7 @@ MOCKUP_SLOTS = (
     ("detail", "Close-up detail", "Color and composition detail"),
     ("sizes", "Sizes and ratios", "Available aspect-ratio guide"),
     ("how_it_works", "How it works", "Ordering and display explanation"),
-    ("collection", "Collection branding", "Celebration Collection identity"),
+    ("collection", "Collection branding", "Collection identity"),
 )
 
 

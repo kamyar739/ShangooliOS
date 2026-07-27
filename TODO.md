@@ -123,3 +123,28 @@ Store the cover as a collection-level asset with its own upload, replacement, ap
 This feature should reinforce the brand statement:
 
 > **Every Collection Tells a Story.**
+
+## Completed: Refresh Collection Branding Mockups
+
+The **Collection Branding** listing image is repeated within every artwork's mockup set, but it includes thumbnails of the complete collection. When an approved source image is replaced, renamed, reordered, or retired, the repeated collection-branding cards for the other artworks can become stale.
+
+Add a collection-level **Refresh Collection Cards** action that:
+
+- Detects artwork changes that affect the shared collection card.
+- Regenerates only the Collection Branding / Listing Image 8 card for selected affected artworks.
+- Leaves all other mockups, print files, artwork text, prices, Printify products, Etsy state, and user edits unchanged.
+- Marks only successfully refreshed cards for visual reapproval.
+- Reports per-artwork success or failure and preserves a previous card if regeneration fails.
+
+## Completed: Clear Mockup Approval State
+
+After a curated mockup set has been approved, the interface still shows a checked review box and an active-looking **Set approved** button. Replace this with an unambiguous approved state, such as a non-interactive **Approved** indicator. Make it clear when review is still required versus when no further approval action is needed.
+
+## Completed: Detect Unsynced Etsy Images
+
+Changing and approving a listing mockup updates local artwork state but currently leaves the workflow tabs showing **Listing**, **Printify**, and **Publish** as completed. The application should detect that the live Etsy gallery is now stale.
+
+- Keep local Listing and Printify completion intact when only listing images change.
+- Mark Publish as **Unpublished Etsy image changes** until the current approved mockup set is synchronized.
+- Surface a clear Etsy-only synchronization action.
+- Do not recreate or alter the Printify product, variants, prices, writing, or other existing external state.
