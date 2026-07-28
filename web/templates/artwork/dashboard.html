@@ -163,8 +163,18 @@
     <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence">
       <div class="row g-3">
         <div class="col-md-6"><label class="form-label">Theme</label><input class="form-control" name="theme" value="{{ artwork_intelligence['theme'] or artwork['theme'] or '' }}"></div>
-        <div class="col-md-6"><label class="form-label">Style</label><select class="form-select" name="style">{% for option in ["Contemporary expressionist figurative oil painting", "Modern abstract figurative", "Impressionist", "Minimalist"] %}<option value="{{ option }}" {% if artwork_intelligence['style'] == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
-        <div class="col-md-6"><label class="form-label">Mood</label><select class="form-select" name="mood">{% for option in ["Passionate", "Joyful", "Serene", "Dramatic", "Reflective", "Empowering"] %}<option value="{{ option }}" {% if artwork_intelligence['mood'] == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+        <div class="col-md-6">
+          <label class="form-label" for="artwork-style">Style</label>
+          <input class="form-control" id="artwork-style" name="style" list="artwork-style-options" value="{{ artwork_intelligence['style'] or '' }}" placeholder="Choose or enter a style">
+          <datalist id="artwork-style-options">{% for option in ["Contemporary expressionist figurative oil painting", "Modern abstract figurative", "Impressionist", "Minimalist"] %}<option value="{{ option }}"></option>{% endfor %}</datalist>
+          <div class="form-text">Choose a suggestion or enter your own.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="artwork-mood">Mood</label>
+          <input class="form-control" id="artwork-mood" name="mood" list="artwork-mood-options" value="{{ artwork_intelligence['mood'] or '' }}" placeholder="Choose or enter a mood">
+          <datalist id="artwork-mood-options">{% for option in ["Passionate", "Joyful", "Serene", "Dramatic", "Reflective", "Empowering"] %}<option value="{{ option }}"></option>{% endfor %}</datalist>
+          <div class="form-text">Choose a suggestion or enter your own.</div>
+        </div>
         <div class="col-md-6"><label class="form-label">Primary colors</label><input class="form-control" name="primary_colors" value="{{ artwork_intelligence['primary_colors'] or '' }}" placeholder="teal, coral, gold, ivory"></div>
         <div class="col-md-6"><label class="form-label d-block">Suggested rooms</label>{% for option in ["Living room", "Bedroom", "Dining room", "Entryway", "Office", "Creative space"] %}<label class="form-check form-check-inline small"><input class="form-check-input" type="checkbox" name="suggested_room" value="{{ option }}" {% if option in (artwork_intelligence['suggested_room'] or '') %}checked{% endif %}> {{ option }}</label>{% endfor %}</div>
         <div class="col-md-6"><label class="form-label d-block">Target customer</label>{% for option in ["Art collectors", "Flamenco enthusiasts", "Dance lovers", "Contemporary decor shoppers", "Gift buyers", "Gallery buyers"] %}<label class="form-check form-check-inline small"><input class="form-check-input" type="checkbox" name="target_customer" value="{{ option }}" {% if option in (artwork_intelligence['target_customer'] or '') %}checked{% endif %}> {{ option }}</label>{% endfor %}</div>

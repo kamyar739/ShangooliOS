@@ -5,6 +5,7 @@
 {% include "components/collection_sidebar.html" %}
 <main class="workflow-stage-content">
   <div class="mb-3"><a class="context-nav-link" href="/collections/{{ collection['code'] }}/publish">← Back to Publish Collection</a></div>
+  {% include "components/workflow_progress.html" %}
   <header class="page-header mb-4">
     <div>
       <div class="eyebrow">PUBLICATION RECOVERY</div>

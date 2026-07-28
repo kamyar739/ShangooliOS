@@ -7,6 +7,7 @@
   <div class="mb-3">
     <a class="context-nav-link" href="/collections?collection={{ collection['code'] }}">← Back to {{ collection['name'] }}</a>
   </div>
+  {% include "components/workflow_progress.html" %}
 
   <header class="page-header collection-production-header mb-4">
     <div>
@@ -28,8 +29,11 @@
   {% if request.query_params.get('ran') or request.query_params.get('retried') %}
   <div class="alert alert-success">Safe internal production work finished. Review the results below.</div>
   {% endif %}
+  {% if request.query_params.get('fast_flow_imported') %}
+  <div class="alert alert-success"><strong>Fast Flow import complete.</strong> {{ request.query_params.get('fast_flow_imported') }} artwork source{% if request.query_params.get('fast_flow_imported') != '1' %}s{% endif %} are ready for safe production.</div>
+  {% endif %}
 
-  <section class="card app-card mb-4">
+  <section class="card app-card mb-4" id="collection-workflow-action">
     <div class="card-body p-4">
       <div class="row g-3 align-items-center">
         <div class="col-lg">

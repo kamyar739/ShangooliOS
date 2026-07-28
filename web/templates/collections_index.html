@@ -21,7 +21,7 @@
           <li>Source images attached</li>
         </ul>
       </div>
-      {% if collection_artworks %}<a class="btn btn-primary" href="/artworks/{{ collection_artworks[0]['artwork_code'] }}">Continue to Production Workflow</a>{% endif %}
+      {% if selected_collection %}<a class="btn btn-primary" href="/collections/{{ selected_collection['code'] }}/production">Continue Collection Workflow</a>{% endif %}
     </section>
     {% endif %}
     {% if request.query_params.get('etsy_collection_paused') is not none %}<div class="alert alert-success">{{ request.query_params.get('etsy_collection_paused') }} Etsy listing{% if request.query_params.get('etsy_collection_paused') != '1' %}s{% endif %} paused. The ShangooliOS and Printify records were preserved.</div>{% endif %}
@@ -29,11 +29,22 @@
     {% if request.query_params.get('etsy_collection_error') %}<div class="alert alert-warning"><strong>Some listings need attention.</strong> Completed listings remain saved. {{ request.query_params.get('etsy_collection_error') }}</div>{% endif %}
     {% if selected_collection %}
     <section class="collection-switcher-shell mb-4" aria-label="Collection selector">
-      <div class="collection-selector-gallery">
+      <div class="collection-selector-heading">
+        <div><div class="eyebrow">Browse collections</div><h2 class="h5 mb-0">Choose a collection</h2></div>
+        <div class="collection-selector-controls">
+          <button type="button" data-collection-selector-previous aria-label="Previous collections">←</button>
+          <button type="button" data-collection-selector-next aria-label="Next collections">→</button>
+        </div>
+      </div>
+      <div class="collection-selector-gallery" data-collection-selector tabindex="0">
         {% for collection in collections %}
         <a class="collection-selector-card {% if selected_collection['code'] == collection['code'] %}is-selected{% endif %}" href="/collections?collection={{ collection['code'] }}">
-          <span class="collection-selector-cover">{% if collection['representative_artwork_code'] %}<img src="/artworks/{{ collection['representative_artwork_code'] }}/files/view?role=source" alt="">{% else %}<span>{{ collection['code'] }}</span>{% endif %}</span>
-          <span><strong>{{ collection['name'] }}</strong><small>{{ collection['artwork_count'] or 0 }} / {{ collection['target_artwork_count'] or 0 }} artworks · {{ collection['display_status'] }}</small></span>
+          <span class="collection-selector-cover">{% if collection['cover_image_path'] %}<img src="/collections/{{ collection['code'] }}/cover" alt="{{ collection['name'] }} cover">{% elif collection['representative_artwork_code'] %}<img src="/artworks/{{ collection['representative_artwork_code'] }}/files/view?role=source" alt="{{ collection['name'] }} representative artwork">{% else %}<span>{{ collection['code'] }}</span>{% endif %}</span>
+          <span class="collection-selector-copy">
+            <span class="collection-selector-meta"><span class="code-pill">{{ collection['code'] }}</span><small class="collection-status-label is-{{ collection['display_status_class'] }}">{{ collection['display_status'] }}</small></span>
+            <strong>{{ collection['name'] }}</strong>
+            <small>{{ collection['artwork_count'] or 0 }} of {{ collection['target_artwork_count'] or 0 }} artworks</small>
+          </span>
         </a>
         {% endfor %}
       </div>
@@ -98,17 +109,18 @@
       </div>
       {% endif %}
     </div>
+    <div class="collection-artwork-grid">
     <div class="row g-3 dashboard-recent-grid">
       {% for sequence_item in collection_sequence|default([]) %}
       {% if sequence_item['artwork'] %}
       {% set artwork = sequence_item['artwork'] %}
-      <div class="col-auto">
+      <div class="col-12 col-md-6 col-xl-4">
         {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = false %}
         {% include "components/artwork_card.html" %}
       </div>
       {% else %}
       {% set slot_number = sequence_item['number'] %}
-      <div class="col-auto">
+      <div class="col-12 col-md-6 col-xl-4">
         <button class="card app-card artwork-card dashboard-recent-card collection-empty-artwork-card h-100" type="button" data-bs-toggle="modal" data-bs-target="#new-artwork-modal" aria-label="Create artwork {{ selected_collection['code'] }}-{{ '%03d'|format(slot_number) }}">
           <div class="artwork-card-media dashboard-recent-media">
             <div class="artwork-card-placeholder"><span>Empty artwork slot</span></div>
@@ -124,12 +136,13 @@
       {% endfor %}
       {% if show_retired %}
       {% for artwork in retired_artworks %}
-      <div class="col-auto retired-artwork-card">
+      <div class="col-12 col-md-6 col-xl-4 retired-artwork-card">
         {% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = false %}
         {% include "components/artwork_card.html" %}
       </div>
       {% endfor %}
       {% endif %}
+    </div>
     </div>
   </main>
 </div>
@@ -233,10 +246,26 @@
 <script>
 (() => {
   const track = document.querySelector('[data-collection-gallery]');
-  if (!track) return;
-  const move = direction => track.scrollBy({left: direction * Math.max(280, track.clientWidth * 0.72), behavior: 'smooth'});
-  document.querySelector('[data-gallery-previous]')?.addEventListener('click', () => move(-1));
-  document.querySelector('[data-gallery-next]')?.addEventListener('click', () => move(1));
+  if (track) {
+    const move = direction => track.scrollBy({left: direction * Math.max(280, track.clientWidth * 0.72), behavior: 'smooth'});
+    document.querySelector('[data-gallery-previous]')?.addEventListener('click', () => move(-1));
+    document.querySelector('[data-gallery-next]')?.addEventListener('click', () => move(1));
+  }
+
+  const collectionTrack = document.querySelector('[data-collection-selector]');
+  if (collectionTrack) {
+    const moveCollections = direction => collectionTrack.scrollBy({
+      left: direction * Math.max(260, collectionTrack.clientWidth * 0.78),
+      behavior: 'smooth'
+    });
+    document.querySelector('[data-collection-selector-previous]')?.addEventListener('click', () => moveCollections(-1));
+    document.querySelector('[data-collection-selector-next]')?.addEventListener('click', () => moveCollections(1));
+    collectionTrack.querySelector('.is-selected')?.scrollIntoView({
+      behavior: 'auto',
+      block: 'nearest',
+      inline: 'nearest'
+    });
+  }
 })();
 </script>
 {% endblock %}

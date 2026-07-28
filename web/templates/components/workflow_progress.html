@@ -1,0 +1,24 @@
+{% if workflow_navigation %}
+<section class="guided-workflow mb-4" aria-label="{{ workflow_navigation['title'] }} workflow">
+  <div class="guided-workflow-stages">
+    {% for stage in workflow_navigation['stages'] %}
+    <a class="guided-workflow-stage is-{{ stage['state'] }}{% if stage['active'] %} is-active{% endif %}"
+       href="{{ stage['url'] }}"
+       {% if stage['active'] %}aria-current="step"{% endif %}>
+      <span class="guided-workflow-marker">{% if stage['state'] == 'complete' %}✓{% elif stage['state'] == 'attention' %}!{% else %}{{ loop.index }}{% endif %}</span>
+      <span>{{ stage['label'] }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  <div class="guided-workflow-next">
+    <div>
+      <span>Recommended next action</span>
+      <strong>{{ workflow_navigation['next_action']['label'] }}</strong>
+      <small>{{ workflow_navigation['next_action']['description'] }}</small>
+    </div>
+    <a class="btn btn-primary" href="{{ workflow_navigation['next_action']['url'] }}">
+      {{ workflow_navigation['next_action']['label'] }} →
+    </a>
+  </div>
+</section>
+{% endif %}

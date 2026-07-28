@@ -132,6 +132,27 @@ def sync_etsy_listing(listing) -> dict:
         tags=listing_tags(listing),
     )
     remote_state = preview.get("remote", {}).get("state", "")
+    return _sync_etsy_listing_images(listing, preview, remote_state)
+
+
+def sync_etsy_listing_images(listing) -> dict:
+    """Synchronize only the approved curated gallery for an existing Etsy listing."""
+    set_state = get_artwork_mockup_set_state(listing["artwork_code"])
+    if set_state is not None and not set_state["approved_at"]:
+        raise ValueError(
+            f"Review and approve the {set_state['name']} mockup set before Etsy synchronization"
+        )
+    preview = build_etsy_sync_preview(listing)
+    if not preview["linked"]:
+        raise ValueError("Link the Printify-created Etsy listing first")
+    if not preview["images"]:
+        raise ValueError("No curated listing images were found")
+    remote_state = preview.get("remote", {}).get("state", "")
+    return _sync_etsy_listing_images(listing, preview, remote_state)
+
+
+def _sync_etsy_listing_images(listing, preview: dict, remote_state: str) -> dict:
+    listing_id = str(listing["external_listing_id"])
     if not preview["images_changed"]:
         return {"listing_id": listing_id, "image_count": 0, "state": remote_state}
     uploaded_ids = set()

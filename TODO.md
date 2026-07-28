@@ -1,5 +1,25 @@
 # ShangooliOS Todo
 
+## Completed: Guided Replace Artwork
+
+Add a compact **Replace Artwork** workflow for frequent source-image corrections:
+
+- Keep one persistent five-stage guide: Replace Source, Quality, Rebuild Files,
+  Review Mockups, and Update Shops.
+- Preserve artwork writing, SEO, prices, variants, Printify IDs, Etsy IDs, and
+  the current Etsy paused/live state.
+- Reuse the existing certification, AI upscale, print, ratio, mockup,
+  Printify-update, Etsy-sync, and recovery implementations.
+- Require explicit visual approval before external synchronization.
+- Support replacing and downloading an individual mockup from the review stage.
+- Leave collection-card refreshes for other artworks as an explicit manual
+  follow-up in Collection Review.
+
+## Completed: Source and Mockup Downloads
+
+Provide a download action beside the saved source and in every populated mockup
+slot. Downloads must not trigger the page-level waiting indicator.
+
 ## Completed: Structured Artwork Metadata
 
 Replace selected free-text Artwork Intelligence fields with controlled choices so analysis produces consistent metadata across collections:
@@ -148,3 +168,12 @@ Changing and approving a listing mockup updates local artwork state but currentl
 - Mark Publish as **Unpublished Etsy image changes** until the current approved mockup set is synchronized.
 - Surface a clear Etsy-only synchronization action.
 - Do not recreate or alter the Printify product, variants, prices, writing, or other existing external state.
+
+## Completed: Guided Replace Mockup
+
+Add a compact workflow for correcting one or more listing images:
+
+- Replace only the affected mockup slots.
+- Review and approve the complete ordered gallery.
+- Synchronize only the approved Etsy images when a linked listing is stale.
+- Preserve the source, print files, writing, price, variants, Printify product, and Etsy live or paused state.

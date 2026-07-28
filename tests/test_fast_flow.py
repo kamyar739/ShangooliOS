@@ -147,7 +147,7 @@ class FastFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 303)
         self.assertEqual(
             response.headers["location"],
-            "/collections?collection=FLW&fast_flow_imported=2",
+            "/collections/FLW/production?fast_flow_imported=2",
         )
 
         collection, artworks, _ = db.get_collection("FLW")
@@ -175,6 +175,23 @@ class FastFlowTests(unittest.TestCase):
             / assignments["source"]["relative_path"]
         )
         self.assertTrue(source_path.is_file())
+        source_page = self.client.get("/artworks/FLW-001?step=source")
+        self.assertIn(
+            "/artworks/FLW-001/files/view?role=source&amp;download=true",
+            source_page.text,
+        )
+        self.assertRegex(
+            source_page.text,
+            r'<a[^>]*\bdownload\b[^>]*href="/artworks/FLW-001/files/view\?role=source&amp;download=true"',
+        )
+        download = self.client.get(
+            "/artworks/FLW-001/files/view?role=source&download=true"
+        )
+        self.assertEqual(download.status_code, 200)
+        self.assertIn(
+            'attachment; filename="first.png"',
+            download.headers["content-disposition"],
+        )
 
         listing_content = db.get_artwork_listing_content("FLW-001")
         self.assertEqual(listing_content["long_story"], "First long story.")
@@ -187,11 +204,14 @@ class FastFlowTests(unittest.TestCase):
         self.assertEqual(listing_content["keywords"], "red art, movement")
 
         collection_page = self.client.get(
-            "/collections?collection=FLW&fast_flow_imported=2"
+            "/collections/FLW/production?fast_flow_imported=2"
         )
         self.assertIn("Fast Flow import complete", collection_page.text)
-        self.assertIn("First", collection_page.text)
-        self.assertIn("Second", collection_page.text)
+        self.assertIn("Run safe production", collection_page.text)
+        self.assertIn("Produce", collection_page.text)
+        self.assertIn("Review", collection_page.text)
+        self.assertIn("Printify", collection_page.text)
+        self.assertIn("Etsy", collection_page.text)
 
     def test_fast_flow_imports_optional_intelligence_and_story_seo(self):
         package = {

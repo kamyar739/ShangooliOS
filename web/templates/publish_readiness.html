@@ -7,6 +7,7 @@
   <div class="mb-3">
     <a class="context-nav-link" href="/collections/{{ collection['code'] }}/review">← Back to Collection Review</a>
   </div>
+  {% include "components/workflow_progress.html" %}
 
   <header class="page-header mb-4">
     <div>
@@ -28,6 +29,9 @@
   {% if request.query_params.get('draft_failed') %}
   <div class="alert alert-danger"><strong>Draft preparation needs attention:</strong> {{ request.query_params.get('draft_failed') }}</div>
   {% endif %}
+  {% if request.query_params.get('review_complete') %}
+  <div class="alert alert-success">Collection review is complete. Finish the local publishing checks below.</div>
+  {% endif %}
 
   <section class="publish-summary-grid mb-4" aria-label="Collection readiness summary">
     <div class="publish-summary-card"><span>Total</span><strong>{{ counts['total'] }}</strong></div>
@@ -38,7 +42,7 @@
     <div class="publish-summary-card is-etsy"><span>Linked to Etsy</span><strong>{{ counts['etsy_linked'] }}</strong></div>
   </section>
 
-  <section class="card app-card publish-readiness-actions mb-4">
+  <section class="card app-card publish-readiness-actions mb-4" id="collection-workflow-action">
     <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
       <div>
         <strong>Prepare missing local drafts</strong>

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Replace Mockup — {{ artwork['public_title'] }} — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% include "components/workflow_sidebar.html" %}
+  <main class="workflow-stage-content workflow-compact">
+    <div class="replacement-page-header">
+      <div>
+        <a class="context-nav-link" href="/artworks/{{ artwork['artwork_code'] }}?step=mockups">← Back to mockups</a>
+        <div class="eyebrow mt-3">Guided mockup update</div>
+        <h1 class="display-6 fw-bold mb-1">Replace Mockup</h1>
+        <p class="text-muted mb-0">{{ artwork['artwork_code'] }} · {{ artwork['public_title'] }} · {{ collection['name'] }}</p>
+      </div>
+      {% if mockup_replacement['listing'] and mockup_replacement['listing']['etsy_paused_at'] %}
+      <span class="status-pill marketplace-status-paused">Paused on Etsy</span>
+      {% elif mockup_replacement['listing'] and mockup_replacement['listing']['etsy_state'] == 'active' %}
+      <span class="status-pill marketplace-status-live">Live on Etsy</span>
+      {% endif %}
+    </div>
+
+    <nav class="replacement-progress mockup-replacement-progress" aria-label="Replace Mockup workflow">
+      {% for stage in mockup_replacement['stages'] %}
+      <a href="#mockup-{{ stage['key'] }}" class="replacement-progress-step is-{{ stage['state'] }}">
+        <span>{% if stage['state'] == 'complete' %}✓{% else %}{{ loop.index }}{% endif %}</span>
+        <strong>{{ stage['label'] }}</strong>
+      </a>
+      {% endfor %}
+    </nav>
+
+    <div class="replacement-preserved mb-3">
+      <strong>Only listing images change.</strong>
+      <span>The artwork source, print files, writing, price, variants, Printify product, and Etsy live/paused state stay untouched.</span>
+    </div>
+
+    {% if request.query_params.get('mockup_saved') %}<div class="alert alert-success">Image replaced. Approval was reset so the complete gallery can be reviewed.</div>{% endif %}
+    {% if request.query_params.get('reviewed') %}<div class="alert alert-success">The complete gallery is approved. Continue to Etsy only if the linked gallery needs updating.</div>{% endif %}
+    {% if request.query_params.get('synced') %}<div class="alert alert-success">The approved Etsy gallery was updated. No Printify data or listing text was changed.</div>{% endif %}
+
+    <section class="replacement-stage-card" id="mockup-replace">
+      <div class="replacement-stage-heading"><span>1</span><div><div class="eyebrow">Listing images</div><h2 class="h4 mb-1">Replace the affected image</h2><p class="text-muted mb-0">Download the current file for reference, then replace only the slot that needs correction.</p></div></div>
+      <div class="replacement-mockup-grid">
+        {% for item in production_summary['mockup_status'] %}
+        <article class="replacement-mockup-card">
+          <div><strong>{{ item['position'] }}. {{ item['label'] }}</strong><small>{{ item['description'] }}</small></div>
+          {% if item['exists'] %}
+          <img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}" alt="{{ item['label'] }}">
+          <a class="btn btn-sm btn-light" download href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}&amp;download=true">Download</a>
+          {% else %}<div class="mockup-preview-empty">Missing</div>{% endif %}
+          <form method="post" enctype="multipart/form-data" action="/artworks/{{ artwork['artwork_code'] }}/files/mockup" data-long-operation>
+            <input type="hidden" name="slot_key" value="{{ item['slot_key'] }}">
+            <input type="hidden" name="mockup_flow" value="true">
+            <label class="btn btn-sm btn-outline-secondary mb-0">{% if item['exists'] %}Replace image{% else %}Upload image{% endif %}<input class="visually-hidden" type="file" name="upload" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" required onchange="this.form.submit()"></label>
+          </form>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="replacement-stage-card" id="mockup-review">
+      <div class="replacement-stage-heading"><span>2</span><div><div class="eyebrow">Visual review</div><h2 class="h4 mb-1">Approve the complete gallery</h2><p class="text-muted mb-0">A single replacement resets approval because Etsy receives the ordered set as one gallery.</p></div></div>
+      {% if production_summary['missing_mockups'] %}
+      <div class="alert alert-warning mb-0">Still missing: {{ production_summary['missing_mockups']|join(', ') }}</div>
+      {% elif mockup_replacement['approved'] %}
+      <span class="status-pill listing-status-ready">Complete gallery approved ✓</span>
+      {% else %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/replace-mockup/approve" class="replacement-action-row">
+        <label class="form-check"><input class="form-check-input" name="confirmed" value="true" type="checkbox" required><span class="form-check-label">I reviewed all eight images and their Etsy order.</span></label>
+        <button class="btn btn-success" type="submit">Approve gallery</button>
+      </form>
+      {% endif %}
+    </section>
+
+    <section class="replacement-stage-card" id="mockup-sync">
+      <div class="replacement-stage-heading"><span>3</span><div><div class="eyebrow">Final synchronization</div><h2 class="h4 mb-1">Update Etsy images</h2><p class="text-muted mb-0">This uploads the approved gallery only. It does not contact Printify or change Etsy listing text.</p></div></div>
+      {% if not mockup_replacement['listing'] %}
+      <div class="alert alert-info mb-0">Local mockup work is complete. This artwork is not linked to Etsy, so no external update is needed.</div>
+      {% elif not mockup_replacement['approved'] %}
+      <p class="text-muted mb-0">Approve the complete gallery first.</p>
+      {% elif mockup_replacement['sync_needed'] %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/replace-mockup/sync" data-long-operation class="replacement-final-confirm">
+        <label class="form-check"><input class="form-check-input" name="confirmed" value="true" type="checkbox" required><span class="form-check-label">Upload these approved images to the linked Etsy listing.</span></label>
+        <button class="btn btn-success" type="submit">Update Etsy images</button>
+      </form>
+      {% else %}
+      <span class="status-pill listing-status-ready">Etsy gallery is current ✓</span>
+      {% endif %}
+    </section>
+  </main>
+</div>
+{% endblock %}

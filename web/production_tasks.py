@@ -301,9 +301,9 @@ def _mockup_payload(artwork):
     return payload
 
 
-def ensure_mockups(artwork):
+def ensure_mockups(artwork, *, force=False):
     assignments = assignment_map(artwork["artwork_code"])
-    missing = [
+    missing = list(GENERATED_SLOTS) if force else [
         slot for slot in GENERATED_SLOTS
         if f"mockup:{slot}" not in assignments
     ]

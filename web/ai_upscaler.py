@@ -16,6 +16,14 @@ def candidate_path(artwork) -> Path:
     return get_artwork_folder(artwork) / "01 Source Artwork" / f"{artwork['artwork_code']}_ai_upscaled_4x.png"
 
 
+def original_backup_path(artwork) -> Path:
+    return (
+        get_artwork_folder(artwork)
+        / "01 Source Artwork"
+        / f"{artwork['artwork_code']}_before_ai_upscale.png"
+    )
+
+
 def upscale_candidate(artwork, source: Path) -> Path:
     if not ENGINE.is_file():
         raise ValueError("The local AI upscaler is not installed")

@@ -167,6 +167,28 @@ class CollectionProductionTests(unittest.TestCase):
         self.assertIn("Local listing", response.text)
         self.assertIn("Review exceptions", response.text)
         self.assertIn("DUE-001", response.text)
+        self.assertIn("Recommended next action", response.text)
+        self.assertIn('href="/collections/DUE/review"', response.text)
+        self.assertIn('href="/collections/DUE/publish-readiness"', response.text)
+        self.assertIn('href="/collections/DUE/printify"', response.text)
+        self.assertIn('href="/collections/DUE/publish"', response.text)
+
+    def test_collection_workflow_navigation_is_persistent_across_pages(self):
+        for path, current_label in (
+            ("/collections/DUE/production", "Produce"),
+            ("/collections/DUE/review", "Review"),
+            ("/collections/DUE/publish-readiness", "Ready"),
+            ("/collections/DUE/printify", "Printify"),
+            ("/collections/DUE/publish", "Etsy"),
+        ):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(
+                'aria-label="Duende – A Flamenco Collection workflow"',
+                response.text,
+            )
+            self.assertIn('aria-current="step"', response.text)
+            self.assertIn(current_label, response.text)
 
     def test_new_imported_collection_without_production_run_is_visible(self):
         with db.get_connection() as connection:

@@ -112,9 +112,11 @@ from web.etsy_sync import (
     find_etsy_candidates,
     set_etsy_inventory_quantity,
     sync_etsy_listing,
+    sync_etsy_listing_images,
 )
 from web.file_intake import save_uploaded_file
 from web.fast_flow import import_fast_flow_collection
+from web.workflow_navigation import collection_workflow_navigation
 from web.collection_production import (
     STATE_LABELS,
     collection_production_overview,
@@ -155,7 +157,7 @@ from web.listing_publication import (
 )
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
-from web.ai_upscaler import candidate_path, upscale_candidate
+from web.ai_upscaler import candidate_path, original_backup_path, upscale_candidate
 from web.listing_writer import generate_listing_content
 from web.prompt_composer import compose_artwork_prompt
 from web.mockup_generator import (
@@ -192,6 +194,7 @@ from web.production import (
     build_production_summary,
     list_workspace_files,
 )
+from web.production_tasks import QUALITY_THRESHOLD, ensure_mockups
 from web.ratio_profiles import get_ratio_profile
 from web.ratio_generator import (
     generate_ratio_output,
@@ -322,7 +325,7 @@ def _mockup_artwork_payload(artwork) -> dict:
 
 
 def _listing_external_change_state(listing, assignments, mockup_set_state):
-    if not listing or listing["status"] != "published" or not listing["external_listing_id"]:
+    if not listing or not listing["external_listing_id"]:
         return {"source": False, "etsy_images": False}
     synced_at = listing["etsy_last_synced_at"]
     source = next(
@@ -409,6 +412,22 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         )
         item["source_update_required"] = changes["source"]
         item["etsy_images_need_sync"] = changes["etsy_images"]
+    linked_sync_times = [
+        str(item["etsy_last_synced_at"])
+        for item in artwork_listings
+        if item["external_listing_id"] and item["etsy_last_synced_at"]
+    ]
+    latest_etsy_sync = max(linked_sync_times, default=None)
+    changed_mockup_count = sum(
+        1
+        for assignment in assignments
+        if assignment["role"].startswith("mockup:")
+        and assignment["updated_at"]
+        and (
+            latest_etsy_sync is None
+            or str(assignment["updated_at"]) > latest_etsy_sync
+        )
+    ) if any(item["external_listing_id"] for item in artwork_listings) else 0
     artwork_intelligence = get_artwork_intelligence(artwork_code)
     collection, collection_artworks, _ = get_collection(artwork["collection_code"])
     artwork_position = next(
@@ -434,6 +453,21 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         production["orientation"] if production else "",
         artwork["collection_code"],
     )
+    ai_candidate_certification = None
+    ai_candidate = candidate_path(artwork)
+    if not production["ai_enhanced_at"] and ai_candidate.is_file():
+        try:
+            ai_candidate_certification = certify_artwork(ai_candidate).to_dict()
+        except (OSError, ValueError):
+            ai_candidate_certification = {
+                "valid": False,
+                "score": 0,
+                "status": "Invalid candidate",
+                "width": 0,
+                "height": 0,
+                "orientation": "unknown",
+                "warnings": ["The generated candidate could not be validated."],
+            }
     context = {
         "artwork": artwork,
         "collection": collection,
@@ -460,6 +494,7 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
             production["orientation"] if production else "any"
         ),
         "mockup_set_state": mockup_set_state,
+        "changed_mockup_count": changed_mockup_count,
         "default_template_pack": DEFAULT_TEMPLATE_PACK,
         "saved_template_packs": saved_templates,
         "print_master_manifest": load_print_master_manifest(artwork),
@@ -468,6 +503,8 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         "ai_upscale_candidate": bool(
             not production["ai_enhanced_at"] and candidate_path(artwork).is_file()
         ),
+        "ai_candidate_certification": ai_candidate_certification,
+        "ai_original_backup": original_backup_path(artwork).is_file(),
         "auto_update_listing": auto_update_listing,
         "printify_profile": printify_profile,
         "previous_artwork": previous_artwork,
@@ -1032,8 +1069,8 @@ def fast_flow_import_post(
         )
     return RedirectResponse(
         url=(
-            f"/collections?collection={result['collection_code']}"
-            f"&fast_flow_imported={len(result['artwork_codes'])}"
+            f"/collections/{result['collection_code']}/production"
+            f"?fast_flow_imported={len(result['artwork_codes'])}"
         ),
         status_code=status.HTTP_303_SEE_OTHER,
     )
@@ -2095,6 +2132,9 @@ def collection_production_page(request: Request, collection_code: str):
             "items": items,
             "latest_run": latest_run,
             "state_labels": STATE_LABELS,
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="production"
+            ),
         },
     )
 
@@ -2155,9 +2195,16 @@ def run_collection_production_post(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    _, items, _ = collection_production_overview(collection_code)
+    destination = (
+        f"/collections/{collection_code.upper()}/production?ran=1"
+        if any(
+            item["overall_status"] in {"blocked", "failed"} for item in items
+        )
+        else f"/collections/{collection_code.upper()}/review?production_complete=1"
+    )
     return RedirectResponse(
-        url=f"/collections/{collection_code.upper()}/production?ran=1",
-        status_code=status.HTTP_303_SEE_OTHER,
+        url=destination, status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -2192,6 +2239,9 @@ def collection_review_page(request: Request, collection_code: str):
             "collection": collection,
             "items": items,
             "visual_review_complete": visual_review_complete,
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="review"
+            ),
         },
     )
 
@@ -2233,21 +2283,31 @@ async def approve_selected_collection_artwork_post(
     if not selected:
         raise HTTPException(status_code=400, detail="Select at least one artwork")
     result = approve_many(collection_code, selected)
-    return RedirectResponse(
-        f"/collections/{collection_code.upper()}/review"
-        f"?approved_count={len(result['approved'])}&skipped_count={len(result['skipped'])}",
-        status_code=status.HTTP_303_SEE_OTHER,
+    _, _, review_complete = collection_review_overview(collection_code)
+    destination = (
+        f"/collections/{collection_code.upper()}/publish-readiness"
+        f"?review_complete=1"
+        if review_complete
+        else f"/collections/{collection_code.upper()}/review"
+        f"?approved_count={len(result['approved'])}"
+        f"&skipped_count={len(result['skipped'])}"
     )
+    return RedirectResponse(destination, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/collections/{collection_code}/review/eligible")
 def approve_all_eligible_collection_artwork_post(collection_code: str):
     result = approve_many(collection_code, [])
-    return RedirectResponse(
-        f"/collections/{collection_code.upper()}/review"
-        f"?approved_count={len(result['approved'])}&skipped_count={len(result['skipped'])}",
-        status_code=status.HTTP_303_SEE_OTHER,
+    _, _, review_complete = collection_review_overview(collection_code)
+    destination = (
+        f"/collections/{collection_code.upper()}/publish-readiness"
+        f"?review_complete=1"
+        if review_complete
+        else f"/collections/{collection_code.upper()}/review"
+        f"?approved_count={len(result['approved'])}"
+        f"&skipped_count={len(result['skipped'])}"
     )
+    return RedirectResponse(destination, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/collections/{collection_code}/review/ratios/regenerate")
@@ -2315,6 +2375,9 @@ def collection_publish_readiness_page(
             "counts": counts,
             "collection_ready": ready,
             "latest_run": latest_run,
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="readiness"
+            ),
         },
     )
 
@@ -2333,11 +2396,20 @@ def prepare_collection_listing_drafts_post(collection_code: str):
             for item in result["failed"]
         ),
     }
-    return RedirectResponse(
-        f"/collections/{collection_code.upper()}/publish-readiness?"
-        f"{urlencode(params)}",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    _, _, counts, ready, _ = collection_publish_readiness(collection_code)
+    if ready and counts["ready"]:
+        destination = (
+            f"/collections/{collection_code.upper()}/printify?"
+            f"{urlencode(params)}"
+        )
+    elif ready and counts["printify_linked"]:
+        destination = f"/collections/{collection_code.upper()}/publish"
+    else:
+        destination = (
+            f"/collections/{collection_code.upper()}/publish-readiness?"
+            f"{urlencode(params)}"
+        )
+    return RedirectResponse(destination, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/collections/{collection_code}/printify")
@@ -2358,6 +2430,9 @@ def collection_printify_review_page(
             "eligible": eligible,
             "protected": protected,
             "configuration_source": printify_configuration_source(),
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="printify"
+            ),
         },
     )
 
@@ -2380,7 +2455,13 @@ async def create_collection_printify_drafts_post(
     return templates.TemplateResponse(
         request=request,
         name="collection_printify_results.html",
-        context={"collection": collection, "results": results},
+        context={
+            "collection": collection,
+            "results": results,
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="printify"
+            ),
+        },
     )
 
 
@@ -2393,7 +2474,13 @@ def collection_publish_review_page(request: Request, collection_code: str):
     return templates.TemplateResponse(
         request=request,
         name="collection_publish_review.html",
-        context={"collection": collection, "items": items},
+        context={
+            "collection": collection,
+            "items": items,
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="etsy"
+            ),
+        },
     )
 
 
@@ -2417,6 +2504,9 @@ async def collection_publish_post(request: Request, collection_code: str):
             "collection": collection,
             "results": results,
             "mode": "publish",
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="etsy"
+            ),
         },
     )
 
@@ -2430,7 +2520,13 @@ def collection_publish_recovery_page(request: Request, collection_code: str):
     return templates.TemplateResponse(
         request=request,
         name="collection_publish_recovery.html",
-        context={"collection": collection, "items": items},
+        context={
+            "collection": collection,
+            "items": items,
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="etsy"
+            ),
+        },
     )
 
 
@@ -2453,6 +2549,9 @@ async def collection_publish_recovery_post(
             "collection": collection,
             "results": results,
             "mode": "recovery",
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage="etsy"
+            ),
         },
     )
 
@@ -3026,18 +3125,342 @@ def save_artwork_production(
     )
 
 
+def _replacement_overview(artwork_code: str, *, begin_new: bool = False) -> dict:
+    context = _artwork_context(artwork_code, active_stage="source")
+    production = context["production"]
+    certification = context["certification"]
+    summary = context["production_summary"]
+    listing = next(
+        (
+            item for item in context["listings"]
+            if item["printify_product_id"] and item["external_listing_id"]
+        ),
+        None,
+    )
+    quality_ready = bool(
+        certification
+        and certification["valid"]
+        and certification["score"] >= QUALITY_THRESHOLD
+        and production["original_approved"]
+    )
+    source_assignment = summary["source_assignment"]
+    source_updated_at = source_assignment["updated_at"] if source_assignment else None
+    dependent_assignments = [
+        summary["assignment_map"].get("print_master"),
+        *[
+            item["assigned"]
+            for item in summary["ratio_status"]
+        ],
+        *[
+            item["assignment"]
+            for item in summary["mockup_status"]
+        ],
+    ]
+    assets_current = bool(
+        source_updated_at
+        and all(
+            assignment
+            and assignment["updated_at"]
+            and assignment["updated_at"] >= source_updated_at
+            for assignment in dependent_assignments
+        )
+    )
+    files_ready = bool(
+        summary["master_ready"]
+        and not summary["missing_ratios"]
+        and not summary["missing_mockups"]
+        and assets_current
+    )
+    mockups_ready = bool(
+        production["mockups_ready"]
+        and context["mockup_set_state"]
+        and context["mockup_set_state"]["approved_at"]
+    )
+    sync_needed = bool(
+        listing
+        and (
+            listing["source_update_required"]
+            or listing["etsy_images_need_sync"]
+        )
+    )
+    recovery_pending = bool(
+        listing
+        and (listing["publishing_recovery_stage"] or "").startswith("update_")
+        and listing["publishing_recovery_stage"] != "update_complete"
+    )
+    if not summary["source_ready"]:
+        active = "source"
+    elif not quality_ready:
+        active = "quality"
+    elif not files_ready:
+        active = "production"
+    elif not mockups_ready:
+        active = "review"
+    elif sync_needed or recovery_pending:
+        active = "sync"
+    else:
+        active = "complete"
+    if begin_new and active == "complete":
+        active = "source"
+    stage_order = ("source", "quality", "production", "review", "sync")
+    active_index = stage_order.index(active) if active in stage_order else len(stage_order)
+    labels = {
+        "source": "Replace source",
+        "quality": "Quality",
+        "production": "Rebuild files",
+        "review": "Review mockups",
+        "sync": "Update shops",
+    }
+    stages = []
+    for index, key in enumerate(stage_order):
+        if index < active_index or active == "complete":
+            state = "complete"
+        elif key == active:
+            state = "active"
+        else:
+            state = "pending"
+        stages.append({"key": key, "label": labels[key], "state": state})
+    return {
+        **context,
+        "replacement": {
+            "active": active,
+            "stages": stages,
+            "quality_ready": quality_ready,
+            "files_ready": files_ready,
+            "mockups_ready": mockups_ready,
+            "sync_needed": sync_needed,
+            "recovery_pending": recovery_pending,
+            "listing": listing,
+            "candidate_ready": candidate_path(context["artwork"]).is_file(),
+        },
+    }
+
+
+@app.get("/artworks/{artwork_code}/replace")
+def replace_artwork_page(request: Request, artwork_code: str):
+    begin_new = not bool(request.query_params)
+    return templates.TemplateResponse(
+        request=request,
+        name="artwork_replace.html",
+        context=_replacement_overview(artwork_code, begin_new=begin_new),
+    )
+
+
+def _mockup_replacement_overview(
+    artwork_code: str, *, begin_new: bool = False
+) -> dict:
+    context = _artwork_context(artwork_code, active_stage="mockups")
+    listing = next(
+        (
+            item for item in context["listings"]
+            if item["external_listing_id"]
+        ),
+        None,
+    )
+    mockups_complete = not context["production_summary"]["missing_mockups"]
+    set_state = context["mockup_set_state"]
+    approved = bool(
+        mockups_complete
+        and context["production"]["mockups_ready"]
+        and set_state
+        and set_state["approved_at"]
+    )
+    sync_needed = bool(listing and listing["etsy_images_need_sync"])
+    if not mockups_complete:
+        active = "replace"
+    elif not approved:
+        active = "review"
+    elif sync_needed:
+        active = "sync"
+    else:
+        active = "complete"
+    if begin_new and active == "complete":
+        active = "replace"
+    order = ("replace", "review", "sync")
+    active_index = order.index(active) if active in order else len(order)
+    labels = {
+        "replace": "Replace images",
+        "review": "Review set",
+        "sync": "Update Etsy",
+    }
+    stages = []
+    for index, key in enumerate(order):
+        state = (
+            "complete"
+            if index < active_index or active == "complete"
+            else ("active" if key == active else "pending")
+        )
+        stages.append({"key": key, "label": labels[key], "state": state})
+    return {
+        **context,
+        "mockup_replacement": {
+            "active": active,
+            "stages": stages,
+            "complete": mockups_complete,
+            "approved": approved,
+            "sync_needed": sync_needed,
+            "listing": listing,
+        },
+    }
+
+
+@app.get("/artworks/{artwork_code}/replace-mockup")
+def replace_mockup_page(request: Request, artwork_code: str):
+    return templates.TemplateResponse(
+        request=request,
+        name="mockup_replace.html",
+        context=_mockup_replacement_overview(
+            artwork_code,
+            begin_new=not bool(request.query_params),
+        ),
+    )
+
+
+@app.post("/artworks/{artwork_code}/replace-mockup/approve")
+def approve_mockup_replacement(
+    artwork_code: str,
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Review the complete image set first")
+    overview = _mockup_replacement_overview(artwork_code)
+    if not overview["mockup_replacement"]["complete"]:
+        raise HTTPException(status_code=400, detail="All eight listing images must be present")
+    set_state = overview["mockup_set_state"]
+    if set_state is None:
+        raise HTTPException(status_code=400, detail="Generate a curated mockup set first")
+    approve_artwork_mockup_set(artwork_code, set_state["set_id"])
+    set_artwork_production_flags(artwork_code, mockups_ready=True)
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}/replace-mockup?reviewed=1#mockup-sync",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/replace-mockup/sync")
+def sync_mockup_replacement(
+    artwork_code: str,
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the Etsy image update")
+    overview = _mockup_replacement_overview(artwork_code)
+    if not overview["mockup_replacement"]["approved"]:
+        raise HTTPException(status_code=400, detail="Approve the complete image set first")
+    listing = overview["mockup_replacement"]["listing"]
+    if listing is None:
+        raise HTTPException(status_code=400, detail="This artwork is not linked to Etsy")
+    try:
+        result = sync_etsy_listing_images(get_listing(listing["id"]))
+        mark_etsy_synced(listing["id"], result.get("state", ""))
+    except (EtsyAPIError, ValueError) as failure:
+        raise HTTPException(status_code=400, detail=str(failure)) from failure
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}/replace-mockup?synced=1#mockup-sync",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/replace/rebuild")
+def rebuild_replacement_assets(
+    artwork_code: str,
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the local rebuild")
+    artwork = get_artwork(artwork_code)
+    certification = get_artwork_certification(artwork_code)
+    production = get_artwork_production(artwork_code)
+    if artwork is None or certification is None:
+        raise HTTPException(status_code=400, detail="Complete the quality check first")
+    if (
+        not certification["valid"]
+        or certification["score"] < QUALITY_THRESHOLD
+        or not production["original_approved"]
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Approve a source that passes the quality threshold first",
+        )
+    assignments = {
+        row["role"]: row for row in get_artwork_file_assignments(artwork_code)
+    }
+    source = assignments.get("source")
+    if source is None:
+        raise HTTPException(status_code=400, detail="Upload the replacement source first")
+    try:
+        workspace = get_artwork_folder(artwork)
+        source_path = resolve_assigned_file(artwork, source)
+        master = build_print_master(artwork, source_path)
+        upsert_artwork_file(
+            artwork_code=artwork_code,
+            role="print_master",
+            relative_path=master.relative_path,
+            stored_filename=master.master_filename,
+            original_filename=source["original_filename"],
+        )
+        upsert_print_master_certification(
+            artwork_code,
+            certify_artwork(workspace / master.relative_path).to_dict(),
+        )
+        set_artwork_production_flags(artwork_code, print_master_ready=True)
+        _generate_required_ratios(artwork, overwrite=True)
+        ensure_mockups(artwork, force=True)
+        set_artwork_production_flags(
+            artwork_code,
+            print_master_ready=True,
+            ratio_exports_ready=False,
+            mockups_ready=False,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}/replace?rebuilt=1#replacement-review",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/artworks/{artwork_code}/replace/approve")
+def approve_replacement_assets(
+    artwork_code: str,
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Review the replacement outputs first")
+    overview = _replacement_overview(artwork_code)
+    if not overview["replacement"]["files_ready"]:
+        raise HTTPException(status_code=400, detail="Rebuild the print files first")
+    set_state = overview["mockup_set_state"]
+    if set_state is None:
+        raise HTTPException(status_code=400, detail="Generate the marketplace mockup set first")
+    if overview["production_summary"]["missing_mockups"]:
+        raise HTTPException(status_code=400, detail="All listing images must be present")
+    approve_artwork_mockup_set(artwork_code, set_state["set_id"])
+    set_artwork_production_flags(
+        artwork_code,
+        ratio_exports_ready=True,
+        mockups_ready=True,
+        listing_content_ready=True,
+    )
+    return RedirectResponse(
+        f"/artworks/{artwork_code.upper()}/replace?reviewed=1#replacement-sync",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/artworks/{artwork_code}/files/source")
 def upload_source_file(
     artwork_code: str,
     upload: UploadFile = File(...),
     use_as_master: bool = Form(False),
+    replacement_flow: bool = Form(False),
 ):
     artwork = get_artwork(artwork_code)
 
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
 
-    get_artwork_production(artwork_code)
+    previous_production = get_artwork_production(artwork_code)
 
     try:
         old_candidate = candidate_path(artwork)
@@ -3052,6 +3475,8 @@ def upload_source_file(
             role="source",
         )
         invalidate_artwork_after_source_change(artwork_code)
+        if replacement_flow and previous_production["listing_content_ready"]:
+            set_artwork_production_flags(artwork_code, listing_content_ready=True)
         upsert_artwork_file(
             artwork_code=artwork_code,
             **saved,
@@ -3085,14 +3510,22 @@ def upload_source_file(
     finally:
         upload.file.close()
 
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?source_saved=1#replacement-quality"
+        if replacement_flow
+        else f"/artworks/{artwork_code.upper()}?step=source&file_saved=source"
+    )
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?step=source&file_saved=source",
+        url=destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
 @app.post("/artworks/{artwork_code}/ai-upscale")
-def generate_ai_upscale(artwork_code: str):
+def generate_ai_upscale(
+    artwork_code: str,
+    replacement_flow: bool = Form(False),
+):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
@@ -3110,8 +3543,13 @@ def generate_ai_upscale(artwork_code: str):
         upscale_candidate(artwork, source)
     except ValueError as failure:
         raise HTTPException(status_code=400, detail=str(failure)) from failure
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?ai_upscaled=1#replacement-quality"
+        if replacement_flow
+        else f"/artworks/{artwork_code.upper()}?step=certification&ai_upscaled=1"
+    )
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?step=certification&ai_upscaled=1",
+        destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -3122,6 +3560,56 @@ def view_ai_upscale(artwork_code: str):
     if artwork is None or not candidate_path(artwork).is_file():
         raise HTTPException(status_code=404, detail="AI upscale not found")
     return FileResponse(candidate_path(artwork), media_type="image/png")
+
+
+@app.post("/artworks/{artwork_code}/ai-upscale/discard")
+def discard_ai_upscale(
+    artwork_code: str,
+    replacement_flow: bool = Form(False),
+):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    candidate_path(artwork).unlink(missing_ok=True)
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?candidate_discarded=1#replacement-quality"
+        if replacement_flow
+        else f"/artworks/{artwork_code.upper()}?step=certification&candidate_discarded=1"
+    )
+    return RedirectResponse(destination, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/artworks/{artwork_code}/ai-upscale/restore-original")
+def restore_original_before_ai_upscale(
+    artwork_code: str,
+    confirmed: bool = Form(False),
+    replacement_flow: bool = Form(False),
+):
+    artwork = get_artwork(artwork_code)
+    if artwork is None:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+    backup = original_backup_path(artwork)
+    if not confirmed or not backup.is_file():
+        raise HTTPException(status_code=400, detail="Saved original is unavailable")
+    certification = certify_artwork(backup).to_dict()
+    if not certification["valid"]:
+        raise HTTPException(status_code=400, detail="Saved original is invalid")
+    workspace = get_artwork_folder(artwork)
+    invalidate_artwork_after_source_change(artwork_code)
+    upsert_artwork_file(
+        artwork_code=artwork_code,
+        role="source",
+        relative_path=str(backup.relative_to(workspace)),
+        stored_filename=backup.name,
+        original_filename=backup.name,
+    )
+    upsert_artwork_certification(artwork_code, certification)
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?original_restored=1#replacement-quality"
+        if replacement_flow
+        else f"/artworks/{artwork_code.upper()}?step=certification&original_restored=1"
+    )
+    return RedirectResponse(destination, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/artworks/{artwork_code}/certification/run")
@@ -3149,7 +3637,9 @@ def run_source_certification(artwork_code: str):
 
 @app.post("/artworks/{artwork_code}/certification/approve")
 def approve_current_source_certification(
-    artwork_code: str, confirmed: bool = Form(False),
+    artwork_code: str,
+    confirmed: bool = Form(False),
+    replacement_flow: bool = Form(False),
 ):
     artwork = get_artwork(artwork_code)
     certification = get_artwork_certification(artwork_code)
@@ -3158,14 +3648,23 @@ def approve_current_source_certification(
     if not confirmed:
         raise HTTPException(status_code=400, detail="Confirm the source review")
     set_artwork_production_flags(artwork_code, original_approved=True)
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?certification_approved=1#replacement-production"
+        if replacement_flow
+        else f"/artworks/{artwork_code.upper()}?step=certification&certification_approved=1"
+    )
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?step=certification&certification_approved=1",
+        destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
 @app.post("/artworks/{artwork_code}/ai-upscale/approve")
-def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
+def approve_ai_upscale(
+    artwork_code: str,
+    confirmed: bool = Form(False),
+    replacement_flow: bool = Form(False),
+):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
@@ -3181,8 +3680,24 @@ def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
     current_certification = get_artwork_certification(artwork_code)
     workspace = get_artwork_folder(artwork)
     approved_path = path.with_name(f"{artwork_code.upper()}_ai_upscaled_approved.png")
+    certification = certify_artwork(path).to_dict()
+    if not certification["valid"] or certification["score"] < QUALITY_THRESHOLD:
+        raise HTTPException(
+            status_code=400,
+            detail="The AI-upscaled candidate still does not meet the accepted quality threshold",
+        )
+    assignments = {
+        row["role"]: row for row in get_artwork_file_assignments(artwork_code)
+    }
+    current_source = assignments.get("source")
+    if current_source is None:
+        raise HTTPException(status_code=400, detail="Upload source artwork first")
+    current_source_path = resolve_assigned_file(artwork, current_source)
+    backup = original_backup_path(artwork)
+    if not backup.is_file():
+        with Image.open(current_source_path) as opened:
+            opened.convert("RGB").save(backup, "PNG")
     shutil.copy2(path, approved_path)
-    certification = certify_artwork(approved_path).to_dict()
     invalidate_artwork_after_source_change(artwork_code)
     upsert_artwork_file(
         artwork_code=artwork_code, role="source",
@@ -3216,17 +3731,90 @@ def approve_ai_upscale(artwork_code: str, confirmed: bool = Form(False)):
         and item["printify_product_id"] and item["external_listing_id"]
     ), None)
     update_pending = False
-    if live_listing:
+    if live_listing and not replacement_flow:
         update_result = update_artwork_everywhere(
             artwork_code, live_listing["id"], upload=None, confirmed=True
         )
         update_pending = "update_pending=1" in update_result.headers.get("location", "")
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?ai_upscale_approved=1#replacement-production"
+        if replacement_flow
+        else (
+            f"/artworks/{artwork_code.upper()}?step=certification&ai_upscale_approved=1"
+            f"{'&update_pending=1' if update_pending else '&updated_everywhere=1' if live_listing else ''}"
+        )
+    )
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?step=certification&ai_upscale_approved=1"
-        f"{'&update_pending=1' if update_pending else '&updated_everywhere=1' if live_listing else ''}"
-        "",
+        destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+def _prepare_artwork_update_assets(
+    artwork,
+    source_path: Path,
+    original_filename: str,
+) -> None:
+    """Preserve the original single-listing preparation behavior."""
+    artwork_code = artwork["artwork_code"]
+    workspace = get_artwork_folder(artwork)
+    certification = certify_artwork(source_path).to_dict()
+    if not certification["valid"]:
+        raise ValueError("The replacement artwork did not pass certification")
+    upsert_artwork_certification(artwork_code, certification)
+    refreshed_intelligence = analyze_artwork(artwork, source_path)
+    update_artwork_intelligence(artwork_code, **refreshed_intelligence)
+    master = build_print_master(artwork, source_path)
+    upsert_artwork_file(
+        artwork_code=artwork_code, role="print_master",
+        relative_path=master.relative_path, stored_filename=master.master_filename,
+        original_filename=original_filename,
+    )
+    master_path = workspace / master.relative_path
+    upsert_print_master_certification(
+        artwork_code, certify_artwork(master_path).to_dict()
+    )
+    _generate_required_ratios(artwork, overwrite=True)
+    saved_templates = {
+        row["slot_key"]: row["template_key"]
+        for row in get_artwork_mockup_templates(artwork_code)
+    }
+    saved_scene_key = saved_templates.get("room", "")
+    saved_scene = None
+    saved_scene_id = saved_scene_key.removeprefix("scene:")
+    if saved_scene_key.startswith("scene:") and saved_scene_id.isdigit():
+        saved_scene = get_mockup_scene(int(saved_scene_id))
+        if saved_scene is not None and not saved_scene["active"]:
+            saved_scene = None
+    mockups = generate_mockups(
+        artwork=_mockup_artwork_payload(artwork), source_path=master_path,
+        output_folder=workspace / "03 Mockups", template_key=DEFAULT_TEMPLATE_PACK,
+    )
+    for result in mockups:
+        upsert_artwork_file(
+            artwork_code=artwork_code, role=result["role"],
+            relative_path=str(result["path"].relative_to(workspace)),
+            stored_filename=result["stored_filename"],
+            original_filename=result["original_filename"],
+        )
+    if saved_scene is not None:
+        scene_result = generate_scene_mockup(
+            artwork=dict(artwork), source_path=master_path,
+            scene_path=MOCKUP_SCENES_DIR / saved_scene["image_path"],
+            scene=dict(saved_scene), output_folder=workspace / "03 Mockups",
+        )
+        upsert_artwork_file(
+            artwork_code=artwork_code, role=scene_result["role"],
+            relative_path=str(scene_result["path"].relative_to(workspace)),
+            stored_filename=scene_result["stored_filename"],
+            original_filename=scene_result["original_filename"],
+        )
+    template_assignments = {
+        slot: DEFAULT_TEMPLATE_PACK for slot in GENERATED_SLOTS
+    }
+    if saved_scene is not None:
+        template_assignments["room"] = saved_scene_key
+    save_artwork_mockup_templates(artwork_code, template_assignments)
 
 
 @app.post("/artworks/{artwork_code}/listings/{listing_id}/update-everywhere")
@@ -3235,6 +3823,8 @@ def update_artwork_everywhere(
     listing_id: int,
     upload: UploadFile | None = File(None),
     confirmed: bool = Form(False),
+    prepared: bool = Form(False),
+    replacement_flow: bool = Form(False),
 ):
     artwork = get_artwork(artwork_code)
     listing = get_listing(listing_id)
@@ -3261,62 +3851,26 @@ def update_artwork_everywhere(
                 raise ValueError("Upload or approve replacement artwork first")
             source_path = resolve_assigned_file(artwork, assignments["source"])
             original_filename = assignments["source"]["original_filename"]
-        certification = certify_artwork(source_path).to_dict()
-        if not certification["valid"]:
-            raise ValueError("The replacement artwork did not pass certification")
-        upsert_artwork_certification(artwork_code, certification)
-        refreshed_intelligence = analyze_artwork(artwork, source_path)
-        update_artwork_intelligence(artwork_code, **refreshed_intelligence)
-        master = build_print_master(artwork, source_path)
-        upsert_artwork_file(
-            artwork_code=artwork_code, role="print_master",
-            relative_path=master.relative_path, stored_filename=master.master_filename,
-            original_filename=original_filename,
-        )
-        master_path = workspace / master.relative_path
-        upsert_print_master_certification(artwork_code, certify_artwork(master_path).to_dict())
-        _generate_required_ratios(artwork, overwrite=True)
-        saved_templates = {
-            row["slot_key"]: row["template_key"]
-            for row in get_artwork_mockup_templates(artwork_code)
-        }
-        saved_scene_key = saved_templates.get("room", "")
-        saved_scene = None
-        saved_scene_id = saved_scene_key.removeprefix("scene:")
-        if saved_scene_key.startswith("scene:") and saved_scene_id.isdigit():
-            saved_scene = get_mockup_scene(int(saved_scene_id))
-            if saved_scene is not None and not saved_scene["active"]:
-                saved_scene = None
-        mockups = generate_mockups(
-            artwork=_mockup_artwork_payload(artwork), source_path=master_path,
-            output_folder=workspace / "03 Mockups", template_key=DEFAULT_TEMPLATE_PACK,
-        )
-        for result in mockups:
-            upsert_artwork_file(
-                artwork_code=artwork_code, role=result["role"],
-                relative_path=str(result["path"].relative_to(workspace)),
-                stored_filename=result["stored_filename"], original_filename=result["original_filename"],
+        if not prepared:
+            _prepare_artwork_update_assets(
+                artwork, source_path, original_filename
             )
-        if saved_scene is not None:
-            scene_result = generate_scene_mockup(
-                artwork=dict(artwork), source_path=master_path,
-                scene_path=MOCKUP_SCENES_DIR / saved_scene["image_path"],
-                scene=dict(saved_scene), output_folder=workspace / "03 Mockups",
-            )
-            upsert_artwork_file(
-                artwork_code=artwork_code, role=scene_result["role"],
-                relative_path=str(scene_result["path"].relative_to(workspace)),
-                stored_filename=scene_result["stored_filename"],
-                original_filename=scene_result["original_filename"],
-            )
-        template_assignments = {
-            slot: DEFAULT_TEMPLATE_PACK for slot in GENERATED_SLOTS
-        }
-        if saved_scene is not None:
-            template_assignments["room"] = saved_scene_key
-        save_artwork_mockup_templates(
-            artwork_code, template_assignments
-        )
+        else:
+            certification = get_artwork_certification(artwork_code)
+            production = get_artwork_production(artwork_code)
+            set_state = get_artwork_mockup_set_state(artwork_code)
+            if (
+                certification is None
+                or not certification["valid"]
+                or certification["score"] < QUALITY_THRESHOLD
+                or not production["original_approved"]
+                or not production["print_master_ready"]
+                or not production["ratio_exports_ready"]
+                or not production["mockups_ready"]
+                or set_state is None
+                or not set_state["approved_at"]
+            ):
+                raise ValueError("Finish and approve the replacement review before syncing")
         assignments = {row["role"]: row for row in get_artwork_file_assignments(artwork_code)}
         files_by_role = {
             role: resolve_assigned_file(artwork, assignment)
@@ -3331,12 +3885,13 @@ def update_artwork_everywhere(
             "The new artwork is saved in Printify and is ready to publish.",
         )
         set_state = get_artwork_mockup_set_state(artwork_code)
-        if set_state is not None:
+        if set_state is not None and not prepared:
             record_artwork_mockup_set_generated(artwork_code, set_state["set_id"])
-        set_artwork_production_flags(
-            artwork_code, print_master_ready=True, ratio_exports_ready=True,
-            mockups_ready=set_state is None, original_approved=True,
-        )
+        if not prepared:
+            set_artwork_production_flags(
+                artwork_code, print_master_ready=True, ratio_exports_ready=True,
+                mockups_ready=set_state is None, original_approved=True,
+            )
         api.publish_product(listing["printify_product_id"], include_images=False)
         mark_printify_publish_requested(listing_id)
         record_publishing_recovery(
@@ -3352,15 +3907,25 @@ def update_artwork_everywhere(
         mark_etsy_synced(listing_id, result.get("state", ""))
         record_publishing_recovery(
             listing_id, "update_complete",
-            "Artwork Intelligence was refreshed, Printify published the replacement, "
-            "and Etsy has the final ShangooliOS details.",
+            (
+                "Printify published the reviewed replacement and Etsy has the final "
+                "ShangooliOS details."
+                if prepared else
+                "Artwork Intelligence was refreshed, Printify published the replacement, "
+                "and Etsy has the final ShangooliOS details."
+            ),
         )
     except PrintifyPublishPending as failure:
         record_publishing_recovery(
             listing_id, "update_waiting_for_printify", str(failure)
         )
+        destination = (
+            f"/artworks/{artwork_code.upper()}/replace?update_pending=1#replacement-sync"
+            if replacement_flow
+            else f"/artworks/{artwork_code.upper()}?step=publish&update_pending=1"
+        )
         return RedirectResponse(
-            f"/artworks/{artwork_code.upper()}?step=publish&update_pending=1",
+            destination,
             status_code=status.HTTP_303_SEE_OTHER,
         )
     except (ValueError, PrintifyAPIError, EtsyAPIError) as failure:
@@ -3369,22 +3934,36 @@ def update_artwork_everywhere(
             "update_printify_ready", "update_waiting_for_printify", "update_waiting_for_etsy"
         }:
             record_publishing_recovery(listing_id, checkpoint, f"Paused safely: {failure}")
+            destination = (
+                f"/artworks/{artwork_code.upper()}/replace?update_pending=1#replacement-sync"
+                if replacement_flow
+                else f"/artworks/{artwork_code.upper()}?step=publish&update_pending=1"
+            )
             return RedirectResponse(
-                f"/artworks/{artwork_code.upper()}?step=publish&update_pending=1",
+                destination,
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         raise HTTPException(status_code=400, detail=str(failure)) from failure
     finally:
         if upload:
             upload.file.close()
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?updated_everywhere=1#replacement-sync"
+        if replacement_flow
+        else f"/artworks/{artwork_code.upper()}?step=publish&updated_everywhere=1"
+    )
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?step=publish&updated_everywhere=1",
+        destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
 @app.post("/artworks/{artwork_code}/listings/{listing_id}/update-everywhere/recover")
-def recover_artwork_update_everywhere(artwork_code: str, listing_id: int):
+def recover_artwork_update_everywhere(
+    artwork_code: str,
+    listing_id: int,
+    replacement_flow: bool = Form(False),
+):
     artwork = get_artwork(artwork_code)
     listing = get_listing(listing_id)
     if artwork is None or listing is None or listing["artwork_code"] != artwork_code.upper():
@@ -3424,8 +4003,17 @@ def recover_artwork_update_everywhere(artwork_code: str, listing_id: int):
         current = get_listing(listing_id)["publishing_recovery_stage"] or stage
         record_publishing_recovery(listing_id, current, f"Paused safely: {failure}")
     completed = get_listing(listing_id)["publishing_recovery_stage"] == "update_complete"
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace?"
+        f"{'updated_everywhere' if completed else 'update_pending'}=1#replacement-sync"
+        if replacement_flow
+        else (
+            f"/artworks/{artwork_code.upper()}?step=publish&"
+            f"{'updated_everywhere' if completed else 'update_pending'}=1"
+        )
+    )
     return RedirectResponse(
-        f"/artworks/{artwork_code.upper()}?step=publish&{'updated_everywhere' if completed else 'update_pending'}=1",
+        destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -3753,6 +4341,8 @@ def upload_mockup_file(
     artwork_code: str,
     slot_key: str = Form(...),
     upload: UploadFile = File(...),
+    replacement_flow: bool = Form(False),
+    mockup_flow: bool = Form(False),
 ):
     artwork = get_artwork(artwork_code)
     if artwork is None:
@@ -3777,8 +4367,16 @@ def upload_mockup_file(
     finally:
         upload.file.close()
 
+    destination = (
+        f"/artworks/{artwork_code.upper()}/replace-mockup?mockup_saved={slot_key}#mockup-review"
+        if mockup_flow
+        else
+        f"/artworks/{artwork_code.upper()}/replace?mockup_saved={slot_key}#replacement-review"
+        if replacement_flow
+        else f"/artworks/{artwork_code.upper()}?step=mockups&mockup_saved={slot_key}"
+    )
     return RedirectResponse(
-        url=f"/artworks/{artwork_code.upper()}?step=mockups&mockup_saved={slot_key}",
+        url=destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -3877,7 +4475,11 @@ async def save_mockup_settings(artwork_code: str, request: Request):
 
 
 @app.get("/artworks/{artwork_code}/files/view")
-def view_assigned_file(artwork_code: str, role: str = Query(...)):
+def view_assigned_file(
+    artwork_code: str,
+    role: str = Query(...),
+    download: bool = Query(False),
+):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
@@ -3903,7 +4505,14 @@ def view_assigned_file(artwork_code: str, role: str = Query(...)):
     # Assigned roles frequently point to newly regenerated files while their
     # public URL stays the same. Prevent the browser from showing the previous
     # mockup after a successful replacement.
-    return FileResponse(file_path, headers={"Cache-Control": "no-store"})
+    return FileResponse(
+        file_path,
+        filename=(
+            assignment["original_filename"] or assignment["stored_filename"]
+            if download else None
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/artworks/{artwork_code}/ratios/review")

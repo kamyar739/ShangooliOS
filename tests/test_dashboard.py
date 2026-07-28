@@ -107,6 +107,28 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('href="/?view=attention"', focused.text)
         self.assertIn("Back to dashboard", focused.text)
 
+    def test_intelligence_style_and_mood_accept_custom_text(self):
+        response = self.client.post(
+            "/artworks/CEL-001/intelligence",
+            data={
+                "style": "Romantic botanical realism",
+                "mood": "Quietly hopeful",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        intelligence = db.get_artwork_intelligence("CEL-001")
+        self.assertEqual(intelligence["style"], "Romantic botanical realism")
+        self.assertEqual(intelligence["mood"], "Quietly hopeful")
+
+        page = self.client.get("/artworks/CEL-001?step=intelligence")
+        self.assertIn('list="artwork-style-options"', page.text)
+        self.assertIn('value="Romantic botanical realism"', page.text)
+        self.assertIn('list="artwork-mood-options"', page.text)
+        self.assertIn('value="Quietly hopeful"', page.text)
+        self.assertIn('value="Impressionist"', page.text)
+        self.assertIn('value="Reflective"', page.text)
+
     def test_mockup_studio_saves_and_offers_reusable_room_scene(self):
         image_bytes = BytesIO()
         Image.new("RGB", (800, 600), "#ddd6cb").save(image_bytes, "PNG")
@@ -356,6 +378,8 @@ class DashboardTests(unittest.TestCase):
             response.text,
         )
         self.assertIn('aria-label="Collection selector"', response.text)
+        self.assertIn('data-collection-selector', response.text)
+        self.assertIn('data-collection-selector-next', response.text)
         self.assertIn("Celebration artwork", response.text)
         self.assertIn(
             'class="collection-heading-link" href="/collections/CEL"',
@@ -475,6 +499,25 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Showing complete listings", focused.text)
         self.assertIn("Complete Unbound", focused.text)
         self.assertIn('href="/?view=ready"', focused.text)
+
+    def test_collection_card_shows_etsy_paused_state(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Paused Celebration", description="Description",
+            tags="one, two", price_cents=3995, status="published",
+        )
+        db.link_etsy_listing(listing_id, "123456789")
+        db.record_etsy_paused(listing_id, True)
+
+        collection = next(
+            item for item in db.get_collections() if item["code"] == "CEL"
+        )
+        self.assertEqual(collection["display_status"], "Paused on Etsy")
+        self.assertEqual(collection["display_status_class"], "paused")
+
+        response = self.client.get("/collections?collection=CEL")
+        self.assertIn("Paused on Etsy", response.text)
+        self.assertIn("collection-status-label is-paused", response.text)
 
     def test_certified_master_locks_production_orientation(self):
         with db.get_connection() as connection:
@@ -611,6 +654,58 @@ class DashboardTests(unittest.TestCase):
         response = self.client.post("/artworks/CEL-001/ai-upscale")
         self.assertEqual(response.status_code, 400)
         self.assertIn("already been AI enhanced", response.json()["detail"])
+
+    def test_ai_candidate_shows_its_own_quality_and_can_be_discarded_safely(self):
+        self._complete_artwork_files()
+        db.upsert_artwork_certification(
+            "CEL-001",
+            {
+                "valid": True, "score": 52, "status": "Needs attention",
+                "width": 1023, "height": 1537, "orientation": "vertical",
+                "mode": "RGB", "format": "PNG", "source_ratio": "1023:1537",
+                "closest_ratio": "2:3", "required_ratios": ["2:3"],
+                "master_ratio": "2:3",
+                "largest_recommended_print": None, "print_capability": [],
+                "warnings": ["One image dimension is below 2400 pixels."],
+            },
+        )
+        candidate = Path(self.temp_dir.name) / "candidate.png"
+        Image.new("RGB", (4092, 6148), "crimson").save(candidate)
+
+        with (
+            patch("web.app.candidate_path", return_value=candidate),
+            patch("web.app.original_backup_path",
+                  return_value=Path(self.temp_dir.name) / "backup.png"),
+        ):
+            page = self.client.get("/artworks/CEL-001?step=certification")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn("Current original · 52%", page.text)
+            self.assertIn("4× candidate · 90%", page.text)
+            response = self.client.post(
+                "/artworks/CEL-001/ai-upscale/discard",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("candidate_discarded=1", response.headers["location"])
+        self.assertFalse(candidate.exists())
+        self.assertEqual(
+            db.get_artwork_certification("CEL-001")["score"],
+            52,
+        )
+
+    def test_ai_candidate_below_threshold_cannot_be_approved(self):
+        candidate = Path(self.temp_dir.name) / "candidate.png"
+        Image.new("RGB", (1000, 1500), "crimson").save(candidate)
+        with patch("web.app.candidate_path", return_value=candidate):
+            response = self.client.post(
+                "/artworks/CEL-001/ai-upscale/approve",
+                data={"confirmed": "true"},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("still does not meet", response.json()["detail"])
+        self.assertTrue(candidate.exists())
+        self.assertFalse(db.get_artwork_production("CEL-001")["original_approved"])
 
     def test_existing_approved_ai_source_is_backfilled_as_enhanced(self):
         db.upsert_artwork_file(

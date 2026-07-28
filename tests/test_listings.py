@@ -211,6 +211,94 @@ class ListingTests(unittest.TestCase):
         self.assertIn("Approved ✓", response.text)
         self.assertNotIn("Set approved ✓", response.text)
 
+    def test_populated_mockup_slot_has_download_action(self):
+        db.upsert_artwork_file(
+            "CEL-001", "mockup:hero", "hero.jpg", "hero.jpg", "hero.jpg"
+        )
+        with patch("web.production.assigned_file_exists", return_value=True):
+            response = self.client.get("/artworks/CEL-001?step=mockups")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Download image", response.text)
+        self.assertRegex(
+            response.text,
+            r'<a[^>]*\bdownload\b[^>]*href="/artworks/CEL-001/files/view\?role=mockup:hero&amp;download=true"',
+        )
+
+    def test_replace_artwork_page_is_guided_and_keeps_manual_mockup_uploads(self):
+        response = self.client.get("/artworks/CEL-001/replace")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Replace Artwork", response.text)
+        self.assertIn('aria-label="Replace Artwork workflow"', response.text)
+        self.assertIn("Replace source", response.text)
+        self.assertIn("Rebuild files", response.text)
+        self.assertIn("Update shops", response.text)
+        self.assertIn(
+            'action="/artworks/CEL-001/files/mockup"',
+            response.text,
+        )
+        self.assertIn('name="replacement_flow" value="true"', response.text)
+
+    def test_guided_source_replacement_preserves_listing_content_readiness(self):
+        db.set_artwork_production_flags(
+            "CEL-001", listing_content_ready=True
+        )
+        certification = {
+            "valid": True, "width": 1200, "height": 1800, "mode": "RGB",
+            "format": "PNG", "orientation": "vertical",
+            "source_ratio": 2 / 3, "closest_ratio": "2:3",
+            "master_ratio": "2:3",
+            "required_ratios": ["2:3", "3:4", "4:5", "11:14"],
+            "score": 72, "status": "Enhancement recommended",
+            "largest_recommended_print": "12×18",
+            "print_capability": [], "warnings": [],
+        }
+        certified = MagicMock()
+        certified.to_dict.return_value = certification
+        with (
+            patch(
+                "web.app.save_uploaded_file",
+                return_value={
+                    "role": "source",
+                    "relative_path": "01 Source Artwork/replacement.png",
+                    "stored_filename": "replacement.png",
+                    "original_filename": "replacement.png",
+                },
+            ),
+            patch("web.app.certify_artwork", return_value=certified),
+        ):
+            response = self.client.post(
+                "/artworks/CEL-001/files/source",
+                data={"replacement_flow": "true"},
+                files={"upload": ("replacement.png", b"replacement", "image/png")},
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/artworks/CEL-001/replace?source_saved=1", response.headers["location"])
+        production = db.get_artwork_production("CEL-001")
+        self.assertTrue(production["listing_content_ready"])
+        self.assertFalse(production["original_approved"])
+        self.assertFalse(production["mockups_ready"])
+
+    def test_guided_marketplace_update_requires_confirmation_before_api_access(self):
+        listing_id = db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Unbound Poster", description="Description",
+            tags="one, two", price_cents=3995, status="published",
+        )
+        db.save_printify_product(
+            listing_id, product_url="https://printify.com/product/existing",
+            product_id="printify-existing", provider="Provider",
+            sizes="12x18", base_cost_cents=1200,
+        )
+        db.link_etsy_listing(listing_id, "123456789")
+        with patch("web.app.PrintifyAPI.from_env") as printify:
+            response = self.client.post(
+                f"/artworks/CEL-001/listings/{listing_id}/update-everywhere",
+                data={"prepared": "true", "replacement_flow": "true"},
+            )
+        self.assertEqual(response.status_code, 400)
+        printify.assert_not_called()
+
     def test_approved_mockup_change_surfaces_etsy_only_sync(self):
         listing_id = db.create_listing(
             "CEL-001", marketplace="Etsy", product="Poster",
@@ -270,6 +358,13 @@ class ListingTests(unittest.TestCase):
         self.assertIn("Preview Etsy image changes", response.text)
         self.assertIn("Sync updated Etsy images", response.text)
         self.assertIn("Unpublished changes", response.text)
+
+        response = self.client.get(
+            "/artworks/CEL-001?step=mockups&listing_image_generated=collection"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Continue guided update", response.text)
+        self.assertIn("/artworks/CEL-001/replace-mockup#mockup-review", response.text)
 
     def test_listings_page_can_pause_and_reactivate_etsy_sales(self):
         listing_id = db.create_listing(

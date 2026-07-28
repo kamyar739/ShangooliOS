@@ -602,6 +602,11 @@ def get_collections():
                     AS artwork_count,
                 COUNT(DISTINCT CASE WHEN l.etsy_state = 'active' THEN l.id END)
                     AS live_etsy_count,
+                COUNT(DISTINCT CASE
+                    WHEN l.etsy_paused_at IS NOT NULL
+                     AND l.external_listing_id IS NOT NULL
+                    THEN l.id END
+                ) AS paused_etsy_count,
                 COUNT(DISTINCT CASE WHEN l.status = 'ready' THEN l.id END)
                     AS ready_listing_count
             FROM collections AS c
@@ -617,7 +622,13 @@ def get_collections():
     collections = []
     for row in rows:
         item = dict(row)
-        if item["live_etsy_count"]:
+        if item["status"] == "paused":
+            item["display_status"] = "Paused"
+            item["display_status_class"] = "paused"
+        elif item["paused_etsy_count"] and not item["live_etsy_count"]:
+            item["display_status"] = "Paused on Etsy"
+            item["display_status_class"] = "paused"
+        elif item["live_etsy_count"]:
             item["display_status"] = "Live on Etsy"
             item["display_status_class"] = "live"
         elif item["ready_listing_count"]:

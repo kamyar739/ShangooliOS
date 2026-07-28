@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Replace {{ artwork['public_title'] }} — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% include "components/workflow_sidebar.html" %}
+  <main class="workflow-stage-content workflow-compact">
+    <div class="replacement-page-header">
+      <div>
+        <a class="context-nav-link" href="/artworks/{{ artwork['artwork_code'] }}?step=source">← Back to artwork</a>
+        <div class="eyebrow mt-3">Guided artwork update</div>
+        <h1 class="display-6 fw-bold mb-1">Replace Artwork</h1>
+        <p class="text-muted mb-0">{{ artwork['artwork_code'] }} · {{ artwork['public_title'] }} · {{ collection['name'] }}</p>
+      </div>
+      {% if replacement['listing'] and replacement['listing']['etsy_paused_at'] %}
+      <span class="status-pill marketplace-status-paused">Paused on Etsy</span>
+      {% elif replacement['listing'] and replacement['listing']['etsy_state'] == 'active' %}
+      <span class="status-pill marketplace-status-live">Live on Etsy</span>
+      {% endif %}
+    </div>
+
+    <nav class="replacement-progress" aria-label="Replace Artwork workflow">
+      {% for stage in replacement['stages'] %}
+      <a href="#replacement-{{ stage['key'] }}" class="replacement-progress-step is-{{ stage['state'] }}">
+        <span>{% if stage['state'] == 'complete' %}✓{% else %}{{ loop.index }}{% endif %}</span>
+        <strong>{{ stage['label'] }}</strong>
+      </a>
+      {% endfor %}
+    </nav>
+
+    <div class="replacement-preserved mb-3">
+      <strong>Your existing work is preserved.</strong>
+      <span>Titles, stories, SEO, prices, variants, Printify and Etsy IDs, and the current Etsy paused/live state are not rewritten.</span>
+    </div>
+
+    {% if request.query_params.get('source_saved') %}<div class="alert alert-success">Replacement source saved. Continue with its quality review.</div>{% endif %}
+    {% if request.query_params.get('candidate_discarded') %}<div class="alert alert-success">The temporary candidate was discarded. Your saved original was not changed.</div>{% endif %}
+    {% if request.query_params.get('original_restored') %}<div class="alert alert-success">The original image was restored. You can safely create a new 4× candidate.</div>{% endif %}
+    {% if request.query_params.get('rebuilt') %}<div class="alert alert-success">Print files, ratio files, and this artwork’s mockups were rebuilt locally. Nothing was sent externally.</div>{% endif %}
+    {% if request.query_params.get('reviewed') %}<div class="alert alert-success">Replacement outputs approved. The marketplace update is ready for your final confirmation.</div>{% endif %}
+    {% if request.query_params.get('mockup_saved') %}<div class="alert alert-success">Individual mockup replaced. Review approval was reset.</div>{% endif %}
+    {% if request.query_params.get('updated_everywhere') %}<div class="alert alert-success">The reviewed replacement was synchronized successfully.</div>{% endif %}
+    {% if request.query_params.get('update_pending') %}<div class="alert alert-warning">The update paused safely. Use recovery below; do not upload or publish again.</div>{% endif %}
+
+    <section class="replacement-stage-card" id="replacement-source">
+      <div class="replacement-stage-heading"><span>1</span><div><div class="eyebrow">Source</div><h2 class="h4 mb-1">Choose the corrected artwork</h2><p class="text-muted mb-0">This changes only the image-dependent production work.</p></div></div>
+      {% if production_summary['source_assignment'] %}
+      <div class="replacement-source-preview">
+        <img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="Current source for {{ artwork['public_title'] }}">
+        <div><strong>Current saved source</strong><small>{{ production_summary['source_assignment']['original_filename'] }}</small><div class="d-flex gap-2 mt-2"><a class="btn btn-sm btn-outline-secondary" target="_blank" href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source">View</a><a class="btn btn-sm btn-outline-primary" download href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source&amp;download=true">Download</a></div></div>
+      </div>
+      {% endif %}
+      <form method="post" enctype="multipart/form-data" action="/artworks/{{ artwork['artwork_code'] }}/files/source" data-long-operation class="replacement-upload-form">
+        <input type="hidden" name="replacement_flow" value="true">
+        <label class="form-label fw-semibold" for="replacement-source-upload">Upload replacement image</label>
+        <input class="form-control" id="replacement-source-upload" name="upload" type="file" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" required>
+        <button class="btn btn-primary" type="submit">Save replacement source</button>
+      </form>
+    </section>
+
+    <section class="replacement-stage-card" id="replacement-quality">
+      <div class="replacement-stage-heading"><span>2</span><div><div class="eyebrow">Quality</div><h2 class="h4 mb-1">Verify print quality</h2><p class="text-muted mb-0">Use the original when it passes; enhance 4× only when needed.</p></div></div>
+      {% if certification %}
+      <div class="replacement-quality-summary {% if certification['score'] >= 80 and certification['valid'] %}is-ready{% else %}is-attention{% endif %}">
+        <strong>{{ certification['score'] }}% · {{ certification['status'] }}</strong>
+        <span>{{ certification['width'] }} × {{ certification['height'] }} px · {{ certification['orientation']|title }}</span>
+      </div>
+      {% endif %}
+      {% if replacement['candidate_ready'] and not production['ai_enhanced_at'] %}
+      <div class="replacement-quality-comparison">
+        <div class="replacement-quality-summary {% if certification['score'] >= 80 and certification['valid'] %}is-ready{% else %}is-attention{% endif %}">
+          <small>Current original</small>
+          <strong>{{ certification['score'] }}% · {{ certification['status'] }}</strong>
+          <span>{{ certification['width'] }} × {{ certification['height'] }} px</span>
+        </div>
+        <div class="replacement-quality-summary {% if ai_candidate_certification and ai_candidate_certification['score'] >= 80 and ai_candidate_certification['valid'] %}is-ready{% else %}is-attention{% endif %}">
+          <small>4× candidate</small>
+          <strong>{{ ai_candidate_certification['score'] if ai_candidate_certification else 0 }}% · {{ ai_candidate_certification['status'] if ai_candidate_certification else 'Not checked' }}</strong>
+          <span>{{ ai_candidate_certification['width'] if ai_candidate_certification else 0 }} × {{ ai_candidate_certification['height'] if ai_candidate_certification else 0 }} px</span>
+        </div>
+      </div>
+      <div class="replacement-comparison">
+        <div><small>Current source</small><img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="Current source"></div>
+        <div><small>4× candidate</small><img src="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/view" alt="AI-upscaled candidate"></div>
+      </div>
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/approve" class="replacement-action-row">
+        <input type="hidden" name="replacement_flow" value="true">
+        <label class="form-check"><input class="form-check-input" name="confirmed" value="true" type="checkbox" required><span class="form-check-label">I inspected the candidate.</span></label>
+        <button class="btn btn-success" type="submit" {% if not ai_candidate_certification or not ai_candidate_certification['valid'] or ai_candidate_certification['score'] < 80 %}disabled{% endif %}>Approve 4× candidate</button>
+      </form>
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/discard" class="mt-2">
+        <input type="hidden" name="replacement_flow" value="true">
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Discard candidate and try again</button>
+      </form>
+      {% elif certification and certification['score'] < 80 and not production['ai_enhanced_at'] %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale" data-long-operation>
+        <input type="hidden" name="replacement_flow" value="true">
+        <button class="btn btn-primary" type="submit">Create AI upscale 4×</button>
+      </form>
+      {% elif certification and certification['valid'] and certification['score'] >= 80 and not production['original_approved'] %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/certification/approve">
+        <input type="hidden" name="confirmed" value="true"><input type="hidden" name="replacement_flow" value="true">
+        <button class="btn btn-primary" type="submit">Approve source quality</button>
+      </form>
+      {% elif replacement['quality_ready'] %}
+      <span class="status-pill listing-status-ready">Quality approved ✓</span>
+      {% if ai_original_backup %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/restore-original" class="mt-2">
+        <input type="hidden" name="confirmed" value="true"><input type="hidden" name="replacement_flow" value="true">
+        <button class="btn btn-sm btn-outline-secondary" type="submit" onclick="return confirm('Restore the saved original and restart enhancement? Current derived work will be marked out of date.')">Restore original and try again</button>
+      </form>
+      {% endif %}
+      {% else %}
+      <p class="text-muted mb-0">Upload the replacement source to begin.</p>
+      {% endif %}
+    </section>
+
+    <section class="replacement-stage-card" id="replacement-production">
+      <div class="replacement-stage-heading"><span>3</span><div><div class="eyebrow">Production</div><h2 class="h4 mb-1">Rebuild image-dependent files</h2><p class="text-muted mb-0">Recreates this artwork’s print master, complete ratio set, and eight mockups. Writing and prices remain untouched.</p></div></div>
+      {% if replacement['quality_ready'] %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/replace/rebuild" data-long-operation data-wait-stages="Building print master|Creating ratio files|Regenerating listing images|Finishing local update">
+        <input type="hidden" name="confirmed" value="true">
+        <button class="btn btn-primary" type="submit">{% if replacement['files_ready'] %}Rebuild again{% else %}Rebuild replacement files{% endif %}</button>
+      </form>
+      {% else %}<p class="text-muted mb-0">Approve source quality first.</p>{% endif %}
+    </section>
+
+    <section class="replacement-stage-card" id="replacement-review">
+      <div class="replacement-stage-heading"><span>4</span><div><div class="eyebrow">Visual review</div><h2 class="h4 mb-1">Review or replace mockups</h2><p class="text-muted mb-0">Download any image or upload a corrected mockup for one slot.</p></div></div>
+      <div class="replacement-mockup-grid">
+        {% for item in production_summary['mockup_status'] %}
+        <article class="replacement-mockup-card">
+          <div><strong>{{ item['position'] }}. {{ item['label'] }}</strong><small>{{ item['description'] }}</small></div>
+          {% if item['exists'] %}
+          <img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}" alt="{{ item['label'] }}">
+          <a class="btn btn-sm btn-light" download href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}&amp;download=true">Download</a>
+          {% else %}<div class="mockup-preview-empty">Missing</div>{% endif %}
+          <form method="post" enctype="multipart/form-data" action="/artworks/{{ artwork['artwork_code'] }}/files/mockup">
+            <input type="hidden" name="slot_key" value="{{ item['slot_key'] }}"><input type="hidden" name="replacement_flow" value="true">
+            <label class="btn btn-sm btn-outline-secondary mb-0">Replace<input class="visually-hidden" type="file" name="upload" accept=".jpg,.jpeg,.png,.tif,.tiff,.webp" required onchange="this.form.submit()"></label>
+          </form>
+        </article>
+        {% endfor %}
+      </div>
+      {% if replacement['files_ready'] and not production_summary['missing_mockups'] %}
+      {% if replacement['mockups_ready'] %}<span class="status-pill listing-status-ready">Replacement outputs approved ✓</span>
+      {% else %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/replace/approve" class="replacement-action-row">
+        <label class="form-check"><input class="form-check-input" name="confirmed" value="true" type="checkbox" required><span class="form-check-label">I reviewed the ratio files and all eight listing images.</span></label>
+        <button class="btn btn-success" type="submit">Approve replacement outputs</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      <div class="replacement-manual-note"><strong>Collection card follow-up</strong><span>Other artworks may still show the previous collection card. Refresh those manually after this replacement is complete.</span><a href="/collections/{{ collection['code'] }}/review">Open Collection Review →</a></div>
+    </section>
+
+    <section class="replacement-stage-card" id="replacement-sync">
+      <div class="replacement-stage-heading"><span>5</span><div><div class="eyebrow">Final synchronization</div><h2 class="h4 mb-1">Update Printify and Etsy</h2><p class="text-muted mb-0">This is the only external action. A paused Etsy listing remains paused.</p></div></div>
+      {% set listing = replacement['listing'] %}
+      {% if replacement['recovery_pending'] and listing %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listings/{{ listing['id'] }}/update-everywhere/recover" data-long-operation>
+        <input type="hidden" name="replacement_flow" value="true">
+        <button class="btn btn-warning" type="submit">Continue safe recovery</button>
+      </form>
+      {% elif replacement['mockups_ready'] and listing and replacement['sync_needed'] %}
+      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listings/{{ listing['id'] }}/update-everywhere" data-long-operation class="replacement-final-confirm">
+        <input type="hidden" name="prepared" value="true"><input type="hidden" name="replacement_flow" value="true">
+        <label class="form-check"><input class="form-check-input" name="confirmed" value="true" type="checkbox" required><span class="form-check-label">Update the existing Printify product and linked Etsy listing with this reviewed artwork.</span></label>
+        <button class="btn btn-success" type="submit">Update Printify &amp; Etsy</button>
+      </form>
+      {% elif replacement['mockups_ready'] and not listing %}
+      <div class="alert alert-info mb-0">Local replacement complete. This artwork does not have both a linked Printify product and Etsy listing, so there is nothing external to update.</div>
+      {% elif replacement['active'] == 'complete' %}
+      <span class="status-pill listing-status-ready">Replacement complete ✓</span>
+      {% else %}<p class="text-muted mb-0">Approve the rebuilt outputs first.</p>{% endif %}
+    </section>
+  </main>
+</div>
+{% endblock %}

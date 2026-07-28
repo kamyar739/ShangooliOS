@@ -5,6 +5,7 @@
 {% include "components/collection_sidebar.html" %}
 <main class="workflow-stage-content">
   <div class="mb-3"><a class="context-nav-link" href="/collections/{{ collection['code'] }}/publish-readiness">← Back to Publish Readiness</a></div>
+  {% include "components/workflow_progress.html" %}
   <header class="page-header mb-4">
     <div>
       <div class="eyebrow">ETSY PUBLICATION</div>
@@ -16,7 +17,7 @@
 
   <div class="alert alert-secondary"><strong>Review only.</strong> Opening this page does not contact Printify or Etsy.</div>
 
-  <form method="post" action="/collections/{{ collection['code'] }}/publish" data-long-operation>
+  <form method="post" action="/collections/{{ collection['code'] }}/publish" data-long-operation id="collection-workflow-action">
     <div class="collection-publish-list">
     {% for item in items %}
       {% set listing = item['listing'] %}

@@ -22,13 +22,37 @@ from web.ratio_generator import resolve_assigned_file
 from web.template_packs import DEFAULT_TEMPLATE_PACK
 
 
+# Creative presentation order can differ from permanent artwork numbering.
+# Keep this limited to collection cards; collection navigation remains unchanged.
+COLLECTION_BRANDING_ORDERS = {
+    "ROS": ("ROS-001", "ROS-002", "ROS-003", "ROS-007", "ROS-004", "ROS-005"),
+}
+
+
 def build_mockup_artwork_payload(artwork) -> dict:
     """Add current collection thumbnails to an artwork mockup payload."""
     payload = dict(artwork)
     _, collection_artworks, _ = get_collection(artwork["collection_code"])
+    branding_order = COLLECTION_BRANDING_ORDERS.get(
+        artwork["collection_code"].upper(), ()
+    )
+    if branding_order:
+        position = {code: index for index, code in enumerate(branding_order)}
+        collection_artworks = sorted(
+            collection_artworks,
+            key=lambda item: (
+                position.get(item["artwork_code"], len(position)),
+                item["sequence_number"],
+            ),
+        )
     thumbnail_paths = []
     thumbnail_titles = []
     for item in collection_artworks:
+        # Collection identity cards represent the current sellable series.
+        # A paused artwork may remain in ShangooliOS for history and recovery,
+        # but must not displace its active replacement in the six-piece card.
+        if item["status"] == "paused" or item["etsy_paused"]:
+            continue
         item_artwork = get_artwork(item["artwork_code"])
         assignments = {
             row["role"]: row

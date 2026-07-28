@@ -7,6 +7,7 @@
   <div class="mb-3">
     <a class="context-nav-link" href="/collections/{{ collection['code'] }}/publish-readiness">← Back to Publish Readiness</a>
   </div>
+  {% include "components/workflow_progress.html" %}
 
   <header class="page-header mb-4">
     <div>
@@ -22,8 +23,11 @@
   <div class="alert alert-light border mb-4">
     <strong>Review only.</strong> Opening this page does not contact Printify or Etsy.
   </div>
+  {% if request.query_params.get('draft_created') %}
+  <div class="alert alert-success">Missing local listing drafts were prepared. Review the Printify products below.</div>
+  {% endif %}
 
-  <form method="post" action="/collections/{{ collection['code'] }}/printify" data-long-operation>
+  <form method="post" action="/collections/{{ collection['code'] }}/printify" data-long-operation id="collection-workflow-action">
     <div class="collection-printify-list">
     {% for item in eligible %}
       <article class="card app-card collection-printify-item mb-3">

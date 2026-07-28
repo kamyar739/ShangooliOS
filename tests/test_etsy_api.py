@@ -179,6 +179,31 @@ class EtsyAPITests(unittest.TestCase):
         upload.assert_not_called()
         delete.assert_not_called()
 
+    def test_image_only_sync_does_not_update_listing_copy(self):
+        from web.etsy_sync import sync_etsy_listing_images
+
+        listing = {
+            "external_listing_id": "123", "title": "Revelry",
+            "description": "Story", "tags": "wall art", "artwork_code": "CEL-005",
+        }
+        preview = {
+            "linked": True,
+            "remote": {"state": "inactive"},
+            "images": [Path("one.jpg")],
+            "images_changed": True,
+        }
+        with patch("web.etsy_sync.build_etsy_sync_preview", return_value=preview), \
+             patch("web.etsy_sync.get_artwork_mockup_set_state", return_value={"approved_at": "now"}), \
+             patch("web.etsy_sync.update_etsy_listing") as update_copy, \
+             patch("web.etsy_sync.upload_etsy_listing_image", return_value={"listing_image_id": 10}), \
+             patch("web.etsy_sync.get_etsy_listing_images", return_value=[{"listing_image_id": 10}]), \
+             patch("web.etsy_sync.delete_etsy_listing_image"):
+            result = sync_etsy_listing_images(listing)
+
+        self.assertEqual(result["image_count"], 1)
+        self.assertEqual(result["state"], "inactive")
+        update_copy.assert_not_called()
+
     def test_sync_reuses_existing_collection_section(self):
         listing = {
             "external_listing_id": "123", "title": "Revelry",

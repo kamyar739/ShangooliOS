@@ -221,9 +221,16 @@
                             <div class="small text-secondary">Current source</div>
                             <div class="fw-semibold">{{ production_summary["source_assignment"]["stored_filename"] }}</div>
                         </div>
-                        <a class="btn btn-sm btn-outline-secondary"
-                           target="_blank"
-                           href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source">View</a>
+                        <div class="d-flex gap-2">
+                            <a class="btn btn-sm btn-outline-secondary"
+                               target="_blank"
+                               href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source">View</a>
+                            <a class="btn btn-sm btn-outline-primary"
+                               download
+                               href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source&amp;download=true">Download</a>
+                            <a class="btn btn-sm btn-primary"
+                               href="/artworks/{{ artwork['artwork_code'] }}/replace">Replace Artwork</a>
+                        </div>
                     </div>
                     <img class="img-fluid rounded border mb-3"
                          style="max-height: 320px; width: 100%; object-fit: contain;"
@@ -311,6 +318,8 @@
       {% if certification %}<span class="badge {% if certification['score'] >= 80 %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6">{{ certification['score'] }}% — {{ certification['status'] }}</span>{% endif %}
     </div>
     {% if request.query_params.get('quality_checked') %}<div class="alert alert-success">Quality check completed and saved.</div>{% endif %}
+    {% if request.query_params.get('candidate_discarded') %}<div class="alert alert-success">The temporary candidate was discarded. Your original was not changed.</div>{% endif %}
+    {% if request.query_params.get('original_restored') %}<div class="alert alert-success">The saved original was restored. You can create a new 4× candidate.</div>{% endif %}
     {% if certification %}
     {% if request.query_params.get('certification_approved') %}<div class="alert alert-success">Current source reviewed and approved.</div>{% endif %}
     <div class="row g-3 mb-4">
@@ -326,7 +335,7 @@
     {% for warning in certification['warnings'] %}<div class="alert alert-warning py-2 mb-2">{{ warning }}</div>{% endfor %}
     {% if production['ai_enhanced_at'] %}
     <div class="ai-upscale-panel mt-4 is-complete">
-      <div><div class="eyebrow">Local AI enhancement</div><h3 class="h5 mb-1">AI enhanced 4×</h3><p class="text-secondary mb-0">Completed {{ production['ai_enhanced_at'] }} · {{ production['ai_enhanced_original_width'] }}×{{ production['ai_enhanced_original_height'] }} → {{ production['ai_enhanced_width'] }}×{{ production['ai_enhanced_height'] }} px. Upload a new original to reset this protection.</p></div>
+      <div><div class="eyebrow">Local AI enhancement</div><h3 class="h5 mb-1">AI enhanced 4×</h3><p class="text-secondary mb-0">Completed {{ production['ai_enhanced_at'] }} · {{ production['ai_enhanced_original_width'] }}×{{ production['ai_enhanced_original_height'] }} → {{ production['ai_enhanced_width'] }}×{{ production['ai_enhanced_height'] }} px. The saved original can be restored below if you need to try again.</p></div>
       <button class="btn btn-success" type="button" disabled>Already AI enhanced ✓</button>
     </div>
     {% elif certification['score'] < 80 %}
@@ -338,12 +347,21 @@
     {% if ai_upscale_candidate and not production['ai_enhanced_at'] %}
     {% if auto_update_listing %}<div class="alert alert-warning mt-3 mb-0"><strong>Live update:</strong> Approving this candidate will refresh Artwork Intelligence, rebuild all production files and mockups, update the existing Printify product, and synchronize its Etsy listing. Artwork details and edited listing text stay unchanged.</div>{% endif %}
     <div class="row g-3 mt-2">
-      <div class="col-md-6"><div class="small fw-semibold mb-2">Current original</div><img class="img-fluid rounded border ai-compare-image" src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="Current source artwork"></div>
-      <div class="col-md-6"><div class="small fw-semibold mb-2">AI-upscaled candidate</div><img class="img-fluid rounded border ai-compare-image" src="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/view" alt="AI-upscaled artwork candidate"></div>
+      <div class="col-md-6"><div class="small fw-semibold mb-2">Current original · {{ certification['score'] }}% · {{ certification['width'] }} × {{ certification['height'] }} px</div><img class="img-fluid rounded border ai-compare-image" src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="Current source artwork"></div>
+      <div class="col-md-6"><div class="small fw-semibold mb-2">4× candidate · {{ ai_candidate_certification['score'] if ai_candidate_certification else 0 }}% · {{ ai_candidate_certification['width'] if ai_candidate_certification else 0 }} × {{ ai_candidate_certification['height'] if ai_candidate_certification else 0 }} px</div><img class="img-fluid rounded border ai-compare-image" src="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/view" alt="AI-upscaled artwork candidate"></div>
     </div>
     <form class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3" method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/approve">
       <div class="form-check"><input class="form-check-input" id="approve-ai-upscale" name="confirmed" value="true" type="checkbox" required><label class="form-check-label" for="approve-ai-upscale">I inspected the details, faces, linework, and colors.</label></div>
-      <button class="btn btn-success" type="submit" {% if auto_update_listing %}onclick="return confirm('Approve this artwork and update the live Printify product and Etsy listing now?')"{% endif %}>{% if auto_update_listing %}Approve and update everywhere{% else %}Approve AI upscale{% endif %}</button>
+      <button class="btn btn-success" type="submit" {% if not ai_candidate_certification or not ai_candidate_certification['valid'] or ai_candidate_certification['score'] < 80 %}disabled{% elif auto_update_listing %}onclick="return confirm('Approve this artwork and update the live Printify product and Etsy listing now?')"{% endif %}>{% if auto_update_listing %}Approve and update everywhere{% else %}Approve AI upscale{% endif %}</button>
+    </form>
+    <form class="d-flex justify-content-end mt-2" method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/discard">
+      <button class="btn btn-sm btn-outline-secondary" type="submit">Discard candidate and try again</button>
+    </form>
+    {% endif %}
+    {% if production['ai_enhanced_at'] and ai_original_backup %}
+    <form class="d-flex justify-content-end mt-2" method="post" action="/artworks/{{ artwork['artwork_code'] }}/ai-upscale/restore-original">
+      <input type="hidden" name="confirmed" value="true">
+      <button class="btn btn-sm btn-outline-secondary" type="submit" onclick="return confirm('Restore the saved original and restart enhancement? Current derived work will be marked out of date.')">Restore original and try again</button>
     </form>
     {% endif %}
     {% if not production['original_approved'] and (not ai_upscale_candidate or production['ai_enhanced_at']) %}
@@ -452,6 +470,7 @@
                 </p>
             </div>
             <div class="d-flex flex-wrap gap-2 align-items-center">
+                <a class="btn btn-outline-primary" href="/artworks/{{ artwork['artwork_code'] }}/replace-mockup">Replace Mockup</a>
                 <div class="mockup-count-pill">
                     {{ 8 - production_summary['missing_mockups']|length }} of 8 ready
                 </div>
@@ -462,18 +481,18 @@
         <div class="alert alert-success">All eight listing images were generated with the selected template pack. Review them below; previous generated versions were replaced.</div>
         {% endif %}
         {% if request.query_params.get('listing_image_generated') %}
-        <div class="alert alert-success">The selected listing image was regenerated. The other seven images were left unchanged.</div>
+        <div class="alert alert-success guided-mockup-continuation"><span><strong>The selected listing image was regenerated.</strong>{% if changed_mockup_count %} {{ changed_mockup_count }} image{% if changed_mockup_count != 1 %}s{% endif %} changed since the last Etsy sync.{% else %} The other seven images were left unchanged.{% endif %}</span><a class="btn btn-sm btn-primary" href="/artworks/{{ artwork['artwork_code'] }}/replace-mockup#mockup-review">Continue guided update →</a></div>
         {% endif %}
         {% if request.query_params.get('mockup_saved') %}
-        <div class="alert alert-success">Listing image saved. Review is reset whenever an image is replaced.</div>
+        <div class="alert alert-success guided-mockup-continuation"><span><strong>Listing image saved.</strong>{% if changed_mockup_count %} {{ changed_mockup_count }} image{% if changed_mockup_count != 1 %}s{% endif %} changed since the last Etsy sync.{% endif %} Review was reset.</span><a class="btn btn-sm btn-primary" href="/artworks/{{ artwork['artwork_code'] }}/replace-mockup#mockup-review">Continue guided update →</a></div>
         {% endif %}
         {% if request.query_params.get('mockup_settings_saved') %}
         <div class="alert alert-success">Listing-image order and review status saved.</div>
         {% endif %}
         {% if request.query_params.get('scene_mockup_generated') %}
-        <div class="alert alert-success">The selected listing image was generated from your reusable Mockup Studio scene.</div>
+        <div class="alert alert-success guided-mockup-continuation"><span><strong>The selected scene mockup was regenerated.</strong>{% if changed_mockup_count %} {{ changed_mockup_count }} image{% if changed_mockup_count != 1 %}s{% endif %} changed since the last Etsy sync.{% endif %}</span><a class="btn btn-sm btn-primary" href="/artworks/{{ artwork['artwork_code'] }}/replace-mockup#mockup-review">Continue guided update →</a></div>
         {% endif %}
-        {% if request.query_params.get('set_generated') %}<div class="alert alert-warning"><strong>Marketplace set generated.</strong> Review the lead-image crops below, then approve the set before Etsy synchronization.</div>{% endif %}
+        {% if request.query_params.get('set_generated') %}<div class="alert alert-warning guided-mockup-continuation"><span><strong>Marketplace set generated.</strong> Review the complete gallery before Etsy synchronization.</span><a class="btn btn-sm btn-primary" href="/artworks/{{ artwork['artwork_code'] }}/replace-mockup#mockup-review">Continue guided update →</a></div>{% endif %}
         {% if request.query_params.get('set_approved') %}<div class="alert alert-success"><strong>Marketplace set approved.</strong> Etsy synchronization may now use these images.</div>{% endif %}
 
         <section class="marketplace-set-workflow mb-4">
@@ -518,6 +537,11 @@
                            target="_blank" class="mockup-preview mb-3">
                             <img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}"
                                  alt="{{ item['label'] }} mockup preview">
+                        </a>
+                        <a class="btn btn-sm btn-light mockup-download-action mb-3"
+                           download
+                           href="/artworks/{{ artwork['artwork_code'] }}/files/view?role=mockup:{{ item['slot_key'] }}&amp;download=true">
+                            Download image
                         </a>
                         {% else %}
                         <div class="mockup-preview mockup-preview-empty mb-3">No image uploaded</div>
