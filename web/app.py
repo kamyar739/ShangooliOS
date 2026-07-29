@@ -674,6 +674,25 @@ def home(request: Request, dashboard_view: str = Query("artworks", alias="view")
         raise HTTPException(status_code=400, detail="Invalid dashboard view")
     context = get_dashboard()
     context["dashboard_view"] = normalized_view
+    collections_by_code = {
+        collection["code"]: collection
+        for collection in context["collections"]
+    }
+    context["continue_collection"] = None
+    for collection_code in context["recent_collection_codes"]:
+        collection = collections_by_code.get(collection_code)
+        if (
+            not collection
+            or collection["status"] == "paused"
+            or not collection["artwork_count"]
+        ):
+            continue
+        navigation = collection_workflow_navigation(
+            collection_code, active_stage=""
+        )
+        if not navigation["complete"]:
+            context["continue_collection"] = navigation
+            break
     return templates.TemplateResponse(
         request=request,
         name="index.html",

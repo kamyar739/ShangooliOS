@@ -18,6 +18,20 @@
 
 </div>
 
+{% if continue_collection %}
+<section class="dashboard-continue-card mb-4" aria-labelledby="continue-collection-title">
+    <div class="dashboard-continue-copy">
+        <div class="eyebrow">Continue collection · {{ continue_collection["current_stage"] }}</div>
+        <h2 class="h3 mb-1" id="continue-collection-title">{{ continue_collection["title"] }}</h2>
+        <strong>{{ continue_collection["next_action"]["label"] }}</strong>
+        <p class="text-muted mb-0">{{ continue_collection["next_action"]["description"] }}</p>
+    </div>
+    <a class="btn btn-primary" href="{{ continue_collection['next_action']['url'] }}">
+        {{ continue_collection["next_action"]["label"] }} →
+    </a>
+</section>
+{% endif %}
+
 <div class="row g-4 mb-5">
     <div class="col-6 col-lg-3">
         <a href="/?view=artworks" class="dashboard-metric-link {% if dashboard_view == 'artworks' %}is-selected{% endif %}">

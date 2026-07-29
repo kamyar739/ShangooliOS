@@ -165,9 +165,15 @@ def collection_workflow_navigation(collection_code, *, active_stage):
             "state": state,
             "active": key == active_stage,
         })
+    current_stage = next(
+        (stage["label"] for stage in stages if stage["state"] != "complete"),
+        "Complete",
+    )
     return {
         "kind": "collection",
         "title": collection["name"],
         "stages": stages,
         "next_action": next_action,
+        "current_stage": current_stage,
+        "complete": etsy_complete,
     }

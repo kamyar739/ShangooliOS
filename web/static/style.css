@@ -133,6 +133,31 @@ body {
     padding: 1.35rem;
 }
 
+.dashboard-continue-card {
+    align-items: center;
+    background: linear-gradient(135deg, #fff 0%, #f6f3ff 100%);
+    border: 1px solid #dcd6ff;
+    border-left: 4px solid var(--brand);
+    border-radius: 1rem;
+    box-shadow: 0 10px 26px rgba(32, 38, 60, 0.06);
+    display: flex;
+    gap: 1.5rem;
+    justify-content: space-between;
+    padding: 1.25rem 1.4rem;
+}
+
+.dashboard-continue-copy {
+    display: grid;
+    gap: 0.2rem;
+}
+
+@media (max-width: 767.98px) {
+    .dashboard-continue-card {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
 .dashboard-workspace-heading {
     align-items: center;
     display: flex;

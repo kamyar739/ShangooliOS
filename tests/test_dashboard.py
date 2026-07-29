@@ -107,6 +107,74 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('href="/?view=attention"', focused.text)
         self.assertIn("Back to dashboard", focused.text)
 
+    def test_dashboard_continues_most_recent_incomplete_collection(self):
+        with db.get_connection() as connection:
+            brand_id = connection.execute(
+                "SELECT id FROM brands WHERE code='SHG'"
+            ).fetchone()["id"]
+            connection.execute(
+                """
+                INSERT INTO collections (
+                    brand_id, code, name, collection_type, vertical, status
+                ) VALUES (?, 'NEW', 'New Journey', 'curated', 'home_art', 'active')
+                """,
+                (brand_id,),
+            )
+            collection_id = connection.execute(
+                "SELECT id FROM collections WHERE code='NEW'"
+            ).fetchone()["id"]
+            connection.execute(
+                """
+                INSERT INTO artworks (
+                    artwork_code, collection_id, sequence_number,
+                    public_title, status, updated_at
+                ) VALUES ('NEW-001', ?, 1, 'First Light', 'approved',
+                          '2026-07-28 12:00:00')
+                """,
+                (collection_id,),
+            )
+            connection.execute(
+                """
+                UPDATE artworks
+                SET updated_at='2026-07-27 12:00:00'
+                WHERE artwork_code='CEL-001'
+                """
+            )
+            connection.commit()
+        db.ensure_production_schema()
+
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('class="dashboard-continue-card', response.text)
+        self.assertIn('id="continue-collection-title">New Journey</h2>', response.text)
+        self.assertIn("Continue collection · Produce", response.text)
+        self.assertIn("Run safe production", response.text)
+        self.assertIn(
+            'href="/collections/NEW/production#collection-workflow-action"',
+            response.text,
+        )
+
+    def test_dashboard_omits_continue_card_when_workflow_is_complete(self):
+        completed_navigation = {
+            "complete": True,
+            "current_stage": "Complete",
+            "title": "Celebration",
+            "next_action": {
+                "label": "View completed collection",
+                "description": "Complete",
+                "url": "/collections?collection=CEL",
+            },
+        }
+        with patch(
+            "web.app.collection_workflow_navigation",
+            return_value=completed_navigation,
+        ):
+            response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("dashboard-continue-card", response.text)
+
     def test_intelligence_style_and_mood_accept_custom_text(self):
         response = self.client.post(
             "/artworks/CEL-001/intelligence",

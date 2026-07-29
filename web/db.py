@@ -726,6 +726,20 @@ def get_dashboard():
             LIMIT 6
             """
         ).fetchall()
+        recent_collection_codes = [
+            row["code"]
+            for row in conn.execute(
+                """
+                SELECT c.code
+                FROM collections AS c
+                JOIN artworks AS a ON a.collection_id = c.id
+                WHERE a.status != 'retired'
+                  AND c.status != 'archived'
+                GROUP BY c.id
+                ORDER BY MAX(a.updated_at) DESC, MAX(a.id) DESC
+                """
+            ).fetchall()
+        ]
 
     listing_rows = [dict(row) for row in list_listings()]
     work_queue = []
@@ -747,6 +761,7 @@ def get_dashboard():
         "collections": collections,
         "stats": stats,
         "recent_artworks": recent_artworks,
+        "recent_collection_codes": recent_collection_codes,
         "listing_stats": {
             "total": listing_counts["all"],
             "ready_to_publish": len(ready_to_publish),
