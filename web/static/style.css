@@ -5109,7 +5109,7 @@ body.is-waiting {
 
 .guided-workflow-stages {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: .35rem;
     padding: .55rem;
     background: #f7f6fc;
@@ -5200,7 +5200,7 @@ body.is-waiting {
 
 @media (max-width: 760px) {
     .guided-workflow-stages {
-        grid-template-columns: repeat(5, minmax(5.5rem, 1fr));
+        grid-template-columns: repeat(6, minmax(5.5rem, 1fr));
         overflow-x: auto;
     }
 

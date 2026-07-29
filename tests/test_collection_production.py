@@ -223,13 +223,16 @@ class CollectionProductionTests(unittest.TestCase):
         response = self.client.get("/collections")
         self.assertEqual(response.status_code, 200)
         self.assertIn("New Imported Collection", response.text)
-        self.assertIn('href="/collections?collection=NEW"', response.text)
+        self.assertIn(
+            'href="/collections?collection=NEW#collection-workflow"',
+            response.text,
+        )
 
         selected = self.client.get("/collections?collection=NEW")
         self.assertEqual(selected.status_code, 200)
         self.assertIn("First Imported Artwork", selected.text)
         self.assertIn('href="/collections/NEW/production"', selected.text)
-        self.assertIn("Produce Collection", selected.text)
+        self.assertIn("Run safe production", selected.text)
 
     def _make_review_ready(self, artwork_code, *, warning=False):
         production = db.get_artwork_production(artwork_code)

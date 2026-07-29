@@ -14,6 +14,24 @@
       <button class="btn btn-outline-secondary" type="button" data-fast-flow-reset>Start over</button>
     </div>
 
+    <section class="guided-workflow mb-4" aria-label="Collection workflow">
+      <div class="guided-workflow-stages">
+        {% for label in ["Intake", "Produce", "Review", "Ready", "Printify", "Etsy"] %}
+        <span class="guided-workflow-stage {% if loop.first %}is-active{% endif %}">
+          <span class="guided-workflow-marker">{{ loop.index }}</span>
+          <span>{{ label }}</span>
+        </span>
+        {% endfor %}
+      </div>
+      <div class="guided-workflow-next">
+        <div>
+          <span>Current stage</span>
+          <strong>Build the collection intake</strong>
+          <small>Add images, add the collection package, review, then create the collection.</small>
+        </div>
+      </div>
+    </section>
+
     {% if error %}<div class="alert alert-danger"><strong>Import stopped.</strong> {{ error }}</div>{% endif %}
 
     <form method="post" action="/fast-flow/import" enctype="multipart/form-data" data-fast-flow-form data-long-operation>
@@ -23,7 +41,7 @@
         <div class="card-body p-4">
           <div class="fast-flow-section-heading">
             <div>
-              <div class="eyebrow">1. Approved artwork</div>
+              <div class="eyebrow">1. Add artwork images</div>
               <h2 class="h4 mb-1">Choose the approved artwork images</h2>
               <p class="text-secondary mb-0">Select all artwork images for this collection at once.</p>
             </div>
@@ -46,7 +64,7 @@
         <div class="card-body p-4">
           <div class="fast-flow-section-heading">
             <div>
-              <div class="eyebrow">2. Collection package</div>
+              <div class="eyebrow">2. Add collection package</div>
               <h2 class="h4 mb-1">Add the collection package from ChatGPT</h2>
               <p class="text-secondary mb-0">Add the collection details by pasting below or uploading the JSON file. ShangooliOS fills every collection and artwork field for you.</p>
             </div>
@@ -66,7 +84,7 @@
         <div class="card-body p-4">
           <div class="fast-flow-section-heading">
             <div>
-              <div class="eyebrow">3. Review and correct</div>
+              <div class="eyebrow">3. Review details</div>
               <h2 class="h4 mb-1">Collection information</h2>
               <p class="text-secondary mb-0">These values came from the collection package. Edit only if something needs correction.</p>
             </div>
@@ -105,7 +123,7 @@
       <section class="card app-card mb-3">
         <div class="card-body p-4">
           <div class="fast-flow-section-heading">
-            <div><div class="eyebrow">4. Final review</div><h2 class="h4 mb-1">Review the collection</h2></div>
+            <div><div class="eyebrow">4. Create collection</div><h2 class="h4 mb-1">Final review</h2></div>
             <span class="status-pill listing-status-draft" data-fast-flow-status>Waiting for images and collection package</span>
           </div>
           <div class="fast-flow-empty-preview mt-3" data-fast-flow-message>Add the artwork images and collection package to build the review.</div>

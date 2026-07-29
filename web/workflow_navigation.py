@@ -7,6 +7,7 @@ from web.publish_readiness import collection_publish_readiness
 
 
 STAGES = (
+    ("intake", "Intake"),
     ("production", "Produce"),
     ("review", "Review"),
     ("readiness", "Ready"),
@@ -53,6 +54,7 @@ def collection_workflow_navigation(collection_code, *, active_stage):
             break
 
     completion = {
+        "intake": bool(total),
         "production": production_complete,
         "review": review_complete,
         "readiness": readiness_complete,
@@ -60,6 +62,7 @@ def collection_workflow_navigation(collection_code, *, active_stage):
         "etsy": etsy_complete,
     }
     attention = {
+        "intake": not bool(total),
         "production": production_attention,
         "review": bool(latest_run and not review_complete),
         "readiness": bool(
@@ -74,6 +77,7 @@ def collection_workflow_navigation(collection_code, *, active_stage):
         "etsy": bool(printify_complete and not etsy_complete),
     }
     urls = {
+        "intake": "/fast-flow",
         "production": f"/collections/{collection['code']}/production",
         "review": f"/collections/{collection['code']}/review",
         "readiness": f"/collections/{collection['code']}/publish-readiness",

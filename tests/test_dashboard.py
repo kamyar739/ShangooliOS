@@ -363,7 +363,7 @@ class DashboardTests(unittest.TestCase):
 
         default_response = self.client.get("/collections")
         self.assertIn(
-            'class="collection-selector-card is-selected" href="/collections?collection=CEL"',
+            'class="collection-selector-card is-selected" href="/collections?collection=CEL#collection-workflow"',
             default_response.text,
         )
         self.assertIn("Celebration artwork", default_response.text)
@@ -374,7 +374,7 @@ class DashboardTests(unittest.TestCase):
         response = self.client.get("/collections?collection=CEL")
         self.assertEqual(response.status_code, 200)
         self.assertIn(
-            'class="collection-selector-card is-selected" href="/collections?collection=CEL"',
+            'class="collection-selector-card is-selected" href="/collections?collection=CEL#collection-workflow"',
             response.text,
         )
         self.assertIn('aria-label="Collection selector"', response.text)
@@ -455,7 +455,7 @@ class DashboardTests(unittest.TestCase):
 
         collection_page = self.client.get("/collections/CEL")
         self.assertIn('href="/collections?collection=CEL"', collection_page.text)
-        self.assertIn("All collections", collection_page.text)
+        self.assertIn("<span aria-hidden=\"true\">←</span> Collections", collection_page.text)
         self.assertIn("Empty artwork slot", collection_page.text)
         self.assertIn("CEL-003", collection_page.text)
         detail_grid = collection_page.text[

@@ -6,7 +6,10 @@
   <main class="workflow-stage-content workflow-compact">
     <div class="replacement-page-header">
       <div>
-        <a class="context-nav-link" href="/artworks/{{ artwork['artwork_code'] }}?step=source">← Back to artwork</a>
+        <div class="d-flex flex-wrap gap-3">
+          <a class="context-nav-link" href="/artworks/{{ artwork['artwork_code'] }}?step=source">← Back to artwork</a>
+          <a class="context-nav-link" href="/collections?collection={{ collection['code'] }}#collection-workflow">Collection workflow</a>
+        </div>
         <div class="eyebrow mt-3">Guided artwork update</div>
         <h1 class="display-6 fw-bold mb-1">Replace Artwork</h1>
         <p class="text-muted mb-0">{{ artwork['artwork_code'] }} · {{ artwork['public_title'] }} · {{ collection['name'] }}</p>

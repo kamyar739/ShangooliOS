@@ -9,10 +9,14 @@
 {% include "components/collection_sidebar.html" %}
 <main class="workflow-stage-content">
 <div class="mb-4">
-    <a href="/collections?collection={{ collection['code'] }}" class="context-nav-link"><span aria-hidden="true">←</span> All collections</a>
+    <a href="/collections?collection={{ collection['code'] }}" class="context-nav-link"><span aria-hidden="true">←</span> Collections</a>
 </div>
 
-<div class="page-header mb-5">
+<div id="collection-workflow">
+{% include "components/workflow_progress.html" %}
+</div>
+
+<div class="page-header mb-4">
     <div>
         <div class="eyebrow">{{ collection["code"] }}</div>
         <h1 class="display-6 fw-bold mb-2">{{ collection["name"] }}</h1>
@@ -26,11 +30,8 @@
         <a href="/collections/{{ collection['code'] }}/replacement-restart" class="btn btn-outline-danger">
             Replace Artwork & Restart
         </a>
-        <a href="/collections/{{ collection['code'] }}/production" class="btn btn-primary">
-            Produce Collection
-        </a>
-        <a href="/collections/{{ collection['code'] }}/review" class="btn btn-success">
-            Review Collection
+        <a href="{{ workflow_navigation['next_action']['url'] }}" class="btn btn-primary">
+            {{ workflow_navigation['next_action']['label'] }} →
         </a>
         <a
             href="/collections/{{ collection['code'] }}/edit"

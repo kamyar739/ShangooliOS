@@ -1,6 +1,7 @@
 <nav class="primary-navigation" aria-label="Primary navigation">
   <a href="/" class="{% if primary_nav_active == 'dashboard' %}is-active{% endif %}"><span>⌂</span>Dashboard</a>
-  <a href="/collections" class="{% if primary_nav_active == 'collections' %}is-active{% endif %}"><span>▦</span>Collections</a>
+  {% set collection_context_code = collection['code'] if collection is defined and collection else artwork['collection_code'] if artwork is defined and artwork else '' %}
+  <a href="/collections{% if collection_context_code %}?collection={{ collection_context_code }}{% endif %}" class="{% if primary_nav_active == 'collections' %}is-active{% endif %}"><span>▦</span>Collections</a>
   <a href="/fast-flow" class="{% if primary_nav_active == 'fast_flow' %}is-active{% endif %}"><span>⇥</span>Fast Flow</a>
   <a href="/listings" class="{% if primary_nav_active == 'listings' %}is-active{% endif %}"><span>☷</span>Listings</a>
   <a href="/mockup-studio" class="{% if primary_nav_active == 'mockup_studio' %}is-active{% endif %}"><span>▣</span>Mockup Studio</a>

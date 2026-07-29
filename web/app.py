@@ -746,6 +746,9 @@ def collections_page(
         context["selected_collection"]["etsy_paused_listing_count"] = sum(
             1 for listing in collection_listings if listing["etsy_paused_at"]
         )
+        context["workflow_navigation"] = collection_workflow_navigation(
+            normalized_code, active_stage=""
+        )
     return templates.TemplateResponse(
         request=request,
         name="collections_index.html",
@@ -2112,6 +2115,9 @@ def collection_page(request: Request, collection_code: str):
             "artworks": artworks,
             "collection_sequence": build_collection_sequence(collection, artworks),
             "archived_artworks": archived_artworks,
+            "workflow_navigation": collection_workflow_navigation(
+                collection_code, active_stage=""
+            ),
         },
     )
 

@@ -23,8 +23,8 @@
   </article>
   {% endfor %}
   <div class="d-flex gap-2 mt-4">
-    <a class="btn btn-primary" href="/collections/{{ collection['code'] }}/publish/recover">Check Etsy Status</a>
-    <a class="btn btn-outline-secondary" href="/collections/{{ collection['code'] }}/publish">Return to Publication Review</a>
+    <a class="btn btn-primary" href="{{ workflow_navigation['next_action']['url'] }}">{{ workflow_navigation['next_action']['label'] }} →</a>
+    <a class="btn btn-outline-secondary" href="/collections/{{ collection['code'] }}/publish">Publication review</a>
   </div>
 </main>
 </div>
