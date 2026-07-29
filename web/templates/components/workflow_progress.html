@@ -4,9 +4,12 @@
     {% for stage in workflow_navigation['stages'] %}
     <a class="guided-workflow-stage is-{{ stage['state'] }}{% if stage['active'] %} is-active{% endif %}"
        href="{{ stage['url'] }}"
-       {% if stage['active'] %}aria-current="step"{% endif %}>
+      {% if stage['active'] %}aria-current="step"{% endif %}>
       <span class="guided-workflow-marker">{% if stage['state'] == 'complete' %}✓{% elif stage['state'] == 'attention' %}!{% else %}{{ loop.index }}{% endif %}</span>
-      <span>{{ stage['label'] }}</span>
+      <span class="guided-workflow-stage-copy">
+        <strong>{{ stage['label'] }}</strong>
+        <small>{{ stage['status_label'] }}</small>
+      </span>
     </a>
     {% endfor %}
   </div>

@@ -1545,18 +1545,8 @@ body.is-waiting {
 }
 
 .collection-gallery-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.9rem; }
-.collection-gallery-controls { display: flex; gap: 0.45rem; }
-.collection-gallery-controls button { width: 36px; height: 36px; border: 1px solid var(--app-border, #e4e1da); border-radius: 50%; background: #fff; color: var(--brand-purple); }
-.collection-gallery-track { display: flex; gap: 0.5rem; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin; padding-bottom: 0.3rem; }
-.collection-gallery-slide { flex: 0 0 92px; scroll-snap-align: start; color: inherit; text-decoration: none; }
-.collection-gallery-image { display: grid; height: 58px; place-items: center; overflow: hidden; border-radius: 0.5rem; background: #eef0f5; color: var(--muted); }
-.collection-gallery-image img { width: 100%; height: 100%; object-fit: contain; transition: transform 180ms ease; }
 .artwork-back-row { align-items: center; display: flex; justify-content: space-between; gap: 1rem; }
 .artwork-sibling-nav { display: flex; gap: 0.75rem; margin-left: auto; }
-.collection-gallery-slide:hover .collection-gallery-image img { transform: scale(1.025); }
-.collection-gallery-caption { display: grid; gap: 0.25rem; padding-top: 0.45rem; }
-.collection-gallery-caption .code-pill { justify-self: start; font-size: 0.6rem; }
-.collection-gallery-caption strong { font-size: 0.7rem; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .collection-cover-panel { background: #f8f6ff; border: 1px solid #e0dcf4; border-radius: .7rem; margin-bottom: .7rem; padding: .55rem .7rem; }
 .collection-cover-panel > summary { align-items: center; cursor: pointer; display: flex; font-size: .78rem; font-weight: 750; justify-content: space-between; list-style: none; }
 .collection-cover-panel > summary::-webkit-details-marker { display: none; }
@@ -5153,6 +5143,31 @@ body.is-waiting {
     font-size: .82rem;
     font-weight: 700;
     text-decoration: none;
+}
+
+.guided-workflow-stage-copy {
+    display: grid;
+    line-height: 1.05;
+    min-width: 0;
+}
+
+.guided-workflow-stage-copy strong {
+    font-size: .78rem;
+}
+
+.guided-workflow-stage-copy small {
+    color: #858a98;
+    font-size: .58rem;
+    font-weight: 600;
+    margin-top: .18rem;
+}
+
+.guided-workflow-stage.is-complete .guided-workflow-stage-copy small {
+    color: #4d8767;
+}
+
+.guided-workflow-stage.is-attention .guided-workflow-stage-copy small {
+    color: #9a6815;
 }
 
 .guided-workflow-stage:hover {

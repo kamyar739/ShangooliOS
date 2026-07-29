@@ -2243,8 +2243,16 @@ def retry_collection_production_post(collection_code: str):
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    _, items, _ = collection_production_overview(collection_code)
+    destination = (
+        f"/collections/{collection_code.upper()}/production?retried=1"
+        if any(
+            item["overall_status"] in {"blocked", "failed"} for item in items
+        )
+        else f"/collections/{collection_code.upper()}/review?production_complete=1"
+    )
     return RedirectResponse(
-        url=f"/collections/{collection_code.upper()}/production?retried=1",
+        url=destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2277,8 +2285,16 @@ def approve_collection_artwork_post(collection_code: str, artwork_code: str):
         approve_artwork_for_collection(collection_code, artwork_code)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    _, _, review_complete = collection_review_overview(collection_code)
+    destination = (
+        f"/collections/{collection_code.upper()}/publish-readiness"
+        "?review_complete=1"
+        if review_complete
+        else f"/collections/{collection_code.upper()}/review"
+        f"?approved={artwork_code.upper()}"
+    )
     return RedirectResponse(
-        f"/collections/{collection_code.upper()}/review?approved={artwork_code.upper()}",
+        destination,
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

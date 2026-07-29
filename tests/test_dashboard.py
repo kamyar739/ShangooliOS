@@ -431,7 +431,7 @@ class DashboardTests(unittest.TestCase):
 
         default_response = self.client.get("/collections")
         self.assertIn(
-            'class="collection-selector-card is-selected" href="/collections?collection=CEL#collection-workflow"',
+            'class="collection-selector-card is-selected" href="/collections?collection=CEL"',
             default_response.text,
         )
         self.assertIn("Celebration artwork", default_response.text)
@@ -442,7 +442,7 @@ class DashboardTests(unittest.TestCase):
         response = self.client.get("/collections?collection=CEL")
         self.assertEqual(response.status_code, 200)
         self.assertIn(
-            'class="collection-selector-card is-selected" href="/collections?collection=CEL#collection-workflow"',
+            'class="collection-selector-card is-selected" href="/collections?collection=CEL"',
             response.text,
         )
         self.assertIn('aria-label="Collection selector"', response.text)
@@ -455,8 +455,8 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertIn("Unbound", response.text)
         self.assertIn('class="collection-gallery', response.text)
-        self.assertIn('data-collection-gallery', response.text)
-        self.assertIn('data-gallery-next', response.text)
+        self.assertNotIn('data-collection-gallery', response.text)
+        self.assertNotIn('data-gallery-next', response.text)
         self.assertIn('data-bs-target="#edit-collection-modal"', response.text)
         self.assertIn('data-bs-target="#new-artwork-modal"', response.text)
         self.assertIn('id="edit-collection-modal"', response.text)
@@ -492,9 +492,11 @@ class DashboardTests(unittest.TestCase):
             )
             connection.commit()
         ordered = self.client.get("/collections?collection=CEL").text
-        gallery = ordered[ordered.index('data-collection-gallery'):ordered.index('</section>', ordered.index('data-collection-gallery'))]
-        self.assertLess(gallery.index("CEL-001"), gallery.index("CEL-002"))
-        self.assertLess(gallery.index("CEL-002"), gallery.index("CEL-010"))
+        artwork_grid = ordered[
+            ordered.index('class="row g-3 dashboard-recent-grid"'):
+        ]
+        self.assertLess(artwork_grid.index("CEL-001"), artwork_grid.index("CEL-002"))
+        self.assertLess(artwork_grid.index("CEL-002"), artwork_grid.index("CEL-010"))
 
         status_change = self.client.post(
             "/artworks/CEL-001/status",

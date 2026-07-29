@@ -38,7 +38,7 @@
       </div>
       <div class="collection-selector-gallery" data-collection-selector tabindex="0">
         {% for collection in collections %}
-        <a class="collection-selector-card {% if selected_collection['code'] == collection['code'] %}is-selected{% endif %}" href="/collections?collection={{ collection['code'] }}#collection-workflow">
+        <a class="collection-selector-card {% if selected_collection['code'] == collection['code'] %}is-selected{% endif %}" href="/collections?collection={{ collection['code'] }}">
           <span class="collection-selector-cover">{% if collection['cover_image_path'] %}<img src="/collections/{{ collection['code'] }}/cover" alt="{{ collection['name'] }} cover">{% elif collection['representative_artwork_code'] %}<img src="/artworks/{{ collection['representative_artwork_code'] }}/files/view?role=source" alt="{{ collection['name'] }} representative artwork">{% else %}<span>{{ collection['code'] }}</span>{% endif %}</span>
           <span class="collection-selector-copy">
             <span class="collection-selector-meta"><span class="code-pill">{{ collection['code'] }}</span><small class="collection-status-label is-{{ collection['display_status_class'] }}">{{ collection['display_status'] }}</small></span>
@@ -72,7 +72,6 @@
     <section class="collection-gallery mb-4" aria-labelledby="collection-gallery-title">
       <div class="collection-gallery-heading">
         <div><div class="eyebrow">Selected collection · {{ selected_collection['code'] }}</div><h2 class="h4 mb-1" id="collection-gallery-title">{{ selected_collection['name'] }}</h2></div>
-        <div class="collection-gallery-controls"><button type="button" data-gallery-previous aria-label="Previous artwork">←</button><button type="button" data-gallery-next aria-label="Next artwork">→</button></div>
       </div>
       <details class="collection-cover-panel">
         <summary><span>Collection identity</span><small>{% if selected_collection['cover_approved'] %}Approved cover{% elif selected_collection['cover_image_path'] %}Cover needs approval{% else %}Add signature cover{% endif %}</small></summary>
@@ -84,14 +83,6 @@
         </div>
         </div>
       </details>
-      <div class="collection-gallery-track" data-collection-gallery tabindex="0">
-        {% for artwork in collection_artworks %}
-        <a class="collection-gallery-slide" href="/artworks/{{ artwork['artwork_code'] }}">
-          <span class="collection-gallery-image">{% if artwork['has_source_image'] %}<img src="/artworks/{{ artwork['artwork_code'] }}/files/view?role=source" alt="{{ artwork['public_title'] }}" {% if not loop.first %}loading="lazy"{% endif %}>{% else %}<span>No artwork uploaded</span>{% endif %}</span>
-          <span class="collection-gallery-caption"><span class="code-pill">{{ artwork['artwork_code'] }}</span><strong>{{ artwork['public_title'] }}</strong></span>
-        </a>
-        {% else %}<div class="empty-state w-100">No artwork in this collection yet.</div>{% endfor %}
-      </div>
     </section>
     {% endif %}
     <div class="dashboard-workspace-heading mb-3">
@@ -249,13 +240,6 @@
 {% include "components/collection_order_script.html" %}
 <script>
 (() => {
-  const track = document.querySelector('[data-collection-gallery]');
-  if (track) {
-    const move = direction => track.scrollBy({left: direction * Math.max(280, track.clientWidth * 0.72), behavior: 'smooth'});
-    document.querySelector('[data-gallery-previous]')?.addEventListener('click', () => move(-1));
-    document.querySelector('[data-gallery-next]')?.addEventListener('click', () => move(1));
-  }
-
   const collectionTrack = document.querySelector('[data-collection-selector]');
   if (collectionTrack) {
     const moveCollections = direction => collectionTrack.scrollBy({

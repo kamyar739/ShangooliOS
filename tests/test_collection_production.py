@@ -24,6 +24,7 @@ from web.mockup_tasks import (
     regenerate_collection_branding_card,
 )
 from web.production_tasks import ensure_source_certification, regenerate_ratio_set
+from web.workflow_navigation import collection_workflow_navigation
 
 
 class CollectionProductionTests(unittest.TestCase):
@@ -189,6 +190,85 @@ class CollectionProductionTests(unittest.TestCase):
             )
             self.assertIn('aria-current="step"', response.text)
             self.assertIn(current_label, response.text)
+            self.assertIn("Collection imported", response.text)
+
+    def test_legacy_completed_collection_marks_production_complete_without_run(self):
+        for artwork_code in ("DUE-001", "DUE-002"):
+            self._make_review_ready(artwork_code)
+            db.set_artwork_production_flags(
+                artwork_code,
+                ratio_exports_ready=True,
+                mockups_ready=True,
+            )
+            db.create_listing(
+                artwork_code,
+                marketplace="Etsy",
+                product="Poster",
+                title=f"{artwork_code} poster",
+                description="Prepared listing",
+                tags="flamenco, art",
+                price_cents=2900,
+                status="draft",
+            )
+
+        self.assertIsNone(db.get_collection_production_run("DUE"))
+        navigation = collection_workflow_navigation("DUE", active_stage="")
+        production_stage = next(
+            stage for stage in navigation["stages"]
+            if stage["key"] == "production"
+        )
+
+        self.assertEqual(production_stage["state"], "complete")
+        self.assertEqual(
+            navigation["next_action"]["label"],
+            "Review generated files",
+        )
+        self.assertEqual(
+            production_stage["status_label"],
+            "Locally prepared",
+        )
+
+    @patch("web.app.run_collection_production")
+    def test_successful_production_retry_advances_to_collection_review(self, run):
+        for artwork_code in ("DUE-001", "DUE-002"):
+            self._make_review_ready(artwork_code)
+            db.set_artwork_production_flags(
+                artwork_code,
+                ratio_exports_ready=True,
+                mockups_ready=True,
+            )
+
+        response = self.client.post(
+            "/collections/DUE/production/retry",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            "/collections/DUE/review?production_complete=1",
+        )
+        run.assert_called_once_with(
+            "DUE",
+            source_approval_confirmed=True,
+            retry_failed=True,
+        )
+
+    def test_final_individual_approval_advances_to_publish_readiness(self):
+        for artwork_code in ("DUE-001", "DUE-002"):
+            self._make_review_ready(artwork_code)
+        approve_artwork_for_collection("DUE", "DUE-001")
+
+        response = self.client.post(
+            "/collections/DUE/review/DUE-002/approve",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            "/collections/DUE/publish-readiness?review_complete=1",
+        )
 
     def test_new_imported_collection_without_production_run_is_visible(self):
         with db.get_connection() as connection:
@@ -224,7 +304,7 @@ class CollectionProductionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("New Imported Collection", response.text)
         self.assertIn(
-            'href="/collections?collection=NEW#collection-workflow"',
+            'href="/collections?collection=NEW"',
             response.text,
         )
 

@@ -15,6 +15,15 @@ STAGES = (
     ("etsy", "Etsy"),
 )
 
+COMPLETED_STAGE_LABELS = {
+    "intake": "Collection imported",
+    "production": "Locally prepared",
+    "review": "Files approved",
+    "readiness": "Approved to publish",
+    "printify": "Printify products created",
+    "etsy": "Linked to Etsy",
+}
+
 
 def collection_workflow_navigation(collection_code, *, active_stage):
     """Describe workflow progress without owning any workflow behavior."""
@@ -34,7 +43,22 @@ def collection_workflow_navigation(collection_code, *, active_stage):
             for item in production_items
         )
     )
-    production_complete = bool(latest_run and not production_attention)
+    required_live_states = (
+        "source_status",
+        "certification_status",
+        "print_master_status",
+        "ratio_status",
+        "mockup_status",
+        "metadata_status",
+        "listing_status",
+    )
+    live_production_complete = bool(production_items) and all(
+        all(item[state] == "complete" for state in required_live_states)
+        for item in production_items
+    )
+    production_complete = live_production_complete or bool(
+        latest_run and not production_attention
+    )
     printify_complete = bool(
         total
         and counts["printify_linked"] + counts["etsy_linked"] == total
@@ -85,7 +109,7 @@ def collection_workflow_navigation(collection_code, *, active_stage):
         "etsy": f"/collections/{collection['code']}/publish",
     }
 
-    if not latest_run:
+    if not latest_run and not production_complete:
         next_action = {
             "label": "Run safe production",
             "description": (
@@ -150,6 +174,10 @@ def collection_workflow_navigation(collection_code, *, active_stage):
             "url": f"/collections?collection={collection['code']}",
         }
 
+    next_stage_key = next(
+        (key for key, _ in STAGES if not completion[key]),
+        None,
+    )
     stages = []
     for key, label in STAGES:
         if completion[key]:
@@ -158,11 +186,20 @@ def collection_workflow_navigation(collection_code, *, active_stage):
             state = "attention"
         else:
             state = "upcoming"
+        if state == "complete":
+            status_label = COMPLETED_STAGE_LABELS[key]
+        elif state == "attention":
+            status_label = "Needs attention"
+        elif key == next_stage_key:
+            status_label = "Next step"
+        else:
+            status_label = "Not started"
         stages.append({
             "key": key,
             "label": label,
             "url": urls[key],
             "state": state,
+            "status_label": status_label,
             "active": key == active_stage,
         })
     current_stage = next(
