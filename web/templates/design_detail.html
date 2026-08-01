@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}{{ design["name"] }} — Designs{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <a class="workflow-back-link mb-3" href="/designs">← All Designs</a>
+    {% if request.query_params.get("created") %}<div class="alert alert-success">Design saved. Review it, then prepare the mug.</div>{% endif %}
+    {% if request.query_params.get("saved") %}<div class="alert alert-success">Design details saved.</div>{% endif %}
+    {% if request.query_params.get("restored") %}<div class="alert alert-success">Design restored.</div>{% endif %}
+    {% if request.query_params.get("replaced") %}<div class="alert alert-success">Corrected graphic saved. The previous local file was preserved.{% if background_cleanup_available %} Review the transparent version below before updating Printify.{% elif design["printify_product_id"] %} Update the existing Printify draft from the Mug page next.{% endif %}</div>{% endif %}
+    {% if request.query_params.get("background_removed") %}<div class="alert alert-success">Solid background removed. The original local image was preserved.</div>{% endif %}
+    {% if request.query_params.get("marketplace_status") == "linked" %}<div class="alert alert-success">Etsy status refreshed and the listing link was saved.</div>{% elif request.query_params.get("marketplace_status") == "waiting" %}<div class="alert alert-warning">Printify has not reported the Etsy listing yet. Wait briefly, then check again—or paste the Etsy listing URL below.</div>{% endif %}
+    {% if request.query_params.get("etsy_paused") %}<div class="alert alert-success">Etsy sales paused.</div>{% elif request.query_params.get("etsy_reactivated") %}<div class="alert alert-success">Etsy sales reactivated.</div>{% endif %}
+    {% if request.query_params.get("marketplace_error") %}<div class="alert alert-danger">{{ request.query_params.get("marketplace_error") }}</div>{% endif %}
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Standalone design</div>
+        <h1 class="display-6 fw-bold">{{ design["name"] }}</h1>
+        <p class="text-muted mb-0">{% if design["printify_product_id"] %}Mug draft created in Printify.{% else %}Ready to adapt to a product.{% endif %}</p>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        {% if design["etsy_listing_url"] %}<a class="btn btn-outline-success" href="{{ design['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>{% endif %}
+        {% if design["etsy_listing_id"] %}
+        <a class="btn btn-outline-warning" href="/designs/{{ design['id'] }}/etsy">Sync Etsy details</a>
+        {% elif design["printify_product_id"] %}
+        <form method="post" action="/designs/{{ design['id'] }}/etsy/finish" data-long-operation data-wait-stages="Checking Printify|Looking for the Etsy listing">
+          <button class="btn btn-outline-warning" type="submit">Finish Etsy Setup</button>
+        </form>
+        {% endif %}
+        <a class="btn btn-primary" href="/designs/{{ design['id'] }}/mug">
+          {% if design["printify_product_id"] %}Review Mug{% else %}Create Mug{% endif %}
+        </a>
+      </div>
+    </div>
+
+    {% if background_cleanup_available %}
+    <section class="section-card design-background-cleanup mb-4">
+      <div class="design-background-cleanup-heading">
+        <div><div class="eyebrow">Background detected</div><h2 class="h4 mb-1">Remove the solid background?</h2><p class="text-muted mb-0">ShangooliOS found a uniform light background around the design. Review the transparent preview before continuing.</p></div>
+      </div>
+      <div class="design-background-comparison">
+        <figure><img src="/designs/{{ design['id'] }}/image?v={{ design['source_filename'] }}" alt="Current graphic"><figcaption>Current upload</figcaption></figure>
+        <figure class="transparency-grid"><img src="/designs/{{ design['id'] }}/background-preview?v={{ design['source_filename'] }}" alt="Transparent preview"><figcaption>Transparent preview</figcaption></figure>
+      </div>
+      <form method="post" action="/designs/{{ design['id'] }}/remove-background" data-long-operation data-wait-stages="Removing solid background|Saving transparent graphic">
+        <input type="hidden" name="confirmed" value="true">
+        <button class="btn btn-primary" type="submit">Use transparent version</button>
+      </form>
+      <small class="text-muted">The current file remains on disk and no Printify product is changed until you explicitly update it.</small>
+    </section>
+    {% endif %}
+
+    <div class="design-detail-grid">
+      <section class="design-source-card">
+        <img src="/designs/{{ design['id'] }}/image?v={{ design['source_filename'] }}" alt="{{ design['name'] }}">
+        <div><strong>Approved graphic</strong><small>{{ design["image_width"] }} × {{ design["image_height"] }} px · {{ design["source_original_filename"] }}</small></div>
+        <details class="design-replace-panel">
+          <summary>Replace design graphic</summary>
+          <p class="small text-muted">Use this for a corrected version of the same design. Details and the existing Printify product link are preserved.</p>
+          <form method="post" action="/designs/{{ design['id'] }}/replace-image" enctype="multipart/form-data" data-long-operation data-wait-stages="Uploading corrected graphic|Saving replacement">
+            <input class="form-control mb-2" id="replacement-design-image" name="image" type="file" accept="image/png" required>
+            <label class="form-label small" for="replacement-design-message">New exact message <span class="text-muted">(only if the words changed)</span></label>
+            <textarea class="form-control mb-2" id="replacement-design-message" name="replacement_message" rows="2" placeholder="{{ design['message'] or 'Leave blank to preserve the current wording and details' }}"></textarea>
+            <div class="form-text mb-2">When entered, ShangooliOS updates the design name, description, tags, and saved mug copy. Leave it blank for an image-only correction.</div>
+            <div class="design-replacement-feedback" id="design-replacement-feedback" hidden>
+              <img id="design-replacement-preview" alt="Selected replacement preview">
+              <div><strong id="design-replacement-name"></strong><small>Selected locally—not uploaded yet.</small></div>
+            </div>
+            <button class="btn btn-outline-primary btn-sm" id="upload-replacement-design" type="submit" disabled>Upload and replace graphic</button>
+          </form>
+        </details>
+      </section>
+      <form class="section-card compact-section-card" method="post" action="/designs/{{ design['id'] }}">
+        <div class="eyebrow">Design details</div>
+        <div class="mb-3"><label class="form-label">Name</label><textarea class="form-control" name="name" rows="2" required>{{ design["name"] }}</textarea></div>
+        <div class="mb-3"><label class="form-label">Message</label><textarea class="form-control" name="message" rows="3">{{ design["message"] or "" }}</textarea></div>
+        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="9">{{ design["description"] or "" }}</textarea></div>
+        <div class="mb-3"><label class="form-label">Tags</label><textarea class="form-control" name="tags" rows="5">{{ design["tags"] or "" }}</textarea></div>
+        <div class="text-end"><button class="btn btn-primary" type="submit">Save Details</button></div>
+      </form>
+    </div>
+    <section class="section-card compact-section-card mt-4">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+        <div><div class="eyebrow">Products</div><h2 class="h4 mb-1">Create from this design</h2><p class="text-muted mb-0">Each mug keeps its own setup, price, Printify product, and marketplace state.</p></div>
+      </div>
+      <div class="design-product-options">
+        {% for option in product_options %}
+        {% set product = option["product"] %}
+        <article class="design-product-option" id="product-{{ option['key'] }}">
+          <div class="design-product-option-summary">
+            <strong>{{ option["label"] }}</strong>
+            <small>{{ option["provider_name"] }} · {{ option["variant_title"] }}</small>
+          </div>
+          <div class="design-product-option-status">
+            {% if product and product["etsy_listing_id"] %}<span class="status-badge live">Live / linked</span>
+            {% elif product and product["printify_product_id"] %}<span class="status-badge ready">On Printify</span>
+            {% elif product %}<span class="status-badge draft">Setup saved</span>
+            {% else %}<span class="status-badge draft">Not created</span>{% endif %}
+            <a class="btn btn-outline-primary btn-sm" href="{% if option['key'] == 'mug_11oz' %}/designs/{{ design['id'] }}/mug{% else %}/designs/{{ design['id'] }}/products/{{ option['key'] }}{% endif %}">{% if product %}Review{% else %}Create{% endif %}</a>
+          </div>
+          {% if product and product["printify_product_id"] %}
+          <div class="design-product-actions">
+            <form method="post" action="/designs/{{ design['id'] }}/marketplace/check" class="design-status-form">
+              <input type="hidden" name="product_key" value="{{ option['key'] }}">
+              <input class="form-control form-control-sm" name="etsy_listing" value="" placeholder="Optional Etsy listing URL or ID">
+              <button class="btn btn-outline-primary btn-sm" type="submit">Check status</button>
+            </form>
+            {% if product["etsy_listing_id"] %}
+              {% if product["etsy_paused_at"] or product["etsy_state"] != "active" %}
+              <form method="post" action="/designs/{{ design['id'] }}/etsy/reactivate">
+                <input type="hidden" name="product_key" value="{{ option['key'] }}">
+                <input type="hidden" name="confirmed" value="true">
+                <button class="btn btn-outline-success btn-sm" type="submit" onclick="return confirm('Reactivate Etsy sales for {{ option['label'] }}? Etsy may charge its normal renewal fee.')">Reactivate Etsy sales</button>
+              </form>
+              {% else %}
+              <form method="post" action="/designs/{{ design['id'] }}/etsy/pause">
+                <input type="hidden" name="product_key" value="{{ option['key'] }}">
+                <input type="hidden" name="confirmed" value="true">
+                <button class="btn btn-outline-warning btn-sm" type="submit" onclick="return confirm('Pause Etsy sales for {{ option['label'] }}? The listing will become unavailable for purchase.')">Pause Etsy sales</button>
+              </form>
+              {% endif %}
+            {% endif %}
+          </div>
+          {% if product["external_message"] %}<p class="design-product-message">{{ product["external_message"] }}</p>{% endif %}
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    <section class="section-card compact-section-card mt-4 design-operations-card">
+      <div><div class="eyebrow">Design management</div><h2 class="h4 mb-1">Archive this design</h2><p class="text-muted mb-0">This hides the design in ShangooliOS. Its Printify and Etsy products remain unchanged.</p></div>
+      <div class="design-operation-actions">
+        {% if design["status"] == "archived" %}
+        <form method="post" action="/designs/{{ design['id'] }}/restore"><button class="btn btn-outline-secondary btn-sm" type="submit">Restore design</button></form>
+        {% else %}
+        <form method="post" action="/designs/{{ design['id'] }}/archive">
+          <input type="hidden" name="confirmed" value="true">
+          <button class="btn btn-outline-danger btn-sm" type="submit" onclick="return confirm('Archive this design? External products remain unchanged.')">Archive design</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+(() => {
+  const input = document.getElementById("replacement-design-image");
+  const feedback = document.getElementById("design-replacement-feedback");
+  const preview = document.getElementById("design-replacement-preview");
+  const name = document.getElementById("design-replacement-name");
+  const button = document.getElementById("upload-replacement-design");
+  if (!input || !feedback || !preview || !name || !button) return;
+  input.addEventListener("change", () => {
+    const [file] = input.files;
+    feedback.hidden = !file;
+    button.disabled = !file;
+    if (!file) return;
+    preview.src = URL.createObjectURL(file);
+    name.textContent = file.name;
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Sync {{ design["name"] }} to Etsy — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <a class="workflow-back-link mb-3" href="/designs/{{ design['id'] }}">← Back to Design</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Etsy details</div>
+        <h1 class="display-6 fw-bold">Sync Etsy Details</h1>
+        <p class="text-muted mb-0">{{ design["name"] }} · Review the saved copy before updating Etsy.</p>
+      </div>
+      {% if design["etsy_listing_url"] %}<a class="btn btn-outline-success" href="{{ design['etsy_listing_url'] }}" target="_blank" rel="noopener">Open Etsy ↗</a>{% endif %}
+    </div>
+
+    {% if request.query_params.get("linked") %}<div class="alert alert-success">Etsy listing found and linked. Review the changes below, then confirm the final details sync.</div>{% endif %}
+    {% if request.query_params.get("synced") %}<div class="alert alert-success">Etsy title, description, and tags synchronized successfully.</div>{% endif %}
+    {% if request.query_params.get("etsy_sync_error") %}<div class="alert alert-danger">{{ request.query_params.get("etsy_sync_error") }}</div>{% endif %}
+    {% if error %}<div class="alert alert-warning">{{ error }}</div>{% endif %}
+
+    <section class="section-card compact-section-card mb-4">
+      <div class="eyebrow">Readiness</div>
+      <div class="d-flex flex-wrap gap-2 mt-2">
+        {% for check in checks %}
+        <span class="status-pill {{ 'status-success' if check['passed'] else 'status-warning' }}">{{ '✓' if check['passed'] else '!' }} {{ check['label'] }}</span>
+        {% endfor %}
+      </div>
+      {% for check in checks %}{% if not check["passed"] %}<p class="small text-danger mb-0 mt-2">{{ check["detail"] }}</p>{% endif %}{% endfor %}
+    </section>
+
+    {% if remote %}
+    <section class="section-card compact-section-card mb-4">
+      <div class="eyebrow">Review changes</div>
+      <h2 class="h4">Current Etsy listing</h2>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th>Field</th><th>Currently on Etsy</th><th>After sync</th></tr></thead>
+          <tbody>
+            {% for change in changes %}
+            <tr class="{{ 'table-warning' if change['changed'] else '' }}">
+              <th>{{ change["label"] }}</th>
+              <td><div class="design-etsy-copy">{{ change["before"] or "—" }}</div></td>
+              <td><div class="design-etsy-copy">{{ change["after"] or "—" }}</div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="final-confirmation-card">
+      <div>
+        <div class="eyebrow">Final confirmation</div>
+        <h2 class="h4">Update this Etsy listing?</h2>
+        <p class="mb-0 text-muted">This updates only its title, description, and tags. Printify fulfillment, artwork, price, variants, inventory, and mockups remain unchanged.</p>
+      </div>
+      <form method="post" action="/designs/{{ design['id'] }}/etsy/sync">
+        <input type="hidden" name="product_key" value="{{ product_key }}">
+        <label class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" name="confirmed" value="true" required>
+          <span class="form-check-label">I reviewed the Etsy details and want to update this listing.</span>
+        </label>
+        <button class="btn btn-warning" type="submit" {% if not ready %}disabled{% endif %} onclick="return confirm('Update the Etsy title, description, and tags now?')">Sync Etsy Details</button>
+      </form>
+    </section>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

@@ -177,3 +177,17 @@ Add a compact workflow for correcting one or more listing images:
 - Review and approve the complete ordered gallery.
 - Synchronize only the approved Etsy images when a linked listing is stale.
 - Preserve the source, print files, writing, price, variants, Printify product, and Etsy live or paused state.
+
+## Pinterest Publishing Package
+
+Add a compact Pinterest package to each standalone design so creating a Pin requires minimal rewriting or lookup. Generate editable, copy-ready values from the existing design and Etsy listing data:
+
+- SEO-focused Pin title.
+- Natural, keyword-rich Pin description.
+- Direct Etsy product link.
+- Suggested Pinterest board and controlled topics.
+- Accessible image alt text.
+- Search-friendly image filename.
+- Individual copy buttons for each value.
+
+Keep Pinterest posting manual initially. Do not introduce Pinterest API publishing until the package workflow has been used and validated with real Pins.

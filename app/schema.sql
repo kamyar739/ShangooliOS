@@ -99,3 +99,57 @@ ON listings(artwork_id);
 
 CREATE INDEX IF NOT EXISTS idx_listings_status
 ON listings(status);
+
+CREATE TABLE IF NOT EXISTS standalone_designs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    message TEXT,
+    description TEXT,
+    tags TEXT,
+    source_filename TEXT NOT NULL,
+    source_original_filename TEXT,
+    image_width INTEGER,
+    image_height INTEGER,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS standalone_design_products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    design_id INTEGER NOT NULL,
+    product_type TEXT NOT NULL DEFAULT 'mug_11oz',
+    blueprint_version INTEGER NOT NULL DEFAULT 1,
+    title TEXT NOT NULL,
+    description TEXT,
+    price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+    blueprint_id INTEGER NOT NULL,
+    provider_id INTEGER NOT NULL,
+    provider_name TEXT NOT NULL,
+    variant_id INTEGER NOT NULL,
+    variant_title TEXT NOT NULL,
+    placement_x REAL NOT NULL DEFAULT 0.5,
+    placement_y REAL NOT NULL DEFAULT 0.5,
+    placement_scale REAL NOT NULL DEFAULT 0.45,
+    placement_mode TEXT NOT NULL DEFAULT 'front',
+    opposite_source_filename TEXT,
+    production_asset_filename TEXT,
+    printify_product_id TEXT,
+    printify_product_url TEXT,
+    printify_base_cost_cents INTEGER,
+    external_state TEXT NOT NULL DEFAULT 'not_sent',
+    external_message TEXT,
+    etsy_listing_id TEXT,
+    etsy_listing_url TEXT,
+    etsy_state TEXT,
+    etsy_paused_at TEXT,
+    marketplace_checked_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (design_id) REFERENCES standalone_designs(id) ON DELETE CASCADE,
+    UNIQUE (design_id, product_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_standalone_design_products_design
+ON standalone_design_products(design_id);

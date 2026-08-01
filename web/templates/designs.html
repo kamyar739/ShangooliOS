@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Designs — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Standalone creations</div>
+        <h1 class="display-6 fw-bold">Designs</h1>
+        <p class="text-muted mb-0">Message-driven graphics for mugs and future products.</p>
+      </div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% if show_archived %}/designs{% else %}/designs?show=archived{% endif %}">{% if show_archived %}Show current{% else %}Archived designs{% endif %}</a>
+        {% if not show_archived %}<a class="btn btn-outline-primary" href="/designs/new">Upload finished design</a><a class="btn btn-primary" href="/designs/quick-text">+ Quick text design</a>{% endif %}
+      </div>
+    </div>
+    {% if request.query_params.get("archived") %}<div class="alert alert-success">Design archived. Its local and external product history was preserved.</div>{% endif %}
+
+    <section class="design-catalog-toolbar mb-3">
+      <form method="get" action="/designs" class="design-catalog-filters">
+        {% if show_archived %}<input type="hidden" name="show" value="archived">{% endif %}
+        <div class="design-catalog-search">
+          <label class="form-label" for="design-search">Search designs</label>
+          <input class="form-control" id="design-search" name="search" value="{{ active_search }}" placeholder="Name, message, title, or tag">
+        </div>
+        <div>
+          <label class="form-label" for="design-status">Status</label>
+          <select class="form-select" id="design-status" name="status">
+            <option value="all"{% if active_design_status == "all" %} selected{% endif %}>All statuses</option>
+            <option value="draft"{% if active_design_status == "draft" %} selected{% endif %}>Local drafts</option>
+            <option value="printify"{% if active_design_status == "printify" %} selected{% endif %}>On Printify</option>
+            <option value="etsy"{% if active_design_status == "etsy" %} selected{% endif %}>Live on Etsy</option>
+            <option value="paused"{% if active_design_status == "paused" %} selected{% endif %}>Paused on Etsy</option>
+          </select>
+        </div>
+        <div class="design-tag-filter">
+          <label class="form-label" for="design-tag">Tag</label>
+          <input class="form-control" id="design-tag" name="tag" value="{{ active_tag }}" list="design-tag-options" placeholder="Teacher, biology, humor…">
+          <datalist id="design-tag-options">
+            {% for tag in available_tags %}<option value="{{ tag }}">{% endfor %}
+          </datalist>
+        </div>
+        <button class="btn btn-primary" type="submit">Apply</button>
+        {% if active_search or active_tag or active_design_status != "all" %}<a class="btn btn-outline-secondary" href="/designs{% if show_archived %}?show=archived{% endif %}">Clear</a>{% endif %}
+      </form>
+      <span class="design-result-count">{{ total_designs }} design{% if total_designs != 1 %}s{% endif %}</span>
+    </section>
+
+    <div class="design-gallery">
+      {% for design in designs %}
+      <a class="design-card" href="/designs/{{ design['id'] }}">
+        <span class="design-card-image"><img src="/designs/{{ design['id'] }}/image?v={{ design['source_filename'] }}" alt="{{ design['name'] }}"></span>
+        <span class="design-card-copy">
+          <span class="status-pill {% if design['status'] == 'archived' %}listing-status-archived{% elif design['printify_product_id'] %}listing-status-published{% else %}listing-status-draft{% endif %}">
+            {% if design['status'] == 'archived' %}Archived{% elif design['etsy_paused_at'] %}Paused on Etsy{% elif design['etsy_state'] == 'active' %}Live on Etsy{% elif design['printify_product_id'] %}On Printify{% else %}Draft{% endif %}
+          </span>
+          <strong>{{ design["name"] }}</strong>
+          {% if design["message"] %}<small>{{ design["message"] }}</small>{% endif %}
+          {% if design["tag_list"] %}
+          <span class="design-card-tags">
+            {% for tag in design["tag_list"][:3] %}<span>{{ tag }}</span>{% endfor %}
+            {% if design["tag_list"]|length > 3 %}<span>+{{ design["tag_list"]|length - 3 }}</span>{% endif %}
+          </span>
+          {% endif %}
+        </span>
+      </a>
+      {% else %}
+      <div class="empty-state design-empty-state">
+        <strong>{% if active_search or active_tag or active_design_status != "all" %}No designs match these filters.{% elif show_archived %}No archived designs.{% else %}No standalone designs yet.{% endif %}</strong>
+        {% if not active_search and not active_tag and active_design_status == "all" %}<span>Create a message graphic or upload a completed design to make the first mug.</span><a class="btn btn-primary btn-sm" href="/designs/quick-text">Create a quick text design</a>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if total_pages > 1 %}
+    <nav class="design-pagination" aria-label="Design pages">
+      {% if previous_url %}<a class="btn btn-outline-secondary" href="{{ previous_url }}">← Previous</a>{% else %}<span></span>{% endif %}
+      <span>Page {{ page }} of {{ total_pages }}</span>
+      {% if next_url %}<a class="btn btn-outline-secondary" href="{{ next_url }}">Next →</a>{% else %}<span></span>{% endif %}
+    </nav>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

@@ -386,6 +386,11 @@ def create_printify_product(
     provider_id: int,
     provider_name: str,
     selections: list[dict],
+    image_x: float = 0.5,
+    image_y: float = 0.5,
+    image_scale: float = 1.0,
+    image_positions: list[dict] | None = None,
+    image_placements: list[dict] | None = None,
 ):
     if not selections:
         raise ValueError("Select at least one Printify variant")
@@ -393,6 +398,10 @@ def create_printify_product(
     uploaded_by_path = {}
     for selection in selections:
         path = selection["path"]
+        if path not in uploaded_by_path:
+            uploaded_by_path[path] = api.upload_image(path)["id"]
+    for placement in image_placements or []:
+        path = placement["path"]
         if path not in uploaded_by_path:
             uploaded_by_path[path] = api.upload_image(path)["id"]
 
@@ -421,7 +430,28 @@ def create_printify_product(
                     {
                         "position": "front",
                         "images": [
-                            {"id": image_id, "x": 0.5, "y": 0.5, "scale": 1, "angle": 0}
+                            {
+                                "id": (
+                                    uploaded_by_path[placement["path"]]
+                                    if image_placements
+                                    else image_id
+                                ),
+                                "x": placement.get("x", image_x),
+                                "y": placement.get("y", image_y),
+                                "scale": placement.get("scale", image_scale),
+                                "angle": 0,
+                            }
+                            for placement in (
+                                image_placements
+                                or image_positions
+                                or [
+                                    {
+                                        "x": image_x,
+                                        "y": image_y,
+                                        "scale": image_scale,
+                                    }
+                                ]
+                            )
                         ],
                     }
                 ],

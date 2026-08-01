@@ -197,6 +197,211 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('value="Impressionist"', page.text)
         self.assertIn('value="Reflective"', page.text)
 
+    def test_artwork_collection_back_link_opens_collection_at_top(self):
+        page = self.client.get("/artworks/CEL-001?step=details")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('href="/collections?collection=CEL"', page.text)
+        self.assertNotIn(
+            'href="/collections?collection=CEL#collection-workflow"',
+            page.text,
+        )
+
+    def test_approved_image_opens_fullscreen_viewer_with_download(self):
+        self._complete_artwork_files()
+        with db.get_connection() as connection:
+            collection_id = connection.execute(
+                "SELECT id FROM collections WHERE code='CEL'"
+            ).fetchone()["id"]
+            connection.execute(
+                """
+                INSERT INTO artworks (
+                    artwork_code, collection_id, sequence_number,
+                    public_title, status
+                ) VALUES ('CEL-002', ?, 2, 'Interwoven', 'approved')
+                """,
+                (collection_id,),
+            )
+            connection.commit()
+        db.upsert_artwork_file(
+            "CEL-002", role="source", relative_path="source-2.png",
+            stored_filename="source-2.png", original_filename="source-2.png",
+        )
+        page = self.client.get("/artworks/CEL-001?step=details")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('data-bs-target="#approved-image-viewer"', page.text)
+        self.assertIn('id="approved-image-viewer"', page.text)
+        self.assertIn("Click to enlarge", page.text)
+        self.assertIn("Download image", page.text)
+        self.assertIn("role=source&amp;download=true", page.text)
+        self.assertIn(
+            'href="/artworks/CEL-002?step=details&amp;viewer=1"',
+            page.text,
+        )
+
+        next_page = self.client.get("/artworks/CEL-002?step=details&viewer=1")
+        self.assertIn(
+            'href="/artworks/CEL-001?step=details&amp;viewer=1"',
+            next_page.text,
+        )
+        self.assertIn(
+            "bootstrap.Modal.getOrCreateInstance(viewer).show()",
+            next_page.text,
+        )
+
+    def test_print_ready_override_explains_current_state_and_effects(self):
+        self._complete_artwork_files()
+        page = self.client.get("/artworks/CEL-001?step=print")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Currently active", page.text)
+        self.assertIn("Separately uploaded print-ready file", page.text)
+        self.assertIn("How does a different print-ready file work?", page.text)
+        self.assertIn("Your approved original artwork remains unchanged.", page.text)
+        self.assertIn("rebuilds the required ratio files", page.text)
+        self.assertIn("Review downstream mockups afterward", page.text)
+
+    def test_analyze_artwork_fills_blanks_without_replacing_existing_intelligence(self):
+        db.update_artwork_intelligence(
+            "CEL-001",
+            theme="Hand-edited theme",
+            style="Hand-edited style",
+            mood="",
+            primary_colors="",
+            suggested_room="Gallery",
+            target_customer="Collectors",
+            analysis_notes="Keep these notes",
+            analyzed_at="2026-01-01T00:00:00",
+        )
+        generated = {
+            "theme": "Generated theme",
+            "style": "Generated style",
+            "mood": "Reflective",
+            "primary_colors": "Amber, blue",
+            "suggested_room": "Living room",
+            "target_customer": "Travelers",
+            "analysis_notes": "Generated notes",
+            "analyzed_at": "2026-07-29T12:00:00",
+        }
+
+        with patch("web.app.analyze_artwork", return_value=generated):
+            response = self.client.post(
+                "/artworks/CEL-001/intelligence/analyze",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        intelligence = db.get_artwork_intelligence("CEL-001")
+        self.assertEqual(intelligence["theme"], "Hand-edited theme")
+        self.assertEqual(intelligence["style"], "Hand-edited style")
+        self.assertEqual(intelligence["mood"], "Reflective")
+        self.assertEqual(intelligence["primary_colors"], "Amber, blue")
+        self.assertEqual(intelligence["suggested_room"], "Gallery")
+        self.assertEqual(intelligence["target_customer"], "Collectors")
+        self.assertEqual(intelligence["analysis_notes"], "Keep these notes")
+        self.assertEqual(intelligence["analyzed_at"], "2026-07-29T12:00:00")
+
+    def test_reanalyze_and_replace_overwrites_existing_intelligence(self):
+        db.update_artwork_intelligence(
+            "CEL-001",
+            theme="Hand-edited theme",
+            style="Hand-edited style",
+        )
+        generated = {
+            "theme": "Generated theme",
+            "style": "Generated style",
+            "mood": "Reflective",
+            "primary_colors": "Amber, blue",
+            "suggested_room": "Living room",
+            "target_customer": "Travelers",
+            "analysis_notes": "Generated notes",
+            "analyzed_at": "2026-07-29T12:00:00",
+        }
+
+        with patch("web.app.analyze_artwork", return_value=generated):
+            response = self.client.post(
+                "/artworks/CEL-001/intelligence/analyze",
+                data={"analysis_mode": "replace"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        intelligence = db.get_artwork_intelligence("CEL-001")
+        self.assertEqual(intelligence["theme"], "Generated theme")
+        self.assertEqual(intelligence["style"], "Generated style")
+        self.assertEqual(intelligence["analysis_notes"], "Generated notes")
+
+    def test_generate_story_and_seo_fills_blanks_without_replacing_existing_copy(self):
+        db.update_artwork_listing_content(
+            "CEL-001",
+            short_story="Keep this short story",
+            long_story="",
+            etsy_title="Keep this title",
+            etsy_description="",
+            etsy_tags="existing tag",
+            alt_text="",
+            keywords="existing keyword",
+            generated_at="2026-01-01T00:00:00",
+        )
+        generated = {
+            "short_story": "Generated short story",
+            "long_story": "Generated long story",
+            "etsy_title": "Generated title",
+            "etsy_description": "Generated description",
+            "etsy_tags": "generated tag",
+            "alt_text": "Generated alt text",
+            "keywords": "generated keyword",
+            "generated_at": "2026-07-29T12:00:00",
+        }
+
+        with patch("web.app.generate_listing_content", return_value=generated):
+            response = self.client.post(
+                "/artworks/CEL-001/listing-content/generate",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        content = db.get_artwork_listing_content("CEL-001")
+        self.assertEqual(content["short_story"], "Keep this short story")
+        self.assertEqual(content["long_story"], "Generated long story")
+        self.assertEqual(content["etsy_title"], "Keep this title")
+        self.assertEqual(content["etsy_description"], "Generated description")
+        self.assertEqual(content["etsy_tags"], "existing tag")
+        self.assertEqual(content["alt_text"], "Generated alt text")
+        self.assertEqual(content["keywords"], "existing keyword")
+        self.assertEqual(content["generated_at"], "2026-07-29T12:00:00")
+
+    def test_regenerate_story_and_seo_replaces_existing_copy(self):
+        db.update_artwork_listing_content(
+            "CEL-001",
+            short_story="Keep this short story",
+            etsy_title="Keep this title",
+        )
+        generated = {
+            "short_story": "Generated short story",
+            "long_story": "Generated long story",
+            "etsy_title": "Generated title",
+            "etsy_description": "Generated description",
+            "etsy_tags": "generated tag",
+            "alt_text": "Generated alt text",
+            "keywords": "generated keyword",
+            "generated_at": "2026-07-29T12:00:00",
+        }
+
+        with patch("web.app.generate_listing_content", return_value=generated):
+            response = self.client.post(
+                "/artworks/CEL-001/listing-content/generate",
+                data={"generation_mode": "replace"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        content = db.get_artwork_listing_content("CEL-001")
+        self.assertEqual(content["short_story"], "Generated short story")
+        self.assertEqual(content["etsy_title"], "Generated title")
+        self.assertEqual(content["etsy_description"], "Generated description")
+
     def test_mockup_studio_saves_and_offers_reusable_room_scene(self):
         image_bytes = BytesIO()
         Image.new("RGB", (800, 600), "#ddd6cb").save(image_bytes, "PNG")

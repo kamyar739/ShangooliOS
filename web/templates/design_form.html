@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}New Design — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <a class="workflow-back-link mb-3" href="/designs">← Back to Designs</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Standalone design</div>
+        <h1 class="display-6 fw-bold">New Design</h1>
+        <p class="text-muted mb-0">Upload the finished graphic. ShangooliOS will prepare the product—not redesign it.</p>
+      </div>
+    </div>
+
+    <form class="design-intake-card" method="post" action="/designs" enctype="multipart/form-data"
+          data-long-operation data-wait-stages="Uploading design image|Saving design details">
+      <section class="design-intake-image">
+        <div class="eyebrow">1 · Approved graphic</div>
+        <h2 class="h4">Choose the finished image</h2>
+        <p class="text-muted small">PNG is best for transparency. A wide, high-resolution graphic works best on a mug.</p>
+        <label class="design-upload-zone" data-design-upload-zone>
+          <input class="visually-hidden design-upload-native-input" type="file" name="image" accept="image/png,image/jpeg" required data-design-upload-input>
+          <img class="design-upload-preview" alt="Selected design preview" hidden data-design-upload-preview>
+          <span class="design-upload-icon" aria-hidden="true">↑</span>
+          <strong data-design-upload-title>Drop your finished graphic here</strong>
+          <span class="design-upload-browse">Choose PNG or JPEG</span>
+          <small data-design-upload-status>Recommended size · 2400 × 1000 px or larger</small>
+        </label>
+        <div class="design-analysis-note" hidden data-design-analysis-note></div>
+      </section>
+      <section class="design-intake-fields">
+        <div class="eyebrow">2 · Design identity</div>
+        <div class="mb-3">
+          <label class="form-label" for="design-name">Design name</label>
+          <textarea class="form-control" id="design-name" name="name" rows="2" required placeholder="Every Collection Tells a Story"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="design-message">Exact message in the graphic <span class="text-muted">(optional)</span></label>
+          <textarea class="form-control" id="design-message" name="message" rows="4" placeholder="EVERY COLLECTION TELLS A STORY."></textarea>
+          <div class="form-text">This is not added to the image. It helps ShangooliOS prepare accurate product titles, descriptions, and tags later.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="design-description">Product description</label>
+          <textarea class="form-control" id="design-description" name="description" rows="9" placeholder="A playful coffee mug for anyone whose evening drink is open to interpretation. A fun gift for coffee and wine lovers."></textarea>
+          <div class="form-text">Customer-facing copy explaining the design, mood, and who might enjoy it. You can edit it again before Printify.</div>
+        </div>
+        <div>
+          <label class="form-label" for="design-tags">Tags</label>
+          <textarea class="form-control" id="design-tags" name="tags" rows="5" placeholder="storyteller gift, creative mug, inspirational quote"></textarea>
+        </div>
+      </section>
+      <div class="design-intake-action">
+        <span>Nothing is sent to Printify or Etsy.</span>
+        <button class="btn btn-primary" type="submit">Save Design</button>
+      </div>
+    </form>
+  </main>
+</div>
+<script>
+(() => {
+  const input = document.querySelector('[data-design-upload-input]');
+  const preview = document.querySelector('[data-design-upload-preview]');
+  const title = document.querySelector('[data-design-upload-title]');
+  const status = document.querySelector('[data-design-upload-status]');
+  const zone = document.querySelector('[data-design-upload-zone]');
+  const analysisNote = document.querySelector('[data-design-analysis-note]');
+  const nameField = document.querySelector('#design-name');
+  const messageField = document.querySelector('#design-message');
+  const descriptionField = document.querySelector('#design-description');
+  const tagsField = document.querySelector('#design-tags');
+  if (!input || !preview || !title || !status || !zone) return;
+  const fillBlank = (field, value) => {
+    if (field && !field.value.trim() && value) field.value = value;
+  };
+  const metadataFromMessage = async () => {
+    const message = (messageField?.value || '').replace(/\s+/g, ' ').trim();
+    if (!message) return;
+    try {
+      const body = new URLSearchParams({ message });
+      const response = await fetch('/designs/message-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      if (!response.ok) return;
+      const generated = await response.json();
+      fillBlank(nameField, generated.name);
+      fillBlank(descriptionField, generated.description);
+      fillBlank(tagsField, generated.tags);
+    } catch (error) {
+      // Metadata is optional; the editable form remains usable if it is unavailable.
+    }
+  };
+  messageField?.addEventListener('blur', metadataFromMessage);
+  ['dragenter', 'dragover'].forEach(eventName => zone.addEventListener(eventName, () => zone.classList.add('is-dragging')));
+  ['dragleave', 'drop'].forEach(eventName => zone.addEventListener(eventName, () => zone.classList.remove('is-dragging')));
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    if (!file) {
+      preview.hidden = true;
+      preview.removeAttribute('src');
+      zone.classList.remove('has-file');
+      title.textContent = 'Drop your finished graphic here';
+      title.removeAttribute('title');
+      status.textContent = 'Recommended size · 2400 × 1000 px or larger';
+      if (analysisNote) analysisNote.hidden = true;
+      return;
+    }
+    zone.classList.add('has-file');
+    preview.src = URL.createObjectURL(file);
+    preview.hidden = false;
+    title.textContent = file.name;
+    title.title = file.name;
+    status.textContent = `${(file.size / 1024 / 1024).toFixed(1)} MB selected · Reading design text…`;
+    if (analysisNote) {
+      analysisNote.hidden = false;
+      analysisNote.textContent = 'Reading the visible message and preparing editable details…';
+      analysisNote.classList.add('is-working');
+    }
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+      const response = await fetch('/designs/analyze-upload', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error('analysis failed');
+      const result = await response.json();
+      fillBlank(messageField, result.message);
+      fillBlank(nameField, result.name);
+      fillBlank(descriptionField, result.description);
+      fillBlank(tagsField, result.tags);
+      metadataFromMessage();
+      if (analysisNote) {
+        analysisNote.classList.remove('is-working');
+        analysisNote.textContent = result.message
+          ? 'Details were filled from the graphic. Review or edit anything before saving.'
+          : 'Automatic text reading is not installed on this Mac. Enter only the exact message; the other blank fields will fill automatically.';
+      }
+    } catch (error) {
+      if (analysisNote) {
+        analysisNote.classList.remove('is-working');
+        analysisNote.textContent = 'Enter only the exact message; the other blank fields will fill automatically.';
+      }
+    }
+    status.textContent = `${(file.size / 1024 / 1024).toFixed(1)} MB selected · Click Save Design to upload`;
+  });
+})();
+</script>
+{% endblock %}

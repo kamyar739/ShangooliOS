@@ -155,10 +155,17 @@
         <h2 class="h4 mb-1">Reusable creative context</h2>
         <p class="text-secondary mb-0">Upload the source first, then analyze it into consistent metadata for mockups, SEO, and listing copy.</p>
       </div>
-      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence/analyze">
-        <button class="btn btn-outline-primary" type="submit" {% if not production_summary["source_assignment"] %}disabled title="Upload source artwork first"{% endif %}>Analyze artwork</button>
-      </form>
+      <div class="d-flex flex-wrap justify-content-end gap-2">
+        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence/analyze">
+          <button class="btn btn-outline-primary" type="submit" {% if not production_summary["source_assignment"] %}disabled title="Upload source artwork first"{% endif %}>Analyze artwork</button>
+        </form>
+        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence/analyze" onsubmit="return confirm('Replace the current Artwork Intelligence fields with a new analysis? This will overwrite your edits.');">
+          <input type="hidden" name="analysis_mode" value="replace">
+          <button class="btn btn-outline-danger" type="submit" {% if not production_summary["source_assignment"] %}disabled title="Upload source artwork first"{% endif %}>Reanalyze and replace</button>
+        </form>
+      </div>
     </div>
+    <p class="small text-secondary mt-n2 mb-4">Analyze artwork fills blank fields only. Reanalyze and replace overwrites the current intelligence after confirmation.</p>
 
     <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/intelligence">
       <div class="row g-3">
@@ -220,10 +227,17 @@ document.querySelector('[data-copy-final-prompt]')?.addEventListener('click', as
         <h2 class="h4 mb-1">Listing copy from Artwork Intelligence</h2>
         <p class="text-secondary mb-0">Generate a strong first draft, edit it here, and save the final copy for publishing.</p>
       </div>
-      <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listing-content/generate">
-        <button class="btn btn-outline-primary" type="submit">Generate story &amp; SEO</button>
-      </form>
+      <div class="d-flex flex-wrap justify-content-end gap-2">
+        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listing-content/generate">
+          <button class="btn btn-outline-primary" type="submit">Generate story &amp; SEO</button>
+        </form>
+        <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listing-content/generate" onsubmit="return confirm('Replace the current Story & SEO fields with newly generated copy? This will overwrite your edits.');">
+          <input type="hidden" name="generation_mode" value="replace">
+          <button class="btn btn-outline-danger" type="submit">Regenerate and replace</button>
+        </form>
+      </div>
     </div>
+    <p class="small text-secondary mt-n2 mb-4">Generate story &amp; SEO fills blank fields only. Regenerate and replace overwrites the current copy after confirmation.</p>
 
     <form method="post" action="/artworks/{{ artwork['artwork_code'] }}/listing-content">
       <div class="row g-3">

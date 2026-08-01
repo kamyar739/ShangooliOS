@@ -127,6 +127,157 @@ class ListingTests(unittest.TestCase):
         self.assertIn("Unbound Poster", index_response.text)
         self.assertIn("listing-summary-thumb", index_response.text)
         self.assertIn("No image", index_response.text)
+        self.assertIn("Fix missing items", index_response.text)
+        self.assertIn("Needs: Source artwork", index_response.text)
+        self.assertIn(
+            'href="/listings?view=attention&amp;collection=CEL&amp;collection_state=active&amp;artwork_state=current"',
+            index_response.text,
+        )
+        self.assertIn("listing-action-menu", index_response.text)
+
+    def test_listings_hide_paused_collections_by_default_and_offer_filter(self):
+        db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Paused Celebration listing", description="Description",
+            tags="one, two", price_cents=2900,
+        )
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE collections SET status = 'paused' WHERE code = 'CEL'"
+            )
+            connection.commit()
+
+        default_page = self.client.get("/listings")
+        self.assertEqual(default_page.status_code, 200)
+        self.assertNotIn("Paused Celebration listing", default_page.text)
+        self.assertIn("Active only", default_page.text)
+
+        paused_page = self.client.get("/listings?collection_state=paused")
+        self.assertEqual(paused_page.status_code, 200)
+        self.assertIn("Paused Celebration listing", paused_page.text)
+        self.assertIn(
+            '<option value="paused" selected>Paused only</option>',
+            paused_page.text,
+        )
+
+    def test_listings_hide_retired_artworks_by_default_and_offer_filter(self):
+        db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Retired artwork listing", description="Description",
+            tags="one, two", price_cents=2900,
+        )
+        db.archive_artwork("CEL-001")
+
+        default_page = self.client.get("/listings")
+        self.assertEqual(default_page.status_code, 200)
+        self.assertNotIn("Retired artwork listing", default_page.text)
+        self.assertIn("Current only", default_page.text)
+
+        retired_page = self.client.get("/listings?artwork_state=retired")
+        self.assertEqual(retired_page.status_code, 200)
+        self.assertIn("Retired artwork listing", retired_page.text)
+        self.assertIn(
+            '<option value="retired" selected>Retired only</option>',
+            retired_page.text,
+        )
+
+    def test_listings_can_show_and_search_standalone_designs(self):
+        db.create_listing(
+            "CEL-001",
+            marketplace="Etsy",
+            product="Poster",
+            title="Unbound artwork listing",
+            description="Description",
+            tags="one, two",
+            price_cents=2900,
+        )
+        design_id = db.create_standalone_design(
+            name="Coffee or Wine",
+            message="This might be coffee. This might be wine.",
+            description="A playful mug design.",
+            tags="coffee mug, wine mug",
+            source_filename="coffee-wine.png",
+            source_original_filename="coffee-wine.png",
+            image_width=3200,
+            image_height=1312,
+        )
+        db.save_standalone_design_product(
+            design_id,
+            title="Coffee or Wine Mug",
+            description="A funny coffee and wine mug.",
+            price_cents=1900,
+            blueprint_id=68,
+            provider_id=1,
+            provider_name="SPOKE Custom Products",
+            variant_id=33719,
+            variant_title="11oz",
+            placement_scale=0.45,
+            placement_x=0.5,
+            placement_y=0.5,
+            placement_mode="both",
+        )
+        db.set_standalone_product_state(
+            design_id,
+            "created",
+            printify_product_id="mug-product-1",
+            printify_product_url=(
+                "https://printify.com/app/store/products/mug-product-1"
+            ),
+        )
+
+        default_page = self.client.get("/listings")
+        self.assertEqual(default_page.status_code, 200)
+        self.assertIn("Unbound artwork listing", default_page.text)
+        self.assertNotIn("Coffee or Wine Mug", default_page.text)
+
+        design_page = self.client.get("/listings?item_type=designs")
+        self.assertEqual(design_page.status_code, 200)
+        self.assertIn("Coffee or Wine Mug", design_page.text)
+        self.assertIn("This might be coffee. This might be wine.", design_page.text)
+        self.assertIn("Printify product", design_page.text)
+        self.assertIn("Open Design", design_page.text)
+        self.assertIn("Open Printify", design_page.text)
+        self.assertNotIn("Unbound artwork listing", design_page.text)
+
+        search_page = self.client.get(
+            "/listings?item_type=designs&search=wine"
+        )
+        self.assertEqual(search_page.status_code, 200)
+        self.assertIn("Coffee or Wine Mug", search_page.text)
+
+        empty_search = self.client.get(
+            "/listings?item_type=designs&search=unrelated"
+        )
+        self.assertEqual(empty_search.status_code, 200)
+        self.assertNotIn("Coffee or Wine Mug", empty_search.text)
+        self.assertIn("No items match", empty_search.text)
+
+        all_items = self.client.get("/listings?item_type=all")
+        self.assertEqual(all_items.status_code, 200)
+        self.assertIn("Coffee or Wine Mug", all_items.text)
+        self.assertIn("Unbound artwork listing", all_items.text)
+
+    def test_all_listings_hides_archived_records_until_archived_filter_is_selected(self):
+        db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Current listing", description="Description",
+            tags="one, two", price_cents=2900, status="ready",
+        )
+        db.create_listing(
+            "CEL-001", marketplace="Etsy", product="Poster",
+            title="Historical archived listing", description="Description",
+            tags="one, two", price_cents=2900, status="archived",
+        )
+
+        default_page = self.client.get("/listings")
+        self.assertEqual(default_page.status_code, 200)
+        self.assertIn("Current listing", default_page.text)
+        self.assertNotIn("Historical archived listing", default_page.text)
+
+        archived_page = self.client.get("/listings?status=archived")
+        self.assertEqual(archived_page.status_code, 200)
+        self.assertNotIn("Current listing", archived_page.text)
+        self.assertIn("Historical archived listing", archived_page.text)
 
     def test_listings_filter_by_collection_and_sort_by_artwork_number(self):
         with db.get_connection() as connection:
@@ -174,9 +325,16 @@ class ListingTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Artwork number order", response.text)
         self.assertIn("Celebration", response.text)
+        self.assertIn('list="listing-collection-options"', response.text)
+        self.assertIn('value="Celebration"', response.text)
         self.assertNotIn("Alternate listing", response.text)
         self.assertLess(response.text.index("Unbound listing"), response.text.index("Interwoven listing"))
         self.assertLess(response.text.index("Interwoven listing"), response.text.index("Gathering listing"))
+
+        name_response = self.client.get("/listings?collection=Celebration")
+        self.assertEqual(name_response.status_code, 200)
+        self.assertIn("Unbound listing", name_response.text)
+        self.assertNotIn("Alternate listing", name_response.text)
 
     def test_listing_page_keeps_workflow_navigation(self):
         listing_id = db.create_listing(

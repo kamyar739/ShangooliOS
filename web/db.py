@@ -427,6 +427,104 @@ def ensure_production_schema():
             "CREATE INDEX IF NOT EXISTS idx_collection_production_runs_collection "
             "ON collection_production_runs(collection_id, id)"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS standalone_designs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                message TEXT,
+                description TEXT,
+                tags TEXT,
+                source_filename TEXT NOT NULL,
+                source_original_filename TEXT,
+                image_width INTEGER,
+                image_height INTEGER,
+                status TEXT NOT NULL DEFAULT 'draft',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS standalone_design_products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                design_id INTEGER NOT NULL,
+                product_type TEXT NOT NULL DEFAULT 'mug_11oz',
+                blueprint_version INTEGER NOT NULL DEFAULT 1,
+                title TEXT NOT NULL,
+                description TEXT,
+                price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+                blueprint_id INTEGER NOT NULL,
+                provider_id INTEGER NOT NULL,
+                provider_name TEXT NOT NULL,
+                variant_id INTEGER NOT NULL,
+                variant_title TEXT NOT NULL,
+                placement_x REAL NOT NULL DEFAULT 0.5,
+                placement_y REAL NOT NULL DEFAULT 0.5,
+                placement_scale REAL NOT NULL DEFAULT 0.45,
+                placement_mode TEXT NOT NULL DEFAULT 'front',
+                opposite_source_filename TEXT,
+                production_asset_filename TEXT,
+                printify_product_id TEXT,
+                printify_product_url TEXT,
+                printify_base_cost_cents INTEGER,
+                external_state TEXT NOT NULL DEFAULT 'not_sent',
+                external_message TEXT,
+                etsy_listing_id TEXT,
+                etsy_listing_url TEXT,
+                etsy_state TEXT,
+                etsy_paused_at TEXT,
+                marketplace_checked_at TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (design_id) REFERENCES standalone_designs(id)
+                    ON DELETE CASCADE,
+                UNIQUE (design_id, product_type)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_standalone_design_products_design "
+            "ON standalone_design_products(design_id)"
+        )
+        design_product_columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(standalone_design_products)"
+            )
+        }
+        if "placement_mode" not in design_product_columns:
+            conn.execute(
+                "ALTER TABLE standalone_design_products "
+                "ADD COLUMN placement_mode TEXT NOT NULL DEFAULT 'front'"
+            )
+        if "opposite_source_filename" not in design_product_columns:
+            conn.execute(
+                "ALTER TABLE standalone_design_products "
+                "ADD COLUMN opposite_source_filename TEXT"
+            )
+        if "blueprint_version" not in design_product_columns:
+            conn.execute(
+                "ALTER TABLE standalone_design_products "
+                "ADD COLUMN blueprint_version INTEGER NOT NULL DEFAULT 1"
+            )
+        if "production_asset_filename" not in design_product_columns:
+            conn.execute(
+                "ALTER TABLE standalone_design_products "
+                "ADD COLUMN production_asset_filename TEXT"
+            )
+        for column_name in (
+            "etsy_listing_id",
+            "etsy_listing_url",
+            "etsy_state",
+            "etsy_paused_at",
+            "marketplace_checked_at",
+        ):
+            if column_name not in design_product_columns:
+                conn.execute(
+                    f"ALTER TABLE standalone_design_products ADD COLUMN {column_name} TEXT"
+                )
         run_item_columns = {
             row["name"]
             for row in conn.execute(
@@ -2708,12 +2806,14 @@ def list_listings(status=None, collection_code=None):
                l.etsy_inventory_updated_at,
                l.etsy_paused_at,
                a.artwork_code, a.public_title, a.sequence_number,
+               a.status AS artwork_status,
                EXISTS (
                    SELECT 1 FROM artwork_files AS source_file
                    WHERE source_file.artwork_id = a.id
                      AND source_file.role = 'source'
                ) AS has_source_image,
-               c.code AS collection_code, c.name AS collection_name
+               c.code AS collection_code, c.name AS collection_name,
+               c.status AS collection_status
         FROM listings AS l
         JOIN artworks AS a ON a.id = l.artwork_id
         JOIN collections AS c ON c.id = a.collection_id
@@ -2737,16 +2837,42 @@ def list_listings(status=None, collection_code=None):
         return conn.execute(query, tuple(params)).fetchall()
 
 
-def get_listing_status_counts():
+def get_listing_status_counts(collection_status=None, artwork_state="current"):
     counts = {status: 0 for status in LISTING_STATUSES}
+    normalized_collection_status = (collection_status or "").strip().lower()
+    normalized_artwork_state = (artwork_state or "current").strip().lower()
+    if normalized_collection_status and normalized_collection_status not in (
+        "active", "paused",
+    ):
+        raise ValueError("Invalid collection status")
+    if normalized_artwork_state not in ("current", "retired", "all"):
+        raise ValueError("Invalid artwork state")
+    query = """
+        SELECT l.status, COUNT(*) AS total
+        FROM listings AS l
+        JOIN artworks AS a ON a.id = l.artwork_id
+        JOIN collections AS c ON c.id = a.collection_id
+    """
+    clauses = []
+    params = []
+    if normalized_collection_status:
+        clauses.append("c.status = ?")
+        params.append(normalized_collection_status)
+    if normalized_artwork_state == "current":
+        clauses.append("a.status != 'retired'")
+    elif normalized_artwork_state == "retired":
+        clauses.append("a.status = 'retired'")
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " GROUP BY l.status"
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT status, COUNT(*) AS total FROM listings GROUP BY status"
-        ).fetchall()
+        rows = conn.execute(query, tuple(params)).fetchall()
     for row in rows:
         if row["status"] in counts:
             counts[row["status"]] = row["total"]
-    counts["all"] = sum(counts.values())
+    counts["all"] = sum(
+        counts[status] for status in LISTING_STATUSES if status != "archived"
+    )
     return counts
 
 
@@ -3357,4 +3483,407 @@ def delete_listing(listing_id):
         cursor = conn.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
         if cursor.rowcount == 0:
             raise ValueError("Listing not found")
+        conn.commit()
+
+
+def create_standalone_design(
+    *,
+    name,
+    message,
+    description,
+    tags,
+    source_filename,
+    source_original_filename,
+    image_width,
+    image_height,
+):
+    normalized_name = (name or "").strip()
+    if not normalized_name:
+        raise ValueError("Enter a design name")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO standalone_designs (
+                name, message, description, tags, source_filename,
+                source_original_filename, image_width, image_height
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_name,
+                (message or "").strip(),
+                (description or "").strip(),
+                (tags or "").strip(),
+                source_filename,
+                source_original_filename,
+                image_width,
+                image_height,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_standalone_design(design_id, product_key="mug_11oz"):
+    """Return a design joined to one product blueprint instance.
+
+    ``standalone_design_products.product_type`` is retained as the database
+    column name for compatibility. New code treats its value as a stable
+    product blueprint key.
+    """
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT d.*, p.id AS product_id, p.product_type, p.title AS product_title,
+                   p.blueprint_version, p.production_asset_filename,
+                   p.description AS product_description, p.price_cents,
+                   p.blueprint_id, p.provider_id, p.provider_name,
+                   p.variant_id, p.variant_title, p.placement_x, p.placement_y,
+                   p.placement_scale, p.placement_mode,
+                   p.opposite_source_filename, p.printify_product_id,
+                   p.printify_product_url, p.printify_base_cost_cents,
+                   p.external_state, p.external_message, p.etsy_listing_id,
+                   p.etsy_listing_url, p.etsy_state, p.etsy_paused_at,
+                   p.marketplace_checked_at
+            FROM standalone_designs AS d
+            LEFT JOIN standalone_design_products AS p
+              ON p.design_id = d.id AND p.product_type = ?
+            WHERE d.id = ?
+            """,
+            (product_key, design_id),
+        ).fetchone()
+
+
+def list_standalone_design_products(design_id):
+    """List independent product instances belonging to one creative source."""
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM standalone_design_products
+            WHERE design_id = ?
+            ORDER BY created_at, id
+            """,
+            (design_id,),
+        ).fetchall()
+
+
+def list_standalone_designs():
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT d.*, p.product_type, p.title AS product_title,
+                   p.description AS product_description,
+                   p.printify_product_id, p.printify_product_url,
+                   p.external_state, p.external_message, p.price_cents,
+                   p.etsy_listing_id, p.etsy_listing_url, p.etsy_state,
+                   p.etsy_paused_at, p.marketplace_checked_at
+            FROM standalone_designs AS d
+            LEFT JOIN standalone_design_products AS p
+              ON p.design_id = d.id AND p.product_type = 'mug_11oz'
+            ORDER BY d.updated_at DESC, d.id DESC
+            """
+        ).fetchall()
+
+
+def update_standalone_design(
+    design_id, *, name, message, description, tags
+):
+    normalized_name = (name or "").strip()
+    if not normalized_name:
+        raise ValueError("Enter a design name")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_designs
+            SET name = ?, message = ?, description = ?, tags = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                normalized_name,
+                (message or "").strip(),
+                (description or "").strip(),
+                (tags or "").strip(),
+                design_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Design not found")
+        conn.commit()
+
+
+def set_standalone_design_archived(design_id, archived):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_designs
+            SET status = CASE WHEN ? THEN 'archived'
+                              WHEN status = 'archived' AND EXISTS (
+                                  SELECT 1 FROM standalone_design_products
+                                  WHERE design_id = standalone_designs.id
+                                    AND printify_product_id IS NOT NULL
+                              ) THEN 'on_printify'
+                              WHEN status = 'archived' THEN 'draft'
+                              ELSE status END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (bool(archived), design_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Design not found")
+        conn.commit()
+
+
+def record_standalone_marketplace_status(
+    design_id,
+    *,
+    etsy_listing_id=None,
+    etsy_listing_url=None,
+    etsy_state=None,
+    paused=None,
+    message="",
+    product_key="mug_11oz",
+):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET etsy_listing_id = COALESCE(?, etsy_listing_id),
+                etsy_listing_url = COALESCE(?, etsy_listing_url),
+                etsy_state = COALESCE(?, etsy_state),
+                etsy_paused_at = CASE
+                    WHEN ? = 1 THEN COALESCE(etsy_paused_at, CURRENT_TIMESTAMP)
+                    WHEN ? = 0 THEN NULL
+                    ELSE etsy_paused_at
+                END,
+                external_message = ?,
+                marketplace_checked_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (
+                str(etsy_listing_id).strip() if etsy_listing_id else None,
+                (etsy_listing_url or "").strip() or None,
+                (etsy_state or "").strip().lower() or None,
+                1 if paused is True else None,
+                0 if paused is False else None,
+                (message or "").strip(),
+                design_id,
+                product_key,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Save the mug setup first")
+        conn.commit()
+
+
+def replace_standalone_design_source(
+    design_id,
+    *,
+    source_filename,
+    source_original_filename,
+    image_width,
+    image_height,
+):
+    """Point a design at a corrected source while preserving the old file."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_designs
+            SET source_filename = ?, source_original_filename = ?,
+                image_width = ?, image_height = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                source_filename,
+                source_original_filename,
+                image_width,
+                image_height,
+                design_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Design not found")
+        conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET external_state = CASE
+                    WHEN printify_product_id IS NOT NULL THEN 'needs_update'
+                    ELSE external_state
+                END,
+                external_message = CASE
+                    WHEN printify_product_id IS NOT NULL
+                    THEN 'The saved graphic changed. Update the existing Printify draft.'
+                    ELSE external_message
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = 'mug_11oz'
+            """,
+            (design_id,),
+        )
+        conn.commit()
+
+
+def save_standalone_design_product(
+    design_id,
+    *,
+    product_key="mug_11oz",
+    blueprint_version=1,
+    production_asset_filename=None,
+    title,
+    description,
+    price_cents,
+    blueprint_id,
+    provider_id,
+    provider_name,
+    variant_id,
+    variant_title,
+    placement_x,
+    placement_y,
+    placement_scale,
+    placement_mode="front",
+    opposite_source_filename=None,
+):
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO standalone_design_products (
+                design_id, product_type, blueprint_version,
+                production_asset_filename, title, description, price_cents,
+                blueprint_id, provider_id, provider_name, variant_id,
+                variant_title, placement_x, placement_y, placement_scale
+                , placement_mode, opposite_source_filename
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(design_id, product_type) DO UPDATE SET
+                title = excluded.title,
+                blueprint_version = excluded.blueprint_version,
+                production_asset_filename = COALESCE(
+                    excluded.production_asset_filename,
+                    standalone_design_products.production_asset_filename
+                ),
+                description = excluded.description,
+                price_cents = excluded.price_cents,
+                blueprint_id = excluded.blueprint_id,
+                provider_id = excluded.provider_id,
+                provider_name = excluded.provider_name,
+                variant_id = excluded.variant_id,
+                variant_title = excluded.variant_title,
+                placement_x = excluded.placement_x,
+                placement_y = excluded.placement_y,
+                placement_scale = excluded.placement_scale,
+                placement_mode = excluded.placement_mode,
+                opposite_source_filename = COALESCE(
+                    excluded.opposite_source_filename,
+                    standalone_design_products.opposite_source_filename
+                ),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE (
+                    standalone_design_products.printify_product_id IS NULL
+                    OR standalone_design_products.external_state = 'needs_update'
+                  )
+              AND standalone_design_products.external_state NOT IN (
+                  'creating', 'outcome_unknown'
+              )
+            """,
+            (
+                design_id,
+                product_key,
+                blueprint_version,
+                production_asset_filename,
+                (title or "").strip(),
+                (description or "").strip(),
+                price_cents,
+                blueprint_id,
+                provider_id,
+                (provider_name or "").strip(),
+                variant_id,
+                (variant_title or "").strip(),
+                placement_x,
+                placement_y,
+                placement_scale,
+                placement_mode,
+                opposite_source_filename,
+            ),
+        )
+        conn.commit()
+
+
+def prepare_standalone_product_asset(
+    design_id, product_key, production_asset_filename
+):
+    """Explicitly adopt a design asset for exactly one product blueprint."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET production_asset_filename = ?,
+                external_state = CASE
+                    WHEN printify_product_id IS NOT NULL THEN 'needs_update'
+                    ELSE external_state
+                END,
+                external_message = CASE
+                    WHEN printify_product_id IS NOT NULL
+                    THEN 'A newer graphic was prepared for this product. Update the existing Printify draft when ready.'
+                    ELSE external_message
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+              AND external_state NOT IN (
+                  'creating', 'outcome_unknown', 'updating',
+                  'update_outcome_unknown'
+              )
+            """,
+            (production_asset_filename, design_id, product_key),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(
+                "Save the product setup or resolve its current operation first"
+            )
+        conn.commit()
+
+
+def set_standalone_product_state(
+    design_id,
+    state,
+    message="",
+    *,
+    product_key="mug_11oz",
+    printify_product_id=None,
+    printify_product_url=None,
+    base_cost_cents=None,
+):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET external_state = ?, external_message = ?,
+                printify_product_id = COALESCE(?, printify_product_id),
+                printify_product_url = COALESCE(?, printify_product_url),
+                printify_base_cost_cents = COALESCE(?, printify_base_cost_cents),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (
+                state,
+                (message or "").strip(),
+                printify_product_id,
+                printify_product_url,
+                base_cost_cents,
+                design_id,
+                product_key,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Save the mug setup before creating the draft")
+        conn.execute(
+            """
+            UPDATE standalone_designs
+            SET status = CASE WHEN ? = 'created' THEN 'on_printify' ELSE status END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (state, design_id),
+        )
         conn.commit()

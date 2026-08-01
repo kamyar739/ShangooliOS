@@ -25,26 +25,124 @@
 </div>
 {% endif %}
 
+{% if active_item_type == "artwork" %}
 <div class="listing-filter-bar mb-4">
-    <a class="listing-filter filter-all {% if not active_status and not active_view %}active{% endif %}" href="/listings{% if active_collection %}?collection={{ active_collection }}{% endif %}">
+    <a class="listing-filter filter-all {% if not active_status and not active_view %}active{% endif %}" href="/listings?collection_state={{ active_collection_state }}&amp;artwork_state={{ active_artwork_state }}{% if active_collection %}&amp;collection={{ active_collection }}{% endif %}">
         <span class="filter-dot">●</span><strong>All</strong><span class="filter-count">{{ status_counts['all'] }}</span>
     </a>
     {% for value in statuses %}
-    <a class="listing-filter filter-{{ value }} {% if active_status == value %}active{% endif %}" href="/listings?status={{ value }}{% if active_collection %}&collection={{ active_collection }}{% endif %}">
+    <a class="listing-filter filter-{{ value }} {% if active_status == value %}active{% endif %}" href="/listings?status={{ value }}&amp;collection_state={{ active_collection_state }}&amp;artwork_state={{ active_artwork_state }}{% if active_collection %}&amp;collection={{ active_collection }}{% endif %}">
         <span class="filter-dot">●</span><strong>{% if value == 'published' %}Live on Etsy{% else %}{{ value|title }}{% endif %}</strong><span class="filter-count">{{ status_counts[value] }}</span>
     </a>
     {% endfor %}
 </div>
+{% endif %}
 
 <div class="listing-collection-toolbar mb-3">
   <form method="get" action="/listings" class="d-flex align-items-end gap-2 flex-wrap">
     {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
     {% if active_view %}<input type="hidden" name="view" value="{{ active_view }}">{% endif %}
-    <div><label class="form-label" for="listing-collection-filter">Collection</label><select class="form-select form-select-sm" id="listing-collection-filter" name="collection" onchange="this.form.submit()"><option value="">All collections</option>{% for collection in collections %}<option value="{{ collection['code'] }}"{% if active_collection == collection['code'] %} selected{% endif %}>{{ collection['name'] }}</option>{% endfor %}</select></div>
-    {% if active_collection %}<a class="btn btn-sm btn-outline-secondary" href="/listings{% if active_status %}?status={{ active_status }}{% elif active_view %}?view={{ active_view }}{% endif %}">Clear collection</a>{% endif %}
+    <div>
+      <label class="form-label" for="listing-item-type">Item type</label>
+      <select class="form-select form-select-sm" id="listing-item-type" name="item_type" onchange="this.form.submit()">
+        <option value="artwork"{% if active_item_type == 'artwork' %} selected{% endif %}>Artwork listings</option>
+        <option value="designs"{% if active_item_type == 'designs' %} selected{% endif %}>Standalone designs</option>
+        <option value="all"{% if active_item_type == 'all' %} selected{% endif %}>All items</option>
+      </select>
+    </div>
+    {% if active_item_type != "designs" %}
+    <div>
+      <label class="form-label" for="listing-collection-state">Collections</label>
+      <select class="form-select form-select-sm" id="listing-collection-state" name="collection_state" onchange="this.form.submit()">
+        <option value="active"{% if active_collection_state == 'active' %} selected{% endif %}>Active only</option>
+        <option value="paused"{% if active_collection_state == 'paused' %} selected{% endif %}>Paused only</option>
+        <option value="all"{% if active_collection_state == 'all' %} selected{% endif %}>Active and paused</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label" for="listing-artwork-state">Artworks</label>
+      <select class="form-select form-select-sm" id="listing-artwork-state" name="artwork_state" onchange="this.form.submit()">
+        <option value="current"{% if active_artwork_state == 'current' %} selected{% endif %}>Current only</option>
+        <option value="retired"{% if active_artwork_state == 'retired' %} selected{% endif %}>Retired only</option>
+        <option value="all"{% if active_artwork_state == 'all' %} selected{% endif %}>Current and retired</option>
+      </select>
+    </div>
+    <div class="listing-collection-search">
+      <label class="form-label" for="listing-collection-filter">Collection</label>
+      <div class="d-flex gap-2">
+        <input class="form-control form-control-sm" id="listing-collection-filter" name="collection" list="listing-collection-options" value="{{ active_collection_name }}" placeholder="Start typing a collection name" autocomplete="off">
+        <datalist id="listing-collection-options">{% for collection in collections %}<option value="{{ collection['name'] }}">{{ collection['code'] }}</option>{% endfor %}</datalist>
+        <button class="btn btn-sm btn-outline-primary" type="submit">Apply</button>
+      </div>
+    </div>
+    {% endif %}
+    <div class="listing-text-search">
+      <label class="form-label" for="listing-text-search">Search</label>
+      <div class="d-flex gap-2">
+        <input class="form-control form-control-sm" id="listing-text-search" name="search" value="{{ active_search }}" placeholder="{% if active_item_type == 'designs' %}Name, message, or product title{% else %}Title, artwork, or collection{% endif %}">
+        <button class="btn btn-sm btn-outline-primary" type="submit">Search</button>
+      </div>
+    </div>
+    {% if active_collection %}<a class="btn btn-sm btn-outline-secondary" href="/listings?collection_state={{ active_collection_state }}&amp;artwork_state={{ active_artwork_state }}{% if active_status %}&amp;status={{ active_status }}{% elif active_view %}&amp;view={{ active_view }}{% endif %}">Clear collection</a>{% endif %}
   </form>
-  <div class="listing-result-summary"><strong>{{ listings|length }}</strong> listing{% if listings|length != 1 %}s{% endif %}{% if active_collection %} in {{ active_collection }}{% endif %} · Artwork number order</div>
+  {% set result_count = listings|length + designs|length %}
+  <div class="listing-result-summary">
+    <strong>{{ result_count }}</strong> item{% if result_count != 1 %}s{% endif %}
+    {% if active_collection %} in {{ active_collection }}{% endif %}
+    {% if active_item_type == "artwork" %} · Artwork number order{% endif %}
+  </div>
 </div>
+
+{% if designs %}
+<section class="listing-design-results mb-4">
+  <div class="listing-design-results-header">
+    <div><div class="eyebrow">Standalone designs</div><h2 class="h4 mb-1">Design products</h2></div>
+    <span class="text-muted small">{{ designs|length }} result{% if designs|length != 1 %}s{% endif %}</span>
+  </div>
+  <div class="listing-card-grid">
+  {% for design in designs %}
+    <article class="listing-summary-card listing-design-summary-card">
+      <div class="listing-summary-main">
+        <a class="listing-summary-thumb" href="/designs/{{ design['id'] }}" aria-label="Open {{ design['name'] }}">
+          <img src="/designs/{{ design['id'] }}/image?v={{ design['source_filename'] }}" alt="{{ design['name'] }} thumbnail" loading="lazy">
+        </a>
+        <div class="listing-summary-copy">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="status-pill design-type-pill">Design</span>
+            <span class="status-pill design-state-{{ design['state_class'] }}">{{ design['display_state'] }}</span>
+            <span class="small text-muted">Mug</span>
+          </div>
+          <h2 class="h5 mb-2"><a href="/designs/{{ design['id'] }}">{{ design["product_title"] or design["name"] }}</a></h2>
+          {% if design["message"] %}<p class="listing-design-message mb-0">{{ design["message"] }}</p>{% endif %}
+          {% if design["external_message"] and design["state_class"] == "attention" %}<div class="listing-missing-note">{{ design["external_message"] }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="listing-summary-price"><span>Price</span><strong>{% if design["price_cents"] is not none %}${{ '%.2f'|format(design["price_cents"] / 100) }}{% else %}—{% endif %}</strong></div>
+      <div class="listing-summary-readiness"><span class="listing-summary-label">Channel</span><strong>{% if design["printify_product_id"] %}Printify{% else %}Not sent{% endif %}</strong></div>
+      <div class="listing-summary-actions">
+        <a class="btn btn-sm btn-primary listing-primary-action" href="/designs/{{ design['id'] }}">Open Design</a>
+        <details class="listing-action-menu">
+          <summary aria-label="More actions for {{ design['name'] }}" title="More actions">•••</summary>
+          <div class="listing-action-menu-panel">
+            {% if design["printify_product_url"] %}<a href="{{ design['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Open Printify ↗</a>{% endif %}
+            {% if design["etsy_listing_url"] %}<a href="{{ design['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>{% endif %}
+            {% if design["printify_product_id"] %}<form method="post" action="/designs/{{ design['id'] }}/marketplace/check"><button type="submit">Check status</button></form>{% endif %}
+            {% if design["etsy_listing_id"] %}
+              {% if design["etsy_paused_at"] or design["etsy_state"] != "active" %}
+              <form method="post" action="/designs/{{ design['id'] }}/etsy/reactivate"><input type="hidden" name="confirmed" value="true"><button type="submit" onclick="return confirm('Reactivate this Etsy listing?')">Reactivate Etsy sales</button></form>
+              {% else %}
+              <form method="post" action="/designs/{{ design['id'] }}/etsy/pause"><input type="hidden" name="confirmed" value="true"><button type="submit" onclick="return confirm('Pause Etsy sales for this design?')">Pause Etsy sales</button></form>
+              {% endif %}
+            {% endif %}
+            <form method="post" action="/designs/{{ design['id'] }}/archive"><input type="hidden" name="confirmed" value="true"><button type="submit" onclick="return confirm('Archive this design? External products remain unchanged.')">Archive design</button></form>
+          </div>
+        </details>
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 <div class="listing-card-grid">
 {% if listings %}
@@ -63,9 +161,9 @@
       <span><strong>{{ collection_items[0]['collection_name'] }}</strong><small>{{ collection_items|length }} listing{% if collection_items|length != 1 %}s{% endif %}</small></span>
     </span>
     <span class="listing-collection-fold-counts">
-      {% if collection_summary.live %}<span class="collection-count is-live">{{ collection_summary.live }} live</span>{% endif %}
-      {% if collection_summary.ready %}<span class="collection-count is-ready">{{ collection_summary.ready }} ready</span>{% endif %}
-      {% if collection_summary.attention %}<span class="collection-count is-attention">{{ collection_summary.attention }} need attention</span>{% endif %}
+      {% if collection_summary.live %}<a class="collection-count is-live" href="/listings?status=published&amp;collection={{ collection_group.grouper }}&amp;collection_state={{ active_collection_state }}&amp;artwork_state={{ active_artwork_state }}" onclick="event.stopPropagation()" title="Show live listings in {{ collection_items[0]['collection_name'] }}">{{ collection_summary.live }} live</a>{% endif %}
+      {% if collection_summary.ready %}<a class="collection-count is-ready" href="/listings?view=ready&amp;collection={{ collection_group.grouper }}&amp;collection_state={{ active_collection_state }}&amp;artwork_state={{ active_artwork_state }}" onclick="event.stopPropagation()" title="Show ready listings in {{ collection_items[0]['collection_name'] }}">{{ collection_summary.ready }} ready</a>{% endif %}
+      {% if collection_summary.attention %}<a class="collection-count is-attention" href="/listings?view=attention&amp;collection={{ collection_group.grouper }}&amp;collection_state={{ active_collection_state }}&amp;artwork_state={{ active_artwork_state }}" onclick="event.stopPropagation()" title="Show listings needing attention in {{ collection_items[0]['collection_name'] }}">{{ collection_summary.attention }} need attention</a>{% endif %}
       <span class="listing-collection-fold-toggle" aria-hidden="true">⌄</span>
     </span>
   </summary>
@@ -80,6 +178,7 @@
       <div class="d-flex align-items-center gap-2 mb-2">{% if item['etsy_paused_at'] and item['marketplace_url'] %}<a class="status-pill status-pill-link marketplace-status-paused" href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Paused on Etsy ↗</a>{% elif item['status'] == 'published' and item['marketplace_url'] %}<a class="status-pill status-pill-link marketplace-status-live" href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer" title="Open this listing on Etsy">Live on Etsy ↗</a>{% else %}<span class="status-pill listing-status-{{ item['status'] }}">{{ item['status'] }}</span>{% endif %}<span class="small text-muted">{{ item['marketplace'] }} · {{ item['product'] }}</span></div>
       <h2 class="h5 mb-2"><a href="/listings/{{ item['id'] }}">{{ item['title'] }}</a></h2>
       <a href="/artworks/{{ item['artwork_code'] }}" class="listing-artwork-link">{{ item['artwork_code'] }} — {{ item['public_title'] }}</a>
+      {% if item['missing_labels'] %}<div class="listing-missing-note">Needs: {{ item['missing_labels'][:2]|join(', ') }}{% if item['missing_labels']|length > 2 %} +{{ item['missing_labels']|length - 2 }} more{% endif %}</div>{% endif %}
     </div>
   </div>
   <div class="listing-summary-price"><span>Price</span><strong>${{ '%.2f'|format(item['price_cents'] / 100) }}</strong></div>
@@ -95,33 +194,41 @@
   </a>
   </div>
   <div class="listing-summary-actions">
-    {% if item['printify_product_url'] %}<a class="btn btn-sm btn-outline-success" href="{{ item['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Printify</a>{% endif %}
-    <a class="btn btn-sm btn-outline-secondary" href="/artworks/{{ item['artwork_code'] }}">Artwork</a>
-    {% if item['external_listing_id'] %}
-      {% if item['etsy_paused_at'] %}
-      <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/etsy/inventory/restore">
-        <input type="hidden" name="confirmed" value="true">
-        <button class="btn btn-sm btn-outline-success" type="submit" onclick="return confirm('Reactivate this Etsy listing? Etsy may charge its normal renewal fee.')">Reactivate on Etsy</button>
-      </form>
-      {% else %}
-      <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/etsy/inventory/sold-out">
-        <input type="hidden" name="confirmed" value="true">
-        <button class="btn btn-sm btn-outline-warning" type="submit" onclick="return confirm('Pause Etsy sales for this listing? It will become unsearchable and unavailable for purchase, while inventory and prices are preserved.')">Pause Etsy sales</button>
-      </form>
-      {% endif %}
-    {% endif %}
-    <form class="d-inline" method="post" action="/listings/{{ item['id'] }}/duplicate">
-        <button class="btn btn-sm btn-outline-primary" type="submit">Duplicate</button>
-    </form>
+    <a class="btn btn-sm btn-primary listing-primary-action" href="{{ item['primary_action']['url'] }}"{% if item['primary_action']['external'] %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item['primary_action']['label'] }}{% if item['primary_action']['external'] %} ↗{% endif %}</a>
+    <details class="listing-action-menu">
+      <summary aria-label="More actions for {{ item['public_title'] }}" title="More actions">•••</summary>
+      <div class="listing-action-menu-panel">
+        <a href="/listings/{{ item['id'] }}">Open listing</a>
+        <a href="/artworks/{{ item['artwork_code'] }}">Open artwork</a>
+        {% if item['printify_product_url'] %}<a href="{{ item['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Open Printify ↗</a>{% endif %}
+        {% if item['marketplace_url'] %}<a href="{{ item['marketplace_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>{% endif %}
+        {% if item['external_listing_id'] %}
+          {% if item['etsy_paused_at'] %}
+          <form method="post" action="/listings/{{ item['id'] }}/etsy/inventory/restore">
+            <input type="hidden" name="confirmed" value="true">
+            <button type="submit" onclick="return confirm('Reactivate this Etsy listing? Etsy may charge its normal renewal fee.')">Reactivate on Etsy</button>
+          </form>
+          {% else %}
+          <form method="post" action="/listings/{{ item['id'] }}/etsy/inventory/sold-out">
+            <input type="hidden" name="confirmed" value="true">
+            <button type="submit" onclick="return confirm('Pause Etsy sales for this listing? It will become unsearchable and unavailable for purchase, while inventory and prices are preserved.')">Pause Etsy sales</button>
+          </form>
+          {% endif %}
+        {% endif %}
+        <form method="post" action="/listings/{{ item['id'] }}/duplicate">
+          <button type="submit">Duplicate listing</button>
+        </form>
+      </div>
+    </details>
   </div>
 </article>
 {% endfor %}
 </div>
 </details>
 {% endfor %}
-{% else %}
+{% elif not designs %}
 <div class="card border-0 shadow-sm p-4 text-muted">
-    {% if active_collection %}No listings match this collection and status combination. <a href="/listings">Clear filters</a>.{% elif active_view == 'attention' %}Nothing currently needs attention.{% elif active_view == 'ready' %}No complete listings are waiting to publish.{% elif active_status %}No {{ active_status }} listings.{% else %}No listings have been created yet.{% endif %}
+    {% if active_search %}No items match “{{ active_search }}”. <a href="/listings?item_type={{ active_item_type }}">Clear search</a>.{% elif active_collection %}No listings match this collection and status combination. <a href="/listings">Clear filters</a>.{% elif active_view == 'attention' %}Nothing currently needs attention.{% elif active_view == 'ready' %}No complete listings are waiting to publish.{% elif active_status %}No {{ active_status }} listings.{% elif active_item_type == 'designs' %}No standalone designs have been created yet.{% else %}No listings have been created yet.{% endif %}
 </div>
 {% endif %}
 </div>

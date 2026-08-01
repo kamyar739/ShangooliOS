@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import secrets
 import shutil
 import sqlite3
@@ -13,7 +14,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette import status
@@ -50,6 +51,7 @@ from web.db import (
     get_listing,
     get_listing_readiness,
     get_listing_status_counts,
+    get_standalone_design,
     get_artwork_listings,
     get_mockup_scene,
     get_mockup_set,
@@ -59,6 +61,9 @@ from web.db import (
     restore_artwork,
     remove_mockup_set_item,
     list_listings,
+    list_standalone_designs,
+    list_standalone_design_products,
+    prepare_standalone_product_asset,
     list_mockup_scenes,
     list_mockup_sets,
     link_etsy_listing,
@@ -66,6 +71,7 @@ from web.db import (
     record_etsy_state,
     record_etsy_inventory_quantity,
     record_etsy_paused,
+    record_standalone_marketplace_status,
     record_ai_enhancement,
     record_artwork_mockup_set_generated,
     record_publishing_recovery,
@@ -81,6 +87,10 @@ from web.db import (
     approve_collection_cover,
     search_artworks,
     set_artwork_production_flags,
+    set_standalone_design_archived,
+    create_standalone_design,
+    replace_standalone_design_source,
+    update_standalone_design,
     update_artwork,
     update_artwork_details,
     update_artwork_status,
@@ -107,6 +117,7 @@ from web.etsy_api import (
     update_etsy_listing,
     update_etsy_listing_state,
 )
+from web.etsy_validation import parse_tags, validate_etsy_listing
 from web.etsy_sync import (
     build_etsy_sync_preview,
     find_etsy_candidates,
@@ -154,6 +165,30 @@ from web.collection_replacement import (
 from web.listing_publication import (
     recover_listing_publication,
     request_listing_publication,
+)
+from web.standalone_designs import (
+    analyze_design_image,
+    design_metadata_from_message,
+    MUG_PROFILE,
+    check_design_marketplace_status,
+    create_mug_draft,
+    design_opposite_source_path,
+    design_source_path,
+    product_asset_path,
+    removable_background_preview,
+    render_quick_text_design,
+    save_design_source,
+    save_mug_setup,
+    update_mug_draft_graphics,
+    mug_profile,
+)
+from web.product_blueprints import (
+    DEFAULT_MUG_BLUEPRINT_KEY,
+    PRODUCT_BLUEPRINTS,
+    get_product_blueprint,
+    mug_blueprints,
+    normalized_placement_geometry,
+    product_readiness,
 )
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
@@ -444,6 +479,30 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         if artwork_position is not None and artwork_position + 1 < len(collection_artworks)
         else None
     )
+    image_artworks = [
+        item for item in collection_artworks if item["has_source_image"]
+    ]
+    image_artwork_position = next(
+        (
+            index
+            for index, item in enumerate(image_artworks)
+            if item["artwork_code"] == artwork["artwork_code"]
+        ),
+        None,
+    )
+    previous_image_artwork = (
+        image_artworks[image_artwork_position - 1]
+        if image_artwork_position is not None and image_artwork_position > 0
+        else None
+    )
+    next_image_artwork = (
+        image_artworks[image_artwork_position + 1]
+        if (
+            image_artwork_position is not None
+            and image_artwork_position + 1 < len(image_artworks)
+        )
+        else None
+    )
     auto_update_listing = next((
         item for item in artwork_listings
         if item["status"] == "published"
@@ -509,6 +568,8 @@ def _artwork_context(artwork_code: str, active_stage="details", **extra):
         "printify_profile": printify_profile,
         "previous_artwork": previous_artwork,
         "next_artwork": next_artwork,
+        "previous_image_artwork": previous_image_artwork,
+        "next_image_artwork": next_image_artwork,
         "workflow_nav": _workflow_navigation(
             artwork,
             production=production,
@@ -697,6 +758,1003 @@ def home(request: Request, dashboard_view: str = Query("artworks", alias="view")
         request=request,
         name="index.html",
         context=context,
+    )
+
+
+@app.get("/designs")
+def standalone_designs_page(
+    request: Request,
+    search: str = Query(""),
+    tag: str = Query(""),
+    design_status: str = Query("all", alias="status"),
+    page: int = Query(1, ge=1),
+):
+    show_archived = request.query_params.get("show") == "archived"
+    normalized_search = search.strip()
+    normalized_tag = tag.strip()
+    normalized_status = design_status.strip().lower() or "all"
+    if normalized_status not in {"all", "draft", "printify", "etsy", "paused"}:
+        raise HTTPException(status_code=400, detail="Invalid design status")
+    designs = [
+        dict(item)
+        for item in list_standalone_designs()
+        if (item["status"] == "archived") == show_archived
+    ]
+    for item in designs:
+        item["tag_list"] = parse_tags(item.get("tags") or "")
+    available_tags = sorted(
+        {
+            saved_tag
+            for item in designs
+            for saved_tag in item["tag_list"]
+        },
+        key=str.casefold,
+    )
+    if normalized_search:
+        search_key = normalized_search.casefold()
+        designs = [
+            item
+            for item in designs
+            if search_key
+            in " ".join(
+                str(item.get(field) or "")
+                for field in (
+                    "name",
+                    "message",
+                    "description",
+                    "tags",
+                    "product_title",
+                    "product_description",
+                )
+            ).casefold()
+        ]
+    if normalized_tag:
+        tag_key = normalized_tag.casefold()
+        designs = [
+            item
+            for item in designs
+            if tag_key in {
+                saved_tag.casefold() for saved_tag in item["tag_list"]
+            }
+        ]
+    if normalized_status == "draft":
+        designs = [item for item in designs if not item["printify_product_id"]]
+    elif normalized_status == "printify":
+        designs = [
+            item
+            for item in designs
+            if item["printify_product_id"] and not item["etsy_listing_id"]
+        ]
+    elif normalized_status == "etsy":
+        designs = [
+            item
+            for item in designs
+            if str(item["etsy_state"] or "").lower() == "active"
+            and not item["etsy_paused_at"]
+        ]
+    elif normalized_status == "paused":
+        designs = [item for item in designs if item["etsy_paused_at"]]
+    page_size = 24
+    total_designs = len(designs)
+    total_pages = max(1, (total_designs + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    offset = (page - 1) * page_size
+    designs = designs[offset : offset + page_size]
+    query_values = {
+        "search": normalized_search,
+        "tag": normalized_tag,
+        "status": normalized_status,
+    }
+    if show_archived:
+        query_values["show"] = "archived"
+    query_values = {key: value for key, value in query_values.items() if value}
+    previous_url = (
+        f"/designs?{urlencode({**query_values, 'page': page - 1})}"
+        if page > 1
+        else None
+    )
+    next_url = (
+        f"/designs?{urlencode({**query_values, 'page': page + 1})}"
+        if page < total_pages
+        else None
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="designs.html",
+        context={
+            "designs": designs,
+            "show_archived": show_archived,
+            "active_search": normalized_search,
+            "active_tag": normalized_tag,
+            "active_design_status": normalized_status,
+            "available_tags": available_tags,
+            "total_designs": total_designs,
+            "page": page,
+            "total_pages": total_pages,
+            "previous_url": previous_url,
+            "next_url": next_url,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.get("/designs/new")
+def new_standalone_design_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="design_form.html",
+        context={
+            "design": None,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.get("/designs/quick-text")
+def quick_text_design_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="design_quick_text.html",
+        context={"dashboard_sidebar_active": "designs"},
+    )
+
+
+@app.post("/designs/quick-text")
+def create_quick_text_design_post(message: str = Form(...)):
+    saved = None
+    try:
+        normalized_message = "\n".join(
+            " ".join(line.split()) for line in message.splitlines()
+            if line.strip()
+        ).strip()
+        image = render_quick_text_design(normalized_message)
+        saved = save_design_source(image, "shangooli-quick-text.png")
+        generated = design_metadata_from_message(normalized_message)
+        design_id = create_standalone_design(
+            name=generated["name"],
+            message=" ".join(normalized_message.split()),
+            description=generated["description"],
+            tags=generated["tags"],
+            source_filename=saved["filename"],
+            source_original_filename=saved["original_filename"],
+            image_width=saved["width"],
+            image_height=saved["height"],
+        )
+    except ValueError as error:
+        if saved:
+            (
+                Path(__file__).resolve().parents[1]
+                / "assets"
+                / "designs"
+                / saved["filename"]
+            ).unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}?created=1", status_code=303
+    )
+
+
+@app.post("/designs/analyze-upload")
+async def analyze_standalone_design_upload(image: UploadFile = File(...)):
+    try:
+        result = analyze_design_image(await image.read(), image.filename or "")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return JSONResponse(result)
+
+
+@app.post("/designs/message-metadata")
+def standalone_design_message_metadata(message: str = Form(...)):
+    return JSONResponse(design_metadata_from_message(message))
+
+
+@app.post("/designs")
+async def create_standalone_design_post(
+    image: UploadFile = File(...),
+    name: str = Form(...),
+    message: str = Form(""),
+    description: str = Form(""),
+    tags: str = Form(""),
+):
+    saved = None
+    try:
+        saved = save_design_source(await image.read(), image.filename or "")
+        design_id = create_standalone_design(
+            name=name,
+            message=message,
+            description=description,
+            tags=tags,
+            source_filename=saved["filename"],
+            source_original_filename=saved["original_filename"],
+            image_width=saved["width"],
+            image_height=saved["height"],
+        )
+    except ValueError as error:
+        if saved:
+            (Path(__file__).resolve().parents[1] / "assets" / "designs" / saved["filename"]).unlink(
+                missing_ok=True
+            )
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}?created=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/designs/{design_id}")
+def standalone_design_page(request: Request, design_id: int):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    saved_products = {
+        item["product_type"]: item
+        for item in list_standalone_design_products(design_id)
+    }
+    product_options = []
+    for blueprint in mug_blueprints():
+        product = saved_products.get(blueprint["key"])
+        product_design = get_standalone_design(design_id, blueprint["key"])
+        readiness = product_readiness(
+            product=product,
+            source_exists=(
+                product_asset_path(product_design) is not None
+                if product is not None
+                else design_source_path(design) is not None
+            ),
+            blueprint=blueprint,
+        )
+        product_options.append(
+            {**blueprint, "product": product, "readiness": readiness}
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="design_detail.html",
+        context={
+            "design": design,
+            "background_cleanup_available": bool(
+                removable_background_preview(design)
+            ),
+            "product_options": product_options,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.get("/designs/{design_id}/background-preview")
+def standalone_design_background_preview(design_id: int):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    preview = removable_background_preview(design)
+    if preview is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This design does not have a safely removable solid background",
+        )
+    return Response(
+        content=preview,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/designs/{design_id}/remove-background")
+def remove_standalone_design_background_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    if not confirmed:
+        raise HTTPException(
+            status_code=400, detail="Confirm the transparent preview"
+        )
+    preview = removable_background_preview(design)
+    if preview is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This design does not have a safely removable solid background",
+        )
+    saved = save_design_source(
+        preview,
+        f"{Path(design['source_original_filename'] or 'design').stem}-transparent.png",
+    )
+    replace_standalone_design_source(
+        design_id,
+        source_filename=saved["filename"],
+        source_original_filename=saved["original_filename"],
+        image_width=saved["width"],
+        image_height=saved["height"],
+    )
+    return RedirectResponse(
+        f"/designs/{design_id}?background_removed=1", status_code=303
+    )
+
+
+@app.post("/designs/{design_id}")
+def update_standalone_design_post(
+    design_id: int,
+    name: str = Form(...),
+    message: str = Form(""),
+    description: str = Form(""),
+    tags: str = Form(""),
+):
+    try:
+        update_standalone_design(
+            design_id,
+            name=name,
+            message=message,
+            description=description,
+            tags=tags,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}?saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/{design_id}/archive")
+def archive_standalone_design_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm archiving this design")
+    try:
+        set_standalone_design_archived(design_id, True)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse("/designs?archived=1", status_code=303)
+
+
+@app.post("/designs/{design_id}/restore")
+def restore_standalone_design_post(design_id: int):
+    try:
+        set_standalone_design_archived(design_id, False)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}?restored=1", status_code=303
+    )
+
+
+@app.post("/designs/{design_id}/marketplace/check")
+def check_standalone_design_marketplace_post(
+    design_id: int,
+    etsy_listing: str = Form(""),
+    product_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    result, error = _check_standalone_design_marketplace(
+        design_id, etsy_listing, product_key
+    )
+    if error:
+        return RedirectResponse(
+            f"/designs/{design_id}?"
+            + _standalone_product_query(product_key, marketplace_error=error)
+            + f"#product-{product_key}",
+            status_code=303,
+        )
+    outcome = "linked" if result["linked"] else "waiting"
+    return RedirectResponse(
+        f"/designs/{design_id}?"
+        + _standalone_product_query(product_key, marketplace_status=outcome)
+        + f"#product-{product_key}",
+        status_code=303,
+    )
+
+
+def _check_standalone_design_marketplace(
+    design_id: int,
+    etsy_listing: str = "",
+    product_key: str = DEFAULT_MUG_BLUEPRINT_KEY,
+):
+    try:
+        supplied = (etsy_listing or "").strip()
+        if supplied:
+            match = re.search(r"(?:listing-editor/edit/|listing/)?(\d{6,})", supplied)
+            if not match:
+                raise ValueError("Paste a valid Etsy listing URL or listing ID")
+            etsy_id = match.group(1)
+            remote = get_etsy_listing(etsy_id)
+            etsy_state = str(remote.get("state") or "").strip().lower()
+            record_standalone_marketplace_status(
+                design_id,
+                etsy_listing_id=etsy_id,
+                etsy_listing_url=f"https://www.etsy.com/listing/{etsy_id}",
+                etsy_state=etsy_state,
+                paused=etsy_state != "active",
+                message=f"Etsy listing linked with status: {etsy_state or 'unknown'}.",
+                product_key=product_key,
+            )
+            result = {"linked": True}
+        else:
+            result = (
+                check_design_marketplace_status(design_id)
+                if product_key == DEFAULT_MUG_BLUEPRINT_KEY
+                else check_design_marketplace_status(
+                    design_id, product_key=product_key
+                )
+            )
+    except (EtsyAPIError, ValueError) as error:
+        return None, str(error)
+    return result, ""
+
+
+def _standalone_product_query(product_key, **values):
+    if product_key != DEFAULT_MUG_BLUEPRINT_KEY:
+        values["product_key"] = product_key
+    return urlencode(values)
+
+
+@app.get("/designs/{design_id}/etsy/finish")
+def standalone_design_finish_etsy_page(
+    request: Request,
+    design_id: int,
+    product_key: str = Query(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    design = get_standalone_design(design_id, product_key)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    if not design["printify_product_id"]:
+        raise HTTPException(
+            status_code=400, detail="Create the Printify product first"
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="design_finish_etsy.html",
+        context={
+            "design": design,
+            "product_key": product_key,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/etsy/finish")
+def standalone_design_finish_etsy_post(
+    design_id: int,
+    etsy_listing: str = Form(""),
+    product_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    result, error = _check_standalone_design_marketplace(
+        design_id, etsy_listing, product_key
+    )
+    if error:
+        return RedirectResponse(
+            f"/designs/{design_id}/etsy/finish?"
+            + _standalone_product_query(
+                product_key, finish_error=error
+            ),
+            status_code=303,
+        )
+    if result["linked"]:
+        linked_query = {"linked": 1}
+        if product_key != DEFAULT_MUG_BLUEPRINT_KEY:
+            linked_query["product_key"] = product_key
+        return RedirectResponse(
+            f"/designs/{design_id}/etsy?"
+            + urlencode(linked_query),
+            status_code=303,
+        )
+    waiting_query = {"waiting": 1}
+    if product_key != DEFAULT_MUG_BLUEPRINT_KEY:
+        waiting_query["product_key"] = product_key
+    return RedirectResponse(
+        f"/designs/{design_id}/etsy/finish?"
+        + urlencode(waiting_query),
+        status_code=303,
+    )
+
+
+def _standalone_design_etsy_content(design):
+    return {
+        "title": design["product_title"] or design["name"] or "",
+        "description": (
+            design["product_description"] or design["description"] or ""
+        ),
+        "tags": design["tags"] or "",
+        "price_cents": design["price_cents"] or 0,
+    }
+
+
+@app.get("/designs/{design_id}/etsy")
+def standalone_design_etsy_review_page(
+    request: Request,
+    design_id: int,
+    product_key: str = Query(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    design = get_standalone_design(design_id, product_key)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    content = _standalone_design_etsy_content(design)
+    checks = validate_etsy_listing(content)
+    remote = None
+    error = ""
+    if not design["etsy_listing_id"]:
+        error = "Find and link the Etsy listing before synchronizing its details."
+    else:
+        try:
+            remote = get_etsy_listing(str(design["etsy_listing_id"]))
+        except EtsyAPIError as caught:
+            error = str(caught)
+    changes = []
+    if remote is not None:
+        changes = [
+            {
+                "label": "Title",
+                "before": remote.get("title") or "",
+                "after": content["title"],
+            },
+            {
+                "label": "Description",
+                "before": remote.get("description") or "",
+                "after": content["description"],
+            },
+            {
+                "label": "Tags",
+                "before": ", ".join(remote.get("tags") or []),
+                "after": ", ".join(parse_tags(content["tags"])),
+            },
+        ]
+        for item in changes:
+            item["changed"] = item["before"] != item["after"]
+    return templates.TemplateResponse(
+        request=request,
+        name="design_etsy_sync.html",
+        context={
+            "design": design,
+            "product_key": product_key,
+            "checks": checks,
+            "ready": all(item["passed"] for item in checks),
+            "remote": remote,
+            "changes": changes,
+            "error": error,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/etsy/sync")
+def standalone_design_etsy_sync_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+    product_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    if not confirmed:
+        raise HTTPException(
+            status_code=400, detail="Confirm the Etsy details update"
+        )
+    design = get_standalone_design(design_id, product_key)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    if not design["etsy_listing_id"]:
+        raise HTTPException(
+            status_code=400, detail="Find and link the Etsy listing first"
+        )
+    content = _standalone_design_etsy_content(design)
+    problems = [
+        item["detail"]
+        for item in validate_etsy_listing(content)
+        if not item["passed"]
+    ]
+    if problems:
+        raise HTTPException(status_code=400, detail=" ".join(problems))
+    try:
+        get_etsy_listing(str(design["etsy_listing_id"]))
+        update_etsy_listing(
+            str(design["etsy_listing_id"]),
+            title=content["title"],
+            description=content["description"],
+            tags=parse_tags(content["tags"]),
+        )
+        record_standalone_marketplace_status(
+            design_id,
+            message=(
+                "Etsy title, description, and tags synchronized from "
+                "ShangooliOS."
+            ),
+            product_key=product_key,
+        )
+    except EtsyAPIError as error:
+        return RedirectResponse(
+            f"/designs/{design_id}/etsy?"
+            + _standalone_product_query(
+                product_key, etsy_sync_error=str(error)
+            ),
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/designs/{design_id}/etsy?"
+        + _standalone_product_query(product_key, synced=1),
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/etsy/pause")
+def pause_standalone_design_etsy_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+    product_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    design = get_standalone_design(design_id, product_key)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm pausing Etsy sales")
+    if not design["etsy_listing_id"]:
+        raise HTTPException(status_code=400, detail="Check Etsy status first")
+    try:
+        update_etsy_listing_state(str(design["etsy_listing_id"]), "inactive")
+        record_standalone_marketplace_status(
+            design_id,
+            etsy_state="inactive",
+            paused=True,
+            message="Etsy sales are paused.",
+            product_key=product_key,
+        )
+    except (EtsyAPIError, ValueError) as error:
+        return RedirectResponse(
+            f"/designs/{design_id}?"
+            + _standalone_product_query(
+                product_key, marketplace_error=str(error)
+            )
+            + f"#product-{product_key}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/designs/{design_id}?"
+        + _standalone_product_query(product_key, etsy_paused=1)
+        + f"#product-{product_key}",
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/etsy/reactivate")
+def reactivate_standalone_design_etsy_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+    product_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    design = get_standalone_design(design_id, product_key)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm reactivating Etsy sales")
+    if not design["etsy_listing_id"]:
+        raise HTTPException(status_code=400, detail="Check Etsy status first")
+    try:
+        update_etsy_listing_state(str(design["etsy_listing_id"]), "active")
+        record_standalone_marketplace_status(
+            design_id,
+            etsy_state="active",
+            paused=False,
+            message="Etsy sales are active.",
+            product_key=product_key,
+        )
+    except (EtsyAPIError, ValueError) as error:
+        return RedirectResponse(
+            f"/designs/{design_id}?"
+            + _standalone_product_query(
+                product_key, marketplace_error=str(error)
+            )
+            + f"#product-{product_key}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"/designs/{design_id}?"
+        + _standalone_product_query(product_key, etsy_reactivated=1)
+        + f"#product-{product_key}",
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/replace-image")
+async def replace_standalone_design_image_post(
+    design_id: int,
+    image: UploadFile = File(...),
+    replacement_message: str = Form(""),
+):
+    saved = None
+    try:
+        saved = save_design_source(await image.read(), image.filename or "")
+        replace_standalone_design_source(
+            design_id,
+            source_filename=saved["filename"],
+            source_original_filename=saved["original_filename"],
+            image_width=saved["width"],
+            image_height=saved["height"],
+        )
+        normalized_message = " ".join(replacement_message.split()).strip()
+        if normalized_message:
+            current = get_standalone_design(design_id)
+            generated = design_metadata_from_message(normalized_message)
+            update_standalone_design(
+                design_id,
+                name=generated["name"],
+                message=normalized_message,
+                description=generated["description"],
+                tags=generated["tags"],
+            )
+            if current and current["product_id"]:
+                save_mug_setup(
+                    design_id,
+                    title=f"{generated['name']} 11 oz Mug",
+                    description=generated["description"],
+                    price_cents=current["price_cents"],
+                    placement_x=current["placement_x"],
+                    placement_y=current["placement_y"],
+                    placement_scale=current["placement_scale"],
+                    placement_mode=current["placement_mode"],
+                    opposite_source_filename=current[
+                        "opposite_source_filename"
+                    ],
+                )
+    except ValueError as error:
+        if saved:
+            (
+                Path(__file__).resolve().parents[1]
+                / "assets"
+                / "designs"
+                / saved["filename"]
+            ).unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}?replaced=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/designs/{design_id}/image")
+def standalone_design_image(design_id: int):
+    design = get_standalone_design(design_id)
+    source = design_source_path(design)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Design image not found")
+    return FileResponse(source)
+
+
+@app.get("/designs/{design_id}/products/{blueprint_key}/image")
+def standalone_design_product_image(design_id: int, blueprint_key: str):
+    try:
+        get_product_blueprint(blueprint_key)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    design = get_standalone_design(design_id, blueprint_key)
+    source = (
+        product_asset_path(design)
+        if design and design["product_id"]
+        else design_source_path(design)
+    )
+    if source is None:
+        raise HTTPException(status_code=404, detail="Product image not found")
+    return FileResponse(source)
+
+
+@app.get("/designs/{design_id}/mug/opposite-image")
+def standalone_design_opposite_image(
+    design_id: int,
+    product_key: str = Query(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    design = get_standalone_design(design_id, product_key)
+    source = design_opposite_source_path(design)
+    if source is None:
+        raise HTTPException(
+            status_code=404, detail="Opposite-side graphic not found"
+        )
+    return FileResponse(source)
+
+
+@app.get("/designs/{design_id}/mug")
+def standalone_mug_review_page(request: Request, design_id: int):
+    return _standalone_product_review_page(
+        request, design_id, DEFAULT_MUG_BLUEPRINT_KEY, legacy_route=True
+    )
+
+
+@app.get("/designs/{design_id}/products/{blueprint_key}")
+def standalone_product_review_page(
+    request: Request, design_id: int, blueprint_key: str
+):
+    return _standalone_product_review_page(
+        request, design_id, blueprint_key, legacy_route=False
+    )
+
+
+def _standalone_product_review_page(
+    request, design_id, blueprint_key, *, legacy_route
+):
+    try:
+        profile = mug_profile(blueprint_key)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    design = get_standalone_design(design_id, blueprint_key)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    default_title = f"{design['name']} {profile['product_name']}"
+    readiness = product_readiness(
+        product=design if design["product_id"] else None,
+        source_exists=(
+            product_asset_path(design) is not None
+            if design["product_id"]
+            else design_source_path(design) is not None
+        ),
+        blueprint=PRODUCT_BLUEPRINTS[blueprint_key],
+    )
+    product_url_base = (
+        f"/designs/{design_id}/mug"
+        if legacy_route
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    placement_x = design["placement_x"] if design["product_id"] else profile["placement_x"]
+    placement_y = design["placement_y"] if design["product_id"] else profile["placement_y"]
+    placement_scale = (
+        design["placement_scale"] if design["product_id"] else profile["placement_scale"]
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="design_mug_review.html",
+        context={
+            "design": design,
+            "mug_profile": profile,
+            "blueprint_key": blueprint_key,
+            "product_url_base": product_url_base,
+            "product_readiness": readiness,
+            "placement_geometry": normalized_placement_geometry(
+                PRODUCT_BLUEPRINTS[blueprint_key],
+                x=placement_x,
+                y=placement_y,
+                scale=placement_scale,
+            ),
+            "default_title": default_title,
+            "configuration_source": printify_configuration_source(),
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/mug/setup")
+async def save_standalone_mug_setup_post(
+    design_id: int,
+    blueprint_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+    title: str = Form(...),
+    description: str = Form(""),
+    price: str = Form(...),
+    placement_scale: float = Form(MUG_PROFILE["placement_scale"]),
+    placement_x: float = Form(MUG_PROFILE["placement_x"]),
+    placement_y: float = Form(MUG_PROFILE["placement_y"]),
+    placement_mode: str = Form("front"),
+    opposite_image: UploadFile | None = File(None),
+):
+    saved_opposite = None
+    try:
+        if opposite_image and opposite_image.filename:
+            saved_opposite = save_design_source(
+                await opposite_image.read(),
+                opposite_image.filename,
+            )
+            if not saved_opposite["has_transparency"]:
+                raise ValueError(
+                    "The opposite-side graphic is fully opaque. Upload a PNG "
+                    "with real transparent pixels."
+                )
+        save_mug_setup(
+            design_id,
+            blueprint_key=blueprint_key,
+            title=title,
+            description=description,
+            price_cents=_price_to_cents(price),
+            placement_scale=placement_scale,
+            placement_x=placement_x,
+            placement_y=placement_y,
+            placement_mode=placement_mode,
+            opposite_source_filename=(
+                saved_opposite["filename"] if saved_opposite else None
+            ),
+        )
+    except ValueError as error:
+        if saved_opposite:
+            (
+                Path(__file__).resolve().parents[1]
+                / "assets"
+                / "designs"
+                / saved_opposite["filename"]
+            ).unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/{design_id}/mug/create")
+def create_standalone_mug_draft_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+    blueprint_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    try:
+        result = create_mug_draft(
+            design_id, confirmed=confirmed, blueprint_key=blueprint_key
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?result={result['outcome']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/{design_id}/mug/update-graphics")
+def update_standalone_mug_graphics_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+    blueprint_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    try:
+        result = update_mug_draft_graphics(
+            design_id,
+            confirmed=confirmed,
+            blueprint_key=blueprint_key,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?result={result['outcome']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/prepare-latest")
+def prepare_standalone_product_latest_asset_post(
+    design_id: int,
+    blueprint_key: str,
+    confirmed: bool = Form(False),
+):
+    try:
+        get_product_blueprint(blueprint_key)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if not confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirm preparation of the latest design graphic",
+        )
+    design = get_standalone_design(design_id, blueprint_key)
+    source = design_source_path(design)
+    if design is None or source is None:
+        raise HTTPException(status_code=404, detail="Design graphic not found")
+    try:
+        prepare_standalone_product_asset(
+            design_id, blueprint_key, design["source_filename"]
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?prepared=1",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
@@ -1238,18 +2296,40 @@ def listings_page(
     listing_status: str = Query("", alias="status"),
     listing_view: str = Query("", alias="view"),
     collection_code: str = Query("", alias="collection"),
+    collection_state: str = Query("active"),
+    artwork_state: str = Query("current"),
+    item_type: str = Query("artwork"),
+    search: str = Query(""),
 ):
     normalized_status = listing_status.strip().lower()
     normalized_view = listing_view.strip().lower()
-    normalized_collection = collection_code.strip().upper()
+    requested_collection = collection_code.strip()
+    normalized_collection_state = collection_state.strip().lower() or "active"
+    normalized_artwork_state = artwork_state.strip().lower() or "current"
+    normalized_item_type = item_type.strip().lower() or "artwork"
+    normalized_search = search.strip()
     if normalized_view not in ("", "ready", "attention"):
         raise HTTPException(status_code=400, detail="Invalid listing view")
+    if normalized_collection_state not in ("active", "paused", "all"):
+        raise HTTPException(status_code=400, detail="Invalid collection state")
+    if normalized_artwork_state not in ("current", "retired", "all"):
+        raise HTTPException(status_code=400, detail="Invalid artwork state")
+    if normalized_item_type not in ("artwork", "designs", "all"):
+        raise HTTPException(status_code=400, detail="Invalid item type")
     if normalized_status and normalized_view:
         raise HTTPException(status_code=400, detail="Choose a status or readiness view, not both")
     collections = list(get_collections())
-    collection_codes = {item["code"] for item in collections}
-    if normalized_collection and normalized_collection not in collection_codes:
+    collections_by_code = {item["code"].upper(): item for item in collections}
+    collections_by_name = {item["name"].strip().casefold(): item for item in collections}
+    matched_collection = (
+        collections_by_code.get(requested_collection.upper())
+        or collections_by_name.get(requested_collection.casefold())
+        if requested_collection
+        else None
+    )
+    if requested_collection and matched_collection is None:
         raise HTTPException(status_code=400, detail="Invalid collection filter")
+    normalized_collection = matched_collection["code"] if matched_collection else ""
     try:
         listing_rows = list_listings(
             normalized_status or None, normalized_collection or None
@@ -1260,6 +2340,53 @@ def listings_page(
     for row in listing_rows:
         item = dict(row)
         item["readiness"] = get_listing_readiness(item["id"])
+        item["missing_labels"] = [
+            check["label"]
+            for check in item["readiness"]["items"]
+            if not check["passed"]
+        ]
+        if item["status"] == "archived":
+            item["primary_action"] = {
+                "label": "Review archived listing",
+                "url": f"/listings/{item['id']}",
+                "external": False,
+            }
+        elif not item["readiness"]["ready"]:
+            item["primary_action"] = {
+                "label": "Fix missing items",
+                "url": f"/listings/{item['id']}",
+                "external": False,
+            }
+        elif item["etsy_paused_at"]:
+            item["primary_action"] = {
+                "label": "Review paused listing",
+                "url": f"/listings/{item['id']}",
+                "external": False,
+            }
+        elif item["status"] == "published":
+            item["primary_action"] = {
+                "label": "Open on Etsy" if item["marketplace_url"] else "Open listing",
+                "url": item["marketplace_url"] or f"/listings/{item['id']}",
+                "external": bool(item["marketplace_url"]),
+            }
+        elif item["printify_publish_requested_at"]:
+            item["primary_action"] = {
+                "label": "Check Etsy status",
+                "url": f"/collections/{item['collection_code']}/publish/recover",
+                "external": False,
+            }
+        elif item["printify_product_url"]:
+            item["primary_action"] = {
+                "label": "Publish to Etsy",
+                "url": f"/collections/{item['collection_code']}/publish",
+                "external": False,
+            }
+        else:
+            item["primary_action"] = {
+                "label": "Send to Printify",
+                "url": f"/collections/{item['collection_code']}/printify",
+                "external": False,
+            }
         listings.append(item)
     if normalized_view == "ready":
         listings = [
@@ -1272,6 +2399,90 @@ def listings_page(
             item for item in listings
             if not item["readiness"]["ready"] and item["status"] != "archived"
         ]
+    elif not normalized_status:
+        listings = [item for item in listings if item["status"] != "archived"]
+    if normalized_collection_state != "all":
+        listings = [
+            item for item in listings
+            if item["collection_status"] == normalized_collection_state
+        ]
+    if normalized_artwork_state == "current":
+        listings = [
+            item for item in listings if item["artwork_status"] != "retired"
+        ]
+    elif normalized_artwork_state == "retired":
+        listings = [
+            item for item in listings if item["artwork_status"] == "retired"
+        ]
+    if normalized_search:
+        search_key = normalized_search.casefold()
+        listings = [
+            item
+            for item in listings
+            if search_key
+            in " ".join(
+                str(item.get(field) or "")
+                for field in (
+                    "title",
+                    "description",
+                    "artwork_code",
+                    "public_title",
+                    "collection_name",
+                    "collection_code",
+                )
+            ).casefold()
+        ]
+    designs = [dict(item) for item in list_standalone_designs()]
+    designs = [item for item in designs if item["status"] != "archived"]
+    if normalized_search:
+        search_key = normalized_search.casefold()
+        designs = [
+            item
+            for item in designs
+            if search_key
+            in " ".join(
+                str(item.get(field) or "")
+                for field in (
+                    "name",
+                    "message",
+                    "description",
+                    "tags",
+                    "product_title",
+                    "product_description",
+                )
+            ).casefold()
+        ]
+    for design in designs:
+        if design["etsy_paused_at"]:
+            design["display_state"] = "Paused on Etsy"
+            design["state_class"] = "attention"
+        elif str(design["etsy_state"] or "").lower() == "active":
+            design["display_state"] = "Live on Etsy"
+            design["state_class"] = "printify"
+        elif design["external_state"] in {
+            "needs_update",
+            "failed",
+            "outcome_unknown",
+            "update_outcome_unknown",
+        }:
+            design["display_state"] = "Needs attention"
+            design["state_class"] = "attention"
+        elif design["printify_product_id"]:
+            design["display_state"] = "Printify product"
+            design["state_class"] = "printify"
+        else:
+            design["display_state"] = "Design draft"
+            design["state_class"] = "draft"
+    if normalized_item_type == "designs":
+        listings = []
+    elif normalized_item_type == "artwork":
+        designs = []
+    visible_collections = [
+        item
+        for item in collections
+        if normalized_collection_state == "all"
+        or item["status"] == normalized_collection_state
+    ]
     return templates.TemplateResponse(
         request=request,
         name="listings.html",
@@ -1280,9 +2491,22 @@ def listings_page(
             "active_status": normalized_status,
             "active_view": normalized_view,
             "active_collection": normalized_collection,
-            "collections": collections,
+            "active_collection_name": (
+                matched_collection["name"] if matched_collection else ""
+            ),
+            "collections": visible_collections,
             "statuses": ("draft", "ready", "published", "archived"),
-            "status_counts": get_listing_status_counts(),
+            "status_counts": get_listing_status_counts(
+                None
+                if normalized_collection_state == "all"
+                else normalized_collection_state,
+                normalized_artwork_state,
+            ),
+            "active_collection_state": normalized_collection_state,
+            "active_artwork_state": normalized_artwork_state,
+            "active_item_type": normalized_item_type,
+            "active_search": normalized_search,
+            "designs": designs,
         },
     )
 
@@ -2747,7 +3971,10 @@ def create_artwork_post(
 
 
 @app.post("/artworks/{artwork_code}/intelligence/analyze")
-def analyze_artwork_post(artwork_code: str):
+def analyze_artwork_post(
+    artwork_code: str,
+    analysis_mode: str = Form("fill_blanks"),
+):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
@@ -2759,7 +3986,19 @@ def analyze_artwork_post(artwork_code: str):
         except ValueError:
             source = None
     result = analyze_artwork(artwork, source)
-    update_artwork_intelligence(artwork_code, **result)
+    if analysis_mode == "replace":
+        update_artwork_intelligence(artwork_code, **result)
+    else:
+        existing = get_artwork_intelligence(artwork_code)
+        updates = {
+            key: value
+            for key, value in result.items()
+            if key != "analyzed_at"
+            and not str(existing[key] if existing and key in existing.keys() else "").strip()
+        }
+        if updates and result.get("analyzed_at"):
+            updates["analyzed_at"] = result["analyzed_at"]
+        update_artwork_intelligence(artwork_code, **updates)
     return RedirectResponse(url=f"/artworks/{artwork_code}?step=intelligence", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -2784,13 +4023,28 @@ def save_artwork_intelligence_post(
 
 
 @app.post("/artworks/{artwork_code}/listing-content/generate")
-def generate_listing_content_post(artwork_code: str):
+def generate_listing_content_post(
+    artwork_code: str,
+    generation_mode: str = Form("fill_blanks"),
+):
     artwork = get_artwork(artwork_code)
     if artwork is None:
         raise HTTPException(status_code=404, detail="Artwork not found")
     intelligence = get_artwork_intelligence(artwork_code)
     result = generate_listing_content(artwork, intelligence)
-    update_artwork_listing_content(artwork_code, **result)
+    if generation_mode == "replace":
+        update_artwork_listing_content(artwork_code, **result)
+    else:
+        existing = get_artwork_listing_content(artwork_code)
+        updates = {
+            key: value
+            for key, value in result.items()
+            if key != "generated_at"
+            and not str(existing[key] if existing and key in existing.keys() else "").strip()
+        }
+        if updates and result.get("generated_at"):
+            updates["generated_at"] = result["generated_at"]
+        update_artwork_listing_content(artwork_code, **updates)
     set_artwork_production_flags(artwork_code, listing_content_ready=True)
     return RedirectResponse(
         url=f"/artworks/{artwork_code}?step=story",

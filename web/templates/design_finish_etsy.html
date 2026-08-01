@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Finish Etsy Setup — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <a class="workflow-back-link mb-3" href="/designs/{{ design['id'] }}">← Back to Design</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Etsy handoff</div>
+        <h1 class="display-6 fw-bold">Finish Etsy Setup</h1>
+        <p class="text-muted mb-0">{{ design["name"] }} · Find the Etsy listing, then review its saved details.</p>
+      </div>
+      {% if design["printify_product_url"] %}
+      <a class="btn btn-outline-success" href="{{ design['printify_product_url'] }}" target="_blank" rel="noopener">Open Printify ↗</a>
+      {% endif %}
+    </div>
+
+    {% if request.query_params.get("finish_error") %}
+    <div class="alert alert-danger">{{ request.query_params.get("finish_error") }}</div>
+    {% endif %}
+
+    <section class="section-card design-etsy-finish-card">
+      {% if request.query_params.get("waiting") %}
+      <div class="design-etsy-waiting">
+        <span class="operation-spinner" aria-hidden="true"></span>
+        <div>
+          <div class="eyebrow">Waiting for Etsy</div>
+          <h2 class="h4 mb-1">Printify has not reported the listing yet</h2>
+          <p class="text-muted mb-0">Nothing will be published again. Wait briefly, then safely check the same product again.</p>
+        </div>
+      </div>
+      <p class="design-etsy-timer mb-0">Waiting <strong data-etsy-wait-timer>0:00</strong></p>
+      {% else %}
+      <div>
+        <div class="eyebrow">Safe status check</div>
+        <h2 class="h4 mb-1">Find the connected Etsy listing</h2>
+        <p class="text-muted mb-0">This checks the existing Printify product only. It cannot publish or duplicate the product.</p>
+      </div>
+      {% endif %}
+
+      <form method="post" action="/designs/{{ design['id'] }}/etsy/finish" data-long-operation data-wait-stages="Checking Printify|Looking for the Etsy listing">
+        <input type="hidden" name="product_key" value="{{ product_key }}">
+        <button class="btn btn-primary" type="submit">
+          {{ "Check Again" if request.query_params.get("waiting") else "Find Etsy Listing" }}
+        </button>
+      </form>
+
+      <div class="design-etsy-manual-link">
+        <div>
+          <strong>Already visible on Etsy?</strong>
+          <small>Paste its public Etsy URL to link it immediately.</small>
+        </div>
+        <form method="post" action="/designs/{{ design['id'] }}/etsy/finish" class="design-status-form">
+          <input type="hidden" name="product_key" value="{{ product_key }}">
+          <input class="form-control" name="etsy_listing" placeholder="Paste Etsy listing URL or ID" required>
+          <button class="btn btn-outline-primary" type="submit">Link Listing</button>
+        </form>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+(() => {
+  const timer = document.querySelector("[data-etsy-wait-timer]");
+  if (!timer) return;
+  const started = Date.now();
+  const update = () => {
+    const seconds = Math.floor((Date.now() - started) / 1000);
+    timer.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+  update();
+  window.setInterval(update, 1000);
+})();
+</script>
+{% endblock %}

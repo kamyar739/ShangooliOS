@@ -1,5 +1,5 @@
 <div class="artwork-back-row">
-    <a href="/collections?collection={{ artwork['collection_code'] }}#collection-workflow" class="context-nav-link"><span aria-hidden="true">←</span> {{ artwork["collection_name"] }}</a>
+    <a href="/collections?collection={{ artwork['collection_code'] }}" class="context-nav-link"><span aria-hidden="true">←</span> {{ artwork["collection_name"] }}</a>
     <span class="artwork-sibling-nav">
       {% if previous_artwork %}<a href="/artworks/{{ previous_artwork['artwork_code'] }}?step={{ workflow_nav.active_stage }}" class="context-nav-link">← {{ previous_artwork['public_title'] }}</a>{% endif %}
       {% if next_artwork %}<a href="/artworks/{{ next_artwork['artwork_code'] }}?step={{ workflow_nav.active_stage }}" class="context-nav-link">{{ next_artwork['public_title'] }} →</a>{% endif %}
