@@ -3567,6 +3567,20 @@ def list_standalone_design_products(design_id):
         ).fetchall()
 
 
+def list_standalone_product_summaries():
+    """Return all product rows used to summarize and filter design cards."""
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT design_id, product_type, title, description,
+                   printify_product_id, external_state, etsy_listing_id,
+                   etsy_state, etsy_paused_at
+            FROM standalone_design_products
+            ORDER BY design_id, created_at, id
+            """
+        ).fetchall()
+
+
 def list_standalone_designs():
     with get_connection() as conn:
         return conn.execute(
@@ -3807,6 +3821,48 @@ def save_standalone_design_product(
                 opposite_source_filename,
             ),
         )
+        conn.commit()
+
+
+def update_standalone_product_copy(
+    design_id, product_key, *, title, description
+):
+    """Stage copy changes for one connected product without touching setup."""
+    normalized_title = (title or "").strip()
+    if not normalized_title:
+        raise ValueError("Enter a product title")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET title = ?, description = ?,
+                external_state = CASE
+                    WHEN printify_product_id IS NOT NULL THEN 'needs_update'
+                    ELSE external_state
+                END,
+                external_message = CASE
+                    WHEN printify_product_id IS NOT NULL
+                    THEN 'Product copy changed. Update the existing Printify draft.'
+                    ELSE external_message
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+              AND external_state NOT IN (
+                  'creating', 'outcome_unknown', 'updating',
+                  'update_outcome_unknown'
+              )
+            """,
+            (
+                normalized_title,
+                (description or "").strip(),
+                design_id,
+                product_key,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(
+                "Save the product setup or resolve its current operation first"
+            )
         conn.commit()
 
 

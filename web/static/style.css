@@ -5610,6 +5610,45 @@ a.collection-count:hover {
     line-height: 1.2;
 }
 
+.design-card-products {
+    display: grid;
+    gap: .25rem;
+    width: 100%;
+}
+
+.design-card-products > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .4rem;
+    padding: .3rem .45rem;
+    border-radius: .5rem;
+    background: #f5f6fa;
+    color: #333b4d;
+    font-size: .68rem;
+    font-weight: 700;
+}
+
+.design-card-products strong {
+    display: block;
+    overflow: hidden;
+    font-size: .68rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.design-card-products em {
+    color: var(--success);
+    font-size: .62rem;
+    font-style: normal;
+}
+
+.design-card-products .is-empty {
+    color: var(--muted);
+    font-weight: 600;
+}
+
 .design-tag-filter {
     min-width: 13rem;
 }
@@ -6403,6 +6442,176 @@ a.collection-count:hover {
   background: #4939c2;
   border-color: #4939c2;
   color: #fff;
+}
+
+.design-product-option-status .design-pinterest-button {
+  background: #b51f5f;
+  border-color: #b51f5f;
+  color: #fff;
+}
+
+.design-product-option-status .design-pinterest-button:hover {
+  background: #94194d;
+  border-color: #94194d;
+}
+
+.pinterest-bundle-layout {
+  display: grid;
+  grid-template-columns: minmax(20rem, .78fr) minmax(30rem, 1.22fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.pinterest-bundle-preview {
+  display: grid;
+  gap: .85rem;
+}
+
+.pinterest-bundle-preview img {
+  display: block;
+  width: 100%;
+  max-height: 46rem;
+  object-fit: contain;
+  border: 1px solid #e1dfdb;
+  border-radius: .85rem;
+  background: #f7f0e5;
+}
+
+.pinterest-copy-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.pinterest-copy-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pinterest-copy-field {
+  display: grid;
+  gap: .35rem;
+}
+
+.pinterest-copy-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pinterest-copy-heading label {
+  color: #222b42;
+  font-size: .83rem;
+  font-weight: 700;
+}
+
+.pinterest-copy-heading button {
+  padding: .2rem .6rem;
+  border: 1px solid #d8d2ff;
+  border-radius: 999px;
+  background: #f3f1ff;
+  color: #5040c4;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.pinterest-copy-field textarea {
+  width: 100%;
+  padding: .75rem;
+  resize: vertical;
+  border: 1px solid #dfe3ed;
+  border-radius: .75rem;
+  background: #fbfbfd;
+  color: #1f2738;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.pinterest-bundle-suggestions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .6rem;
+}
+
+.pinterest-bundle-suggestions > div {
+  padding: .7rem;
+  border: 1px solid #e2e5ed;
+  border-radius: .7rem;
+  background: #f8f9fc;
+}
+
+.pinterest-bundle-suggestions span,
+.pinterest-bundle-suggestions strong {
+  display: block;
+}
+
+.pinterest-bundle-suggestions span {
+  margin-bottom: .2rem;
+  color: #747d90;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.pinterest-bundle-suggestions strong {
+  color: #252d40;
+  font-size: .78rem;
+}
+
+.pinterest-help-bubble {
+  position: relative;
+}
+
+.pinterest-help-bubble summary {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  cursor: pointer;
+  list-style: none;
+  border: 1px solid #d8d2ff;
+  border-radius: 50%;
+  background: #f3f1ff;
+  color: #5040c4;
+  font-weight: 800;
+}
+
+.pinterest-help-bubble summary::-webkit-details-marker {
+  display: none;
+}
+
+.pinterest-help-bubble > div {
+  position: absolute;
+  z-index: 4;
+  top: 2.45rem;
+  right: 0;
+  width: 20rem;
+  padding: 1rem;
+  border: 1px solid #dcd7f6;
+  border-radius: .85rem;
+  background: #fff;
+  box-shadow: 0 .75rem 2rem rgba(31, 29, 70, .16);
+}
+
+.pinterest-help-bubble ol {
+  margin: .55rem 0 0;
+  padding-left: 1.2rem;
+  color: #596174;
+  font-size: .8rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .pinterest-bundle-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pinterest-bundle-suggestions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .design-product-actions {

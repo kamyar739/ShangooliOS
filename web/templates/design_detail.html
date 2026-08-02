@@ -76,14 +76,14 @@
         <div class="eyebrow">Design details</div>
         <div class="mb-3"><label class="form-label">Name</label><textarea class="form-control" name="name" rows="2" required>{{ design["name"] }}</textarea></div>
         <div class="mb-3"><label class="form-label">Message</label><textarea class="form-control" name="message" rows="3">{{ design["message"] or "" }}</textarea></div>
-        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="9">{{ design["description"] or "" }}</textarea></div>
+        <input type="hidden" name="description" value="{{ design['description'] or '' }}">
         <div class="mb-3"><label class="form-label">Tags</label><textarea class="form-control" name="tags" rows="5">{{ design["tags"] or "" }}</textarea></div>
         <div class="text-end"><button class="btn btn-primary" type="submit">Save Details</button></div>
       </form>
     </div>
     <section class="section-card compact-section-card mt-4">
       <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
-        <div><div class="eyebrow">Products</div><h2 class="h4 mb-1">Create from this design</h2><p class="text-muted mb-0">Each mug keeps its own setup, price, Printify product, and marketplace state.</p></div>
+        <div><div class="eyebrow">Products</div><h2 class="h4 mb-1">Create from this design</h2><p class="text-muted mb-0">Each mug keeps its own listing title, description, setup, price, Printify product, and marketplace state.</p></div>
       </div>
       <div class="design-product-options">
         {% for option in product_options %}
@@ -92,13 +92,17 @@
           <div class="design-product-option-summary">
             <strong>{{ option["label"] }}</strong>
             <small>{{ option["provider_name"] }} · {{ option["variant_title"] }}</small>
+            {% if product %}<small>Product-specific listing copy</small>{% endif %}
           </div>
           <div class="design-product-option-status">
             {% if product and product["etsy_listing_id"] %}<span class="status-badge live">Live / linked</span>
             {% elif product and product["printify_product_id"] %}<span class="status-badge ready">On Printify</span>
             {% elif product %}<span class="status-badge draft">Setup saved</span>
             {% else %}<span class="status-badge draft">Not created</span>{% endif %}
-            <a class="btn btn-outline-primary btn-sm" href="{% if option['key'] == 'mug_11oz' %}/designs/{{ design['id'] }}/mug{% else %}/designs/{{ design['id'] }}/products/{{ option['key'] }}{% endif %}">{% if product %}Review{% else %}Create{% endif %}</a>
+            <a class="btn btn-outline-primary btn-sm" href="{% if option['key'] == 'mug_11oz' %}/designs/{{ design['id'] }}/mug{% else %}/designs/{{ design['id'] }}/products/{{ option['key'] }}{% endif %}">{% if product %}Review product{% else %}Create product{% endif %}</a>
+            {% if product and product["etsy_listing_url"] %}
+            <a class="btn design-pinterest-button btn-sm" href="/designs/{{ design['id'] }}/products/{{ option['key'] }}/pinterest">Pinterest bundle</a>
+            {% endif %}
           </div>
           {% if product and product["printify_product_id"] %}
           <div class="design-product-actions">

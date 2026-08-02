@@ -16,15 +16,17 @@
     </div>
 
     {% if request.query_params.get("saved") %}<div class="alert alert-success">Mug setup saved. Review the final confirmation below.</div>{% endif %}
+    {% if request.query_params.get("copy_saved") %}<div class="alert alert-success">Product copy saved locally. Review it, then sync this product to Printify and Etsy.</div>{% endif %}
     {% if request.query_params.get("prepared") %}<div class="alert alert-success">The latest design graphic is prepared for this product only. Review the setup, then update its existing Printify draft when ready.</div>{% endif %}
     {% if request.query_params.get("result") == "created" %}<div class="alert alert-success">Unpublished mug draft created in Printify. Nothing was sent to Etsy.</div>{% endif %}
-    {% if request.query_params.get("result") == "updated" %}<div class="alert alert-success">The current graphic, title, and description were applied to the existing Printify mug product. Review any marketplace changes in Printify before publishing them.</div>{% endif %}
+    {% if request.query_params.get("result") == "updated" and request.query_params.get("update") == "copy" %}<div class="alert alert-success">The title and description were updated in Printify. Artwork, placement, variants, price, mockups, and shipping were left unchanged.</div>{% elif request.query_params.get("result") == "updated" %}<div class="alert alert-success">The current graphic, title, and description were applied to the existing Printify mug product. Review any marketplace changes in Printify before publishing them.</div>{% endif %}
     {% if request.query_params.get("result") == "outcome_unknown" %}<div class="alert alert-warning">Printify did not confirm the update. Open the existing draft and verify it before trying again.</div>{% endif %}
     {% if design["external_state"] == "outcome_unknown" %}<div class="alert alert-warning"><strong>Manual check required.</strong> {{ design["external_message"] }}</div>{% endif %}
     {% if design["external_state"] == "failed" %}<div class="alert alert-danger">{{ design["external_message"] }}</div>{% endif %}
 
     <div class="mug-review-grid">
       {% set setup_locked = design["printify_product_id"] and design["external_state"] != "needs_update" %}
+      {% set copy_editing = edit_copy and setup_locked %}
       <section class="mug-preview-card">
         <div class="eyebrow">Placement preview</div>
         <div class="mug-preview">
@@ -43,7 +45,7 @@
         <p class="small text-muted mb-0">Approximate preview. Inspect Printify’s generated mockups before publishing or ordering.</p>
       </section>
 
-      <form class="section-card compact-section-card" method="post" action="/designs/{{ design['id'] }}/mug/setup" enctype="multipart/form-data" data-long-operation data-wait-stages="Uploading opposite-side graphic|Saving mug setup">
+      <form class="section-card compact-section-card" method="post" action="{% if copy_editing %}/designs/{{ design['id'] }}/products/{{ blueprint_key }}/copy{% else %}/designs/{{ design['id'] }}/mug/setup{% endif %}" enctype="multipart/form-data" data-long-operation data-wait-stages="{% if copy_editing %}Saving product copy{% else %}Uploading opposite-side graphic|Saving mug setup{% endif %}">
         <input type="hidden" name="blueprint_key" value="{{ blueprint_key }}">
         <div class="eyebrow">Mug setup</div>
         <div class="mug-product-summary">
@@ -51,8 +53,8 @@
           <div><small>Provider</small><strong>{{ mug_profile["provider_name"] }}</strong></div>
           <div><small>Variant</small><strong>{{ mug_profile["variant_title"] }}</strong></div>
         </div>
-        <div class="mb-3"><label class="form-label">Product title</label><textarea class="form-control" name="title" rows="3" required {% if setup_locked %}disabled{% endif %}>{{ design["product_title"] or default_title }}</textarea></div>
-        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="9" {% if setup_locked %}disabled{% endif %}>{{ design["product_description"] if design["product_id"] else design["description"] or "" }}</textarea></div>
+        <div class="mb-3"><label class="form-label">Product title</label><textarea class="form-control" name="title" rows="3" required {% if setup_locked and not copy_editing %}disabled{% endif %}>{% if copy_editing and suggested_title %}{{ suggested_title }}{% else %}{{ design["product_title"] or default_title }}{% endif %}</textarea>{% if copy_editing %}<div class="form-text">ShangooliOS proposed a concise, search-oriented title. Review it before saving.</div>{% endif %}</div>
+        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" id="mug-description" rows="9" {% if setup_locked and not copy_editing %}disabled{% endif %}>{% if copy_editing %}{{ suggested_description }}{% else %}{{ design["product_description"] if design["product_id"] else design["description"] or "" }}{% endif %}</textarea>{% if copy_editing %}<div class="form-text">ShangooliOS included this mug's product details and saved side placement. Review it before saving.</div>{% endif %}</div>
         <div class="mug-setup-primary-grid">
           <div><label class="form-label">Retail price</label><div class="input-group"><span class="input-group-text">$</span><input class="form-control" name="price" value="{{ '%.2f'|format((design['price_cents'] or mug_profile['default_price_cents']) / 100) }}" required {% if setup_locked %}disabled{% endif %}></div></div>
           <div><label class="form-label">Design size</label><select class="form-select" name="placement_scale" {% if setup_locked %}disabled{% endif %}>{% set scale = design["placement_scale"] or mug_profile["placement_scale"] %}<option value="0.35" {% if scale == 0.35 %}selected{% endif %}>Compact</option><option value="0.45" {% if scale == 0.45 %}selected{% endif %}>Standard</option><option value="0.60" {% if scale == 0.60 %}selected{% endif %}>Large</option><option value="0.80" {% if scale == 0.80 %}selected{% endif %}>Near wrap</option></select></div>
@@ -77,7 +79,7 @@
           </div>
         </div>
         <p class="small text-muted mt-2 mb-0">Use the preview to position the graphic, then verify the generated mockups in Printify before publishing. This blueprint uses a {{ placement_geometry["print_area_width"] }} × {{ placement_geometry["print_area_height"] }} px print area; ShangooliOS converts the saved normalized placement for it automatically.</p>
-        {% if not setup_locked %}<div class="text-end mt-4"><button class="btn btn-outline-primary" type="submit">{% if design["printify_product_id"] %}Save Corrected Mug Setup{% else %}Save Mug Setup{% endif %}</button></div>{% endif %}
+        {% if copy_editing %}<div class="d-flex justify-content-end gap-2 mt-4"><a class="btn btn-outline-secondary" href="{{ product_url_base }}">Cancel</a><button class="btn btn-primary" type="submit">Save Product Copy</button></div>{% elif not setup_locked %}<div class="text-end mt-4"><button class="btn btn-outline-primary" type="submit">{% if design["printify_product_id"] %}Save Corrected Mug Setup{% else %}Save Mug Setup{% endif %}</button></div>{% endif %}
       </form>
     </div>
 
@@ -94,7 +96,14 @@
     {% endif %}
 
     <section class="final-confirmation-card mt-4">
-      {% if design["printify_product_id"] and design["external_state"] == "needs_update" %}
+      {% if design["printify_product_id"] and design["external_state"] == "needs_update" and design["external_message"] == "Product copy changed. Update the existing Printify draft." %}
+      <div><div class="eyebrow">Wording ready</div><h2 class="h4">Update the Printify wording?</h2><p class="mb-0 text-muted">This sends only the title and description. Artwork, placement, variants, price, mockups, and shipping are not included.</p></div>
+      <form method="post" action="/designs/{{ design['id'] }}/mug/update-copy" data-long-operation data-wait-stages="Updating title and description|Saving confirmation">
+        <input type="hidden" name="blueprint_key" value="{{ blueprint_key }}">
+        <label class="form-check mb-3"><input class="form-check-input" type="checkbox" name="confirmed" required><span class="form-check-label">Update only this product's title and description in Printify.</span></label>
+        <button class="btn btn-primary" type="submit">Update Printify Wording</button>
+      </form>
+      {% elif design["printify_product_id"] and design["external_state"] == "needs_update" %}
       <div><div class="eyebrow">Corrected design</div><h2 class="h4">Update the existing Printify product?</h2><p class="mb-0 text-muted">This sends the current mug artwork, title, and description while preserving the product, variants, price, and Printify ID.</p></div>
       <form method="post" action="/designs/{{ design['id'] }}/mug/update-graphics" data-long-operation data-wait-stages="Uploading corrected graphic|Updating existing Printify draft|Saving confirmation">
         <input type="hidden" name="blueprint_key" value="{{ blueprint_key }}">
@@ -105,13 +114,9 @@
       <div><div class="eyebrow">Manual verification required</div><h2 class="h4">Check the existing Printify draft</h2><p class="mb-0 text-muted">The update response was lost. Verify the artwork in Printify before taking another action.</p></div>
       <a class="btn btn-success" href="{{ design['printify_product_url'] }}" target="_blank" rel="noopener">Open Printify ↗</a>
       {% elif design["printify_product_id"] %}
-      <div><div class="eyebrow">Printify product</div><h2 class="h4">Product connected</h2><p class="mb-0 text-muted">You can safely send the current ShangooliOS graphic, title, and description again. Review marketplace changes in Printify afterward.</p></div>
+      <div><div class="eyebrow">Printify product</div><h2 class="h4">Product connected</h2><p class="mb-0 text-muted">Improve the wording without resending artwork, or review the current product in Printify.</p></div>
       <div class="d-flex gap-2 flex-wrap">
-        <form method="post" action="/designs/{{ design['id'] }}/mug/update-graphics" data-long-operation data-wait-stages="Uploading current graphic|Updating Printify product|Saving confirmation">
-          <input type="hidden" name="blueprint_key" value="{{ blueprint_key }}">
-          <input type="hidden" name="confirmed" value="true">
-          <button class="btn btn-primary" type="submit">Sync Current Design to Printify</button>
-        </form>
+        <a class="btn btn-outline-primary" href="{{ product_url_base }}?edit_copy=1">Improve Product Copy</a>
         <a class="btn btn-success" href="{{ design['printify_product_url'] }}" target="_blank" rel="noopener">Review in Printify ↗</a>
         {% if design["etsy_listing_id"] %}
         <a class="btn btn-outline-success" href="/designs/{{ design['id'] }}/etsy{% if blueprint_key != 'mug_11oz' %}?product_key={{ blueprint_key }}{% endif %}">Review &amp; Sync Etsy Details</a>
@@ -140,6 +145,7 @@
   const x = document.getElementById("placement-x");
   const y = document.getElementById("placement-y");
   const mode = document.getElementById("placement-mode");
+  const description = document.getElementById("mug-description");
   const oppositeUpload = document.getElementById("mug-opposite-upload");
   const oppositeInput = document.getElementById("opposite-image");
   const sideNote = document.getElementById("mug-preview-side-note");
@@ -147,7 +153,26 @@
   const primarySource = "/designs/{{ design['id'] }}/products/{{ blueprint_key }}/image?v={{ design['production_asset_filename'] or design['source_filename'] }}";
   const oppositeSource = "{% if design['opposite_source_filename'] %}/designs/{{ design['id'] }}/mug/opposite-image?product_key={{ blueprint_key }}&v={{ design['opposite_source_filename'] }}{% endif %}";
   const hasSavedOpposite = {{ "true" if design["opposite_source_filename"] else "false" }};
-  if (!preview || !scale || !x || !y || !mode || !oppositeUpload || !oppositeInput || !sideNote || !switcher) return;
+  if (!preview || !scale || !x || !y || !mode || !description || !oppositeUpload || !oppositeInput || !sideNote || !switcher) return;
+
+  const placementDescriptions = {
+    front: "The design is printed on the right-handed side of the mug, so it faces outward when held in the right hand.",
+    reverse: "The design is printed on the left-handed side of the mug, so it faces outward when held in the left hand.",
+    both: "The design is printed on both sides for clear visibility when held in either hand.",
+    different: "The mug features a different design on each side for a distinct view from either direction."
+  };
+  const descriptionWithoutPlacement = value => {
+    let clean = value.trim();
+    Object.values(placementDescriptions).forEach(copy => {
+      clean = clean.replace(copy, "").trim();
+    });
+    if (clean && !/[.!?]$/.test(clean)) clean += ".";
+    return clean;
+  };
+  const updateDescription = () => {
+    const base = descriptionWithoutPlacement(description.value);
+    description.value = `${base}${base ? " " : ""}${placementDescriptions[mode.value]}`;
+  };
 
   const update = () => {
     preview.style.width = `${Number(scale.value) * 100}%`;
@@ -167,7 +192,11 @@
     document.getElementById("placement-x-value").textContent = `${Math.round(Number(x.value) * 100)}%`;
     document.getElementById("placement-y-value").textContent = `${Math.round(Number(y.value) * 100)}%`;
   };
-  [scale, x, y, mode].forEach(control => control.addEventListener("input", update));
+  [scale, x, y].forEach(control => control.addEventListener("input", update));
+  mode.addEventListener("input", () => {
+    updateDescription();
+    update();
+  });
   oppositeInput.addEventListener("change", () => {
     const [file] = oppositeInput.files;
     if (file) {
@@ -182,6 +211,7 @@
       ? (switcher.dataset.localOpposite || oppositeSource || primarySource)
       : primarySource;
   });
+  updateDescription();
   update();
 })();
 </script>

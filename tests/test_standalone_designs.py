@@ -18,11 +18,15 @@ from web.standalone_designs import (
     design_metadata_from_message,
     render_quick_text_design,
     save_mug_setup,
+    suggested_mug_description,
+    suggested_mug_title,
+    update_mug_draft_copy,
     update_mug_draft_graphics,
     mug_profile,
     product_asset_path,
 )
 from web.product_blueprints import normalized_placement_geometry
+from web.pinterest_bundle import pinterest_bundle_copy
 import web.standalone_designs as standalone_designs
 
 
@@ -198,6 +202,98 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertEqual(
             products["mug_11oz_black_accent"]["blueprint_version"], 1
         )
+
+    def test_connected_product_copy_can_be_corrected_without_changing_setup(self):
+        design_id = self._create_design()
+        db.update_standalone_design(
+            design_id,
+            name="I have all the best cells",
+            message="I have all the best cells.",
+            description="A biology teacher mug.",
+            tags="biology teacher, teacher gift",
+        )
+        self._save_accent_setup(design_id)
+        create_mug_draft(
+            design_id,
+            confirmed=True,
+            blueprint_key="mug_11oz_black_accent",
+            api=FakePrintifyAPI(),
+        )
+        before = db.get_standalone_design(
+            design_id, "mug_11oz_black_accent"
+        )
+
+        edit_page = self.client.get(
+            f"/designs/{design_id}/products/mug_11oz_black_accent"
+            "?edit_copy=1"
+        )
+        self.assertEqual(edit_page.status_code, 200)
+        self.assertIn(
+            "Biology Teacher Black Accent Mug – I have all the best cells",
+            edit_page.text,
+        )
+        self.assertIn(
+            "The black handle and interior give this 11 oz mug a bold, premium look.",
+            edit_page.text,
+        )
+        response = self.client.post(
+            f"/designs/{design_id}/products/mug_11oz_black_accent/copy",
+            data={
+                "title": "Biology Teacher Mug – I Have All the Best Cells",
+                "description": (
+                    "A biology teacher gift. The design is printed on both "
+                    "sides for clear visibility when held in either hand."
+                ),
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 303)
+        after = db.get_standalone_design(
+            design_id, "mug_11oz_black_accent"
+        )
+        self.assertEqual(after["external_state"], "needs_update")
+        self.assertEqual(after["price_cents"], before["price_cents"])
+        self.assertEqual(after["placement_x"], before["placement_x"])
+        self.assertEqual(
+            after["printify_product_id"], before["printify_product_id"]
+        )
+        self.assertEqual(
+            after["production_asset_filename"],
+            before["production_asset_filename"],
+        )
+
+    def test_suggested_mug_title_uses_teacher_subject_when_known(self):
+        self.assertEqual(
+            suggested_mug_title("I have all the best cells."),
+            "Biology Teacher Mug – I have all the best cells",
+        )
+
+    def test_suggested_mug_copy_is_blueprint_aware(self):
+        self.assertEqual(
+            suggested_mug_title(
+                "I have all the best cells.", "mug_11oz_black_accent"
+            ),
+            "Biology Teacher Black Accent Mug – I have all the best cells",
+        )
+        description = suggested_mug_description(
+            "A thoughtful biology teacher gift.",
+            "mug_11oz_black_accent",
+            "both",
+        )
+        self.assertIn("black handle and interior", description)
+        self.assertIn("printed on both sides", description)
+
+    def test_white_mug_suggested_copy_remains_unchanged(self):
+        self.assertEqual(
+            suggested_mug_title("I have all the best cells."),
+            "Biology Teacher Mug – I have all the best cells",
+        )
+        description = suggested_mug_description(
+            "A thoughtful biology teacher gift.", "mug_11oz", "both"
+        )
+        self.assertNotIn("black handle", description)
+        self.assertIn("printed on both sides", description)
 
     def test_product_assets_remain_isolated_from_latest_design_source(self):
         design_id = self._create_design()
@@ -627,6 +723,7 @@ class StandaloneDesignTests(unittest.TestCase):
             printify_product_id="printify-design-1",
             printify_product_url="https://printify.example/product/1",
         )
+        self._save_accent_setup(created_ids[1])
         db.update_standalone_design(
             created_ids[17],
             name="Catalog Design 17",
@@ -662,6 +759,25 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertEqual(printify.status_code, 200)
         self.assertIn("Catalog Design 00", printify.text)
         self.assertNotIn("Catalog Design 01", printify.text)
+
+        catalog = self.client.get("/designs")
+        self.assertIn("White Ceramic Mug", catalog.text)
+        self.assertIn("Black Accent Mug 11 oz", catalog.text)
+
+        accent = self.client.get(
+            "/designs?product=mug_11oz_black_accent"
+        )
+        self.assertIn("Catalog Design 01", accent.text)
+        self.assertNotIn("Catalog Design 00", accent.text)
+
+        white = self.client.get("/designs?product=mug_11oz")
+        self.assertIn("Catalog Design 00", white.text)
+        self.assertNotIn("Catalog Design 01", white.text)
+
+        no_product = self.client.get("/designs?product=none")
+        self.assertIn("Catalog Design 02", no_product.text)
+        self.assertNotIn("Catalog Design 00", no_product.text)
+        self.assertNotIn("Catalog Design 01", no_product.text)
 
     def test_mug_review_performs_no_printify_operations(self):
         design_id = self._create_design()
@@ -748,6 +864,64 @@ class StandaloneDesignTests(unittest.TestCase):
             ],
         )
 
+    def test_mug_setup_adds_accurate_placement_copy_without_duplicates(self):
+        expected = {
+            "front": "printed on the right-handed side",
+            "reverse": "printed on the left-handed side",
+            "both": "printed on both sides",
+        }
+        for placement_mode, phrase in expected.items():
+            with self.subTest(placement_mode=placement_mode):
+                design_id = self._create_design()
+                save_mug_setup(
+                    design_id,
+                    title="Teacher Mug",
+                    description="A thoughtful teacher gift.",
+                    price_cents=1900,
+                    placement_scale=0.45,
+                    placement_mode=placement_mode,
+                )
+                saved = db.get_standalone_design(design_id)
+                self.assertIn(phrase, saved["product_description"])
+
+                save_mug_setup(
+                    design_id,
+                    title="Teacher Mug",
+                    description=saved["product_description"],
+                    price_cents=1900,
+                    placement_scale=0.45,
+                    placement_mode=placement_mode,
+                )
+                saved_again = db.get_standalone_design(design_id)
+                self.assertEqual(
+                    saved_again["product_description"].count(phrase), 1
+                )
+
+    def test_changing_mug_sides_replaces_previous_placement_copy(self):
+        design_id = self._create_design()
+        save_mug_setup(
+            design_id,
+            title="Teacher Mug",
+            description="A thoughtful teacher gift.",
+            price_cents=1900,
+            placement_scale=0.45,
+            placement_mode="both",
+        )
+        previous = db.get_standalone_design(design_id)["product_description"]
+
+        save_mug_setup(
+            design_id,
+            title="Teacher Mug",
+            description=previous,
+            price_cents=1900,
+            placement_scale=0.45,
+            placement_mode="front",
+        )
+
+        updated = db.get_standalone_design(design_id)["product_description"]
+        self.assertNotIn("printed on both sides", updated)
+        self.assertIn("printed on the right-handed side", updated)
+
     def test_different_designs_upload_both_graphics(self):
         design_id = self._create_design()
         opposite = standalone_designs.save_design_source(
@@ -822,6 +996,55 @@ class StandaloneDesignTests(unittest.TestCase):
             api.updates[0][1]["description"],
             pending["product_description"],
         )
+
+    def test_copy_update_sends_only_title_and_description(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        api = FakePrintifyAPI()
+        create_mug_draft(design_id, confirmed=True, api=api)
+        before = db.get_standalone_design(design_id)
+        db.update_standalone_product_copy(
+            design_id,
+            "mug_11oz",
+            title="Teacher Mug – Updated wording",
+            description="Updated description only.",
+        )
+
+        result = update_mug_draft_copy(
+            design_id, confirmed=True, api=api
+        )
+        after = db.get_standalone_design(design_id)
+
+        self.assertEqual(result["outcome"], "updated")
+        self.assertEqual(
+            api.updates[-1],
+            (
+                before["printify_product_id"],
+                {
+                    "title": "Teacher Mug – Updated wording",
+                    "description": "Updated description only.",
+                },
+            ),
+        )
+        self.assertEqual(len(api.uploads), 1)
+        self.assertEqual(after["external_state"], "created")
+        self.assertEqual(
+            after["production_asset_filename"],
+            before["production_asset_filename"],
+        )
+        self.assertEqual(after["price_cents"], before["price_cents"])
+        self.assertEqual(after["placement_x"], before["placement_x"])
+
+    def test_copy_update_requires_confirmation_without_external_change(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        api = FakePrintifyAPI()
+        create_mug_draft(design_id, confirmed=True, api=api)
+
+        with self.assertRaisesRegex(ValueError, "Confirm the wording update"):
+            update_mug_draft_copy(design_id, confirmed=False, api=api)
+
+        self.assertEqual(api.updates, [])
 
     def test_opaque_replacement_is_saved_for_background_review(self):
         design_id = self._create_design()
@@ -1068,6 +1291,107 @@ class StandaloneDesignTests(unittest.TestCase):
         )
         self.assertEqual(response.text.count("Check status"), 2)
         self.assertEqual(response.text.count("Archive design"), 1)
+
+    def test_pinterest_bundle_is_product_specific_and_read_only(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        self._save_accent_setup(design_id)
+        db.record_standalone_marketplace_status(
+            design_id,
+            product_key="mug_11oz",
+            etsy_listing_id="1111111111",
+            etsy_listing_url="https://www.etsy.com/listing/1111111111",
+            etsy_state="active",
+            paused=False,
+        )
+        db.record_standalone_marketplace_status(
+            design_id,
+            product_key="mug_11oz_black_accent",
+            etsy_listing_id="2222222222",
+            etsy_listing_url="https://www.etsy.com/listing/2222222222",
+            etsy_state="active",
+            paused=False,
+        )
+        before = [dict(row) for row in db.list_standalone_design_products(design_id)]
+
+        white = self.client.get(
+            f"/designs/{design_id}/products/mug_11oz/pinterest"
+        )
+        accent = self.client.get(
+            f"/designs/{design_id}/products/mug_11oz_black_accent/pinterest"
+        )
+
+        self.assertEqual(white.status_code, 200)
+        self.assertEqual(accent.status_code, 200)
+        self.assertIn("White Ceramic Mug", white.text)
+        self.assertIn("Black Accent Mug 11 oz", accent.text)
+        self.assertIn("https://www.etsy.com/listing/1111111111", white.text)
+        self.assertIn("https://www.etsy.com/listing/2222222222", accent.text)
+        self.assertIn("Publish this Pin", accent.text)
+        self.assertEqual(
+            before,
+            [dict(row) for row in db.list_standalone_design_products(design_id)],
+        )
+
+    def test_pinterest_bundle_image_is_downloadable_1000_by_1500_png(self):
+        design_id = self._create_design()
+        self._save_accent_setup(design_id)
+        db.record_standalone_marketplace_status(
+            design_id,
+            product_key="mug_11oz_black_accent",
+            etsy_listing_id="2222222222",
+            etsy_listing_url="https://www.etsy.com/listing/2222222222",
+            etsy_state="active",
+            paused=False,
+        )
+
+        response = self.client.get(
+            f"/designs/{design_id}/products/mug_11oz_black_accent/"
+            "pinterest/image?download=true"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertIn("attachment", response.headers["content-disposition"])
+        with Image.open(BytesIO(response.content)) as image:
+            self.assertEqual(image.size, (1000, 1500))
+
+    def test_pinterest_bundle_requires_linked_etsy_product(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+
+        response = self.client.get(
+            f"/designs/{design_id}/products/mug_11oz/pinterest"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Connect the Etsy listing", response.text)
+
+    def test_pinterest_copy_uses_teacher_board_and_exact_product_link(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        db.update_standalone_design(
+            design_id,
+            name="I teach the thinkers of tomorrow",
+            message="I teach the thinkers of tomorrow.",
+            description="A thoughtful teacher mug.",
+            tags="teacher, teacher gift, classroom",
+        )
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="1111111111",
+            etsy_listing_url="https://www.etsy.com/listing/1111111111",
+            etsy_state="active",
+            paused=False,
+        )
+
+        bundle = pinterest_bundle_copy(
+            db.get_standalone_design(design_id, "mug_11oz"), "mug_11oz"
+        )
+
+        self.assertEqual(bundle["board"], "Teacher Gift Ideas")
+        self.assertEqual(bundle["link"], "https://www.etsy.com/listing/1111111111")
+        self.assertIn("white ceramic mug", bundle["alt_text"].lower())
 
     def test_accent_marketplace_actions_do_not_change_white_mug(self):
         design_id = self._create_design()

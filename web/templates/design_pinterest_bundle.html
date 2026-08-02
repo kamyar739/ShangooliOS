@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Pinterest Bundle — {{ design["name"] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content pinterest-bundle-page">
+    <a class="workflow-back-link mb-3" href="/designs/{{ design['id'] }}#product-{{ blueprint_key }}">← Back to Design</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Pinterest marketing</div>
+        <h1 class="display-6 fw-bold">Pinterest Bundle</h1>
+        <p class="text-muted mb-0">{{ blueprint["label"] }} · Ready to download and copy.</p>
+      </div>
+      <a class="btn btn-primary" href="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?download=true">Download Pinterest image</a>
+    </div>
+
+    <div class="pinterest-bundle-layout">
+      <section class="pinterest-bundle-preview section-card">
+        <div class="eyebrow">Pin image · 1000 × 1500</div>
+        <img src="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image" alt="Pinterest image preview for {{ design['name'] }}">
+        <p class="text-muted small mb-0">Uses this product’s prepared graphic and mug variant. Nothing is changed in Printify or Etsy.</p>
+      </section>
+
+      <section class="section-card pinterest-copy-card">
+        <div class="pinterest-copy-title-row">
+          <div><div class="eyebrow">Prepared pin details</div><h2 class="h4 mb-0">Copy into Pinterest</h2></div>
+          <details class="pinterest-help-bubble">
+            <summary aria-label="Show Pinterest publishing instructions">?</summary>
+            <div>
+              <strong>Publish this Pin</strong>
+              <ol>
+                <li>Download the Pinterest image.</li>
+                <li>Open Pinterest and choose Create Pin.</li>
+                <li>Upload the downloaded image.</li>
+                <li>Copy the title, description, link, and alt text below.</li>
+                <li>Choose the suggested board and publish.</li>
+              </ol>
+            </div>
+          </details>
+        </div>
+        <div class="pinterest-copy-field">
+          <div class="pinterest-copy-heading"><label for="pin-title">Title</label><button type="button" data-copy-target="pin-title">Copy</button></div>
+          <textarea id="pin-title" rows="3" readonly>{{ bundle["title"] }}</textarea>
+        </div>
+        <div class="pinterest-copy-field">
+          <div class="pinterest-copy-heading"><label for="pin-description">Description</label><button type="button" data-copy-target="pin-description">Copy</button></div>
+          <textarea id="pin-description" rows="8" readonly>{{ bundle["description"] }}</textarea>
+        </div>
+        <div class="pinterest-copy-field">
+          <div class="pinterest-copy-heading"><label for="pin-link">Link</label><button type="button" data-copy-target="pin-link">Copy</button></div>
+          <textarea id="pin-link" rows="2" readonly>{{ bundle["link"] }}</textarea>
+        </div>
+        <div class="pinterest-copy-field">
+          <div class="pinterest-copy-heading"><label for="pin-alt">Alt text</label><button type="button" data-copy-target="pin-alt">Copy</button></div>
+          <textarea id="pin-alt" rows="4" readonly>{{ bundle["alt_text"] }}</textarea>
+        </div>
+        <div class="pinterest-bundle-suggestions">
+          <div><span>Suggested board</span><strong>{{ bundle["board"] }}</strong></div>
+          <div><span>Suggested topics</span><strong>{{ bundle["topics"] | join(", ") }}</strong></div>
+          <div><span>Disclosure</span><strong>Mark as AI-modified when applicable</strong></div>
+        </div>
+        <a class="btn btn-outline-success" href="https://www.pinterest.com/pin-creation-tool/" target="_blank" rel="noopener noreferrer">Open Pinterest ↗</a>
+      </section>
+    </div>
+  </main>
+</div>
+<script>
+document.querySelectorAll("[data-copy-target]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const field = document.getElementById(button.dataset.copyTarget);
+    await navigator.clipboard.writeText(field.value);
+    const original = button.textContent;
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = original; }, 1200);
+  });
+});
+</script>
+{% endblock %}

@@ -35,6 +35,14 @@
             <option value="paused"{% if active_design_status == "paused" %} selected{% endif %}>Paused on Etsy</option>
           </select>
         </div>
+        <div>
+          <label class="form-label" for="design-product">Product type</label>
+          <select class="form-select" id="design-product" name="product" onchange="this.form.requestSubmit()">
+            <option value="all"{% if active_product_key == "all" %} selected{% endif %}>All product types</option>
+            {% for product in product_options %}<option value="{{ product['key'] }}"{% if active_product_key == product['key'] %} selected{% endif %}>{{ product['label'] }}</option>{% endfor %}
+            <option value="none"{% if active_product_key == "none" %} selected{% endif %}>No product yet</option>
+          </select>
+        </div>
         <div class="design-tag-filter">
           <label class="form-label" for="design-tag">Tag</label>
           <input class="form-control" id="design-tag" name="tag" value="{{ active_tag }}" list="design-tag-options" placeholder="Teacher, biology, humor…">
@@ -43,7 +51,7 @@
           </datalist>
         </div>
         <button class="btn btn-primary" type="submit">Apply</button>
-        {% if active_search or active_tag or active_design_status != "all" %}<a class="btn btn-outline-secondary" href="/designs{% if show_archived %}?show=archived{% endif %}">Clear</a>{% endif %}
+        {% if active_search or active_tag or active_design_status != "all" or active_product_key != "all" %}<a class="btn btn-outline-secondary" href="/designs{% if show_archived %}?show=archived{% endif %}">Clear</a>{% endif %}
       </form>
       <span class="design-result-count">{{ total_designs }} design{% if total_designs != 1 %}s{% endif %}</span>
     </section>
@@ -53,8 +61,9 @@
       <a class="design-card" href="/designs/{{ design['id'] }}">
         <span class="design-card-image"><img src="/designs/{{ design['id'] }}/image?v={{ design['source_filename'] }}" alt="{{ design['name'] }}"></span>
         <span class="design-card-copy">
-          <span class="status-pill {% if design['status'] == 'archived' %}listing-status-archived{% elif design['printify_product_id'] %}listing-status-published{% else %}listing-status-draft{% endif %}">
-            {% if design['status'] == 'archived' %}Archived{% elif design['etsy_paused_at'] %}Paused on Etsy{% elif design['etsy_state'] == 'active' %}Live on Etsy{% elif design['printify_product_id'] %}On Printify{% else %}Draft{% endif %}
+          <span class="status-pill {{ design['catalog_state_class'] }}">{{ design['catalog_state'] }}</span>
+          <span class="design-card-products">
+            {% for product in design["display_products"] %}<span title="{{ product['label'] }} · {{ product['state_label'] }}"><strong>{{ product['label'] }}</strong><em>{{ product['state_label'] }}</em></span>{% else %}<span class="is-empty">No product yet</span>{% endfor %}
           </span>
           <strong>{{ design["name"] }}</strong>
           {% if design["message"] %}<small>{{ design["message"] }}</small>{% endif %}
@@ -68,8 +77,8 @@
       </a>
       {% else %}
       <div class="empty-state design-empty-state">
-        <strong>{% if active_search or active_tag or active_design_status != "all" %}No designs match these filters.{% elif show_archived %}No archived designs.{% else %}No standalone designs yet.{% endif %}</strong>
-        {% if not active_search and not active_tag and active_design_status == "all" %}<span>Create a message graphic or upload a completed design to make the first mug.</span><a class="btn btn-primary btn-sm" href="/designs/quick-text">Create a quick text design</a>{% endif %}
+        <strong>{% if active_search or active_tag or active_design_status != "all" or active_product_key != "all" %}No designs match these filters.{% elif show_archived %}No archived designs.{% else %}No standalone designs yet.{% endif %}</strong>
+        {% if not active_search and not active_tag and active_design_status == "all" and active_product_key == "all" %}<span>Create a message graphic or upload a completed design to make the first mug.</span><a class="btn btn-primary btn-sm" href="/designs/quick-text">Create a quick text design</a>{% endif %}
       </div>
       {% endfor %}
     </div>

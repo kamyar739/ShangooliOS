@@ -63,6 +63,7 @@ from web.db import (
     list_listings,
     list_standalone_designs,
     list_standalone_design_products,
+    list_standalone_product_summaries,
     prepare_standalone_product_asset,
     list_mockup_scenes,
     list_mockup_sets,
@@ -90,6 +91,7 @@ from web.db import (
     set_standalone_design_archived,
     create_standalone_design,
     replace_standalone_design_source,
+    update_standalone_product_copy,
     update_standalone_design,
     update_artwork,
     update_artwork_details,
@@ -179,6 +181,9 @@ from web.standalone_designs import (
     render_quick_text_design,
     save_design_source,
     save_mug_setup,
+    suggested_mug_description,
+    suggested_mug_title,
+    update_mug_draft_copy,
     update_mug_draft_graphics,
     mug_profile,
 )
@@ -189,6 +194,11 @@ from web.product_blueprints import (
     mug_blueprints,
     normalized_placement_geometry,
     product_readiness,
+)
+from web.pinterest_bundle import (
+    pinterest_bundle_copy,
+    pinterest_download_name,
+    render_pinterest_bundle,
 )
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
@@ -767,21 +777,53 @@ def standalone_designs_page(
     search: str = Query(""),
     tag: str = Query(""),
     design_status: str = Query("all", alias="status"),
+    product_key: str = Query("all", alias="product"),
     page: int = Query(1, ge=1),
 ):
     show_archived = request.query_params.get("show") == "archived"
     normalized_search = search.strip()
     normalized_tag = tag.strip()
     normalized_status = design_status.strip().lower() or "all"
+    normalized_product = product_key.strip() or "all"
     if normalized_status not in {"all", "draft", "printify", "etsy", "paused"}:
         raise HTTPException(status_code=400, detail="Invalid design status")
+    blueprint_options = mug_blueprints()
+    valid_products = {item["key"] for item in blueprint_options}
+    if normalized_product not in {"all", "none", *valid_products}:
+        raise HTTPException(status_code=400, detail="Invalid product type")
     designs = [
         dict(item)
         for item in list_standalone_designs()
         if (item["status"] == "archived") == show_archived
     ]
+    products_by_design = {}
+    for row in list_standalone_product_summaries():
+        products_by_design.setdefault(row["design_id"], {})[
+            row["product_type"]
+        ] = dict(row)
+    blueprint_labels = {
+        item["key"]: item["label"] for item in blueprint_options
+    }
     for item in designs:
         item["tag_list"] = parse_tags(item.get("tags") or "")
+        item["products"] = []
+        for saved_key, product in products_by_design.get(item["id"], {}).items():
+            if product["etsy_paused_at"]:
+                state_label = "Paused"
+            elif str(product["etsy_state"] or "").lower() == "active":
+                state_label = "Live"
+            elif product["printify_product_id"]:
+                state_label = "Printify"
+            else:
+                state_label = "Prepared"
+            item["products"].append(
+                {
+                    **product,
+                    "key": saved_key,
+                    "label": blueprint_labels.get(saved_key, saved_key),
+                    "state_label": state_label,
+                }
+            )
     available_tags = sorted(
         {
             saved_tag
@@ -807,6 +849,12 @@ def standalone_designs_page(
                     "product_description",
                 )
             ).casefold()
+            or search_key
+            in " ".join(
+                str(product.get(field) or "")
+                for product in item["products"]
+                for field in ("label", "title", "description")
+            ).casefold()
         ]
     if normalized_tag:
         tag_key = normalized_tag.casefold()
@@ -817,23 +865,97 @@ def standalone_designs_page(
                 saved_tag.casefold() for saved_tag in item["tag_list"]
             }
         ]
-    if normalized_status == "draft":
-        designs = [item for item in designs if not item["printify_product_id"]]
-    elif normalized_status == "printify":
+    if normalized_product == "none":
+        designs = [item for item in designs if not item["products"]]
+    elif normalized_product != "all":
         designs = [
             item
             for item in designs
-            if item["printify_product_id"] and not item["etsy_listing_id"]
+            if any(
+                product["key"] == normalized_product
+                for product in item["products"]
+            )
+        ]
+
+    def status_products(item):
+        if normalized_product in valid_products:
+            return [
+                product
+                for product in item["products"]
+                if product["key"] == normalized_product
+            ]
+        return item["products"]
+
+    if normalized_status == "draft":
+        designs = [
+            item
+            for item in designs
+            if not status_products(item)
+            or all(
+                not product["printify_product_id"]
+                for product in status_products(item)
+            )
+        ]
+    elif normalized_status == "printify":
+        designs = [
+            item for item in designs
+            if any(
+                product["printify_product_id"]
+                and not product["etsy_listing_id"]
+                for product in status_products(item)
+            )
         ]
     elif normalized_status == "etsy":
         designs = [
-            item
-            for item in designs
-            if str(item["etsy_state"] or "").lower() == "active"
-            and not item["etsy_paused_at"]
+            item for item in designs
+            if any(
+                str(product["etsy_state"] or "").lower() == "active"
+                and not product["etsy_paused_at"]
+                for product in status_products(item)
+            )
         ]
     elif normalized_status == "paused":
-        designs = [item for item in designs if item["etsy_paused_at"]]
+        designs = [
+            item for item in designs
+            if any(
+                product["etsy_paused_at"]
+                for product in status_products(item)
+            )
+        ]
+    for item in designs:
+        item["display_products"] = (
+            [
+                product
+                for product in item["products"]
+                if product["key"] == normalized_product
+            ]
+            if normalized_product in valid_products
+            else item["products"]
+        )
+        if item["status"] == "archived":
+            item["catalog_state"] = "Archived"
+            item["catalog_state_class"] = "listing-status-archived"
+        elif any(
+            product["etsy_paused_at"]
+            for product in item["display_products"]
+        ):
+            item["catalog_state"] = "Paused on Etsy"
+            item["catalog_state_class"] = "listing-status-ready"
+        elif any(
+            str(product["etsy_state"] or "").lower() == "active"
+            for product in item["display_products"]
+        ):
+            item["catalog_state"] = "Live on Etsy"
+            item["catalog_state_class"] = "listing-status-published"
+        elif any(
+            product["printify_product_id"]
+            for product in item["display_products"]
+        ):
+            item["catalog_state"] = "On Printify"
+            item["catalog_state_class"] = "listing-status-published"
+        else:
+            item["catalog_state"] = "Draft"
+            item["catalog_state_class"] = "listing-status-draft"
     page_size = 24
     total_designs = len(designs)
     total_pages = max(1, (total_designs + page_size - 1) // page_size)
@@ -844,6 +966,7 @@ def standalone_designs_page(
         "search": normalized_search,
         "tag": normalized_tag,
         "status": normalized_status,
+        "product": normalized_product,
     }
     if show_archived:
         query_values["show"] = "archived"
@@ -867,6 +990,8 @@ def standalone_designs_page(
             "active_search": normalized_search,
             "active_tag": normalized_tag,
             "active_design_status": normalized_status,
+            "active_product_key": normalized_product,
+            "product_options": blueprint_options,
             "available_tags": available_tags,
             "total_designs": total_designs,
             "page": page,
@@ -1533,6 +1658,62 @@ def standalone_design_product_image(design_id: int, blueprint_key: str):
     return FileResponse(source)
 
 
+def _pinterest_bundle_design(design_id, blueprint_key):
+    try:
+        get_product_blueprint(blueprint_key)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    design = get_standalone_design(design_id, blueprint_key)
+    if design is None or not design["product_id"]:
+        raise HTTPException(status_code=404, detail="Product setup not found")
+    if not design["etsy_listing_url"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Connect the Etsy listing before creating its Pinterest bundle",
+        )
+    if product_asset_path(design) is None:
+        raise HTTPException(status_code=400, detail="Prepared product graphic is missing")
+    return design
+
+
+@app.get("/designs/{design_id}/products/{blueprint_key}/pinterest")
+def standalone_product_pinterest_bundle_page(
+    request: Request, design_id: int, blueprint_key: str
+):
+    design = _pinterest_bundle_design(design_id, blueprint_key)
+    _, blueprint = get_product_blueprint(blueprint_key)
+    return templates.TemplateResponse(
+        request=request,
+        name="design_pinterest_bundle.html",
+        context={
+            "design": design,
+            "blueprint_key": blueprint_key,
+            "blueprint": blueprint,
+            "bundle": pinterest_bundle_copy(design, blueprint_key),
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.get("/designs/{design_id}/products/{blueprint_key}/pinterest/image")
+def standalone_product_pinterest_bundle_image(
+    design_id: int,
+    blueprint_key: str,
+    download: bool = Query(False),
+):
+    design = _pinterest_bundle_design(design_id, blueprint_key)
+    try:
+        content = render_pinterest_bundle(design, blueprint_key)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    headers = {"Cache-Control": "no-store"}
+    if download:
+        headers["Content-Disposition"] = (
+            f'attachment; filename="{pinterest_download_name(design, blueprint_key)}"'
+        )
+    return Response(content=content, media_type="image/png", headers=headers)
+
+
 @app.get("/designs/{design_id}/mug/opposite-image")
 def standalone_design_opposite_image(
     design_id: int,
@@ -1573,7 +1754,16 @@ def _standalone_product_review_page(
     design = get_standalone_design(design_id, blueprint_key)
     if design is None:
         raise HTTPException(status_code=404, detail="Design not found")
-    default_title = f"{design['name']} {profile['product_name']}"
+    suggested_title = suggested_mug_title(
+        design["message"] or design["name"], blueprint_key
+    )
+    default_title = suggested_title or (
+        f"{design['name']} {profile['product_name']}"
+    )
+    edit_copy = (
+        request.query_params.get("edit_copy") == "1"
+        and bool(design["printify_product_id"])
+    )
     readiness = product_readiness(
         product=design if design["product_id"] else None,
         source_exists=(
@@ -1593,6 +1783,12 @@ def _standalone_product_review_page(
     placement_scale = (
         design["placement_scale"] if design["product_id"] else profile["placement_scale"]
     )
+    placement_mode = design["placement_mode"] if design["product_id"] else "both"
+    suggested_description = suggested_mug_description(
+        design["product_description"] or design["description"] or "",
+        blueprint_key,
+        placement_mode,
+    )
     return templates.TemplateResponse(
         request=request,
         name="design_mug_review.html",
@@ -1609,9 +1805,40 @@ def _standalone_product_review_page(
                 scale=placement_scale,
             ),
             "default_title": default_title,
+            "suggested_title": suggested_title,
+            "suggested_description": suggested_description,
+            "edit_copy": edit_copy,
             "configuration_source": printify_configuration_source(),
             "dashboard_sidebar_active": "designs",
         },
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/copy")
+def update_standalone_product_copy_post(
+    design_id: int,
+    blueprint_key: str,
+    title: str = Form(...),
+    description: str = Form(""),
+):
+    try:
+        get_product_blueprint(blueprint_key)
+        update_standalone_product_copy(
+            design_id,
+            blueprint_key,
+            title=title,
+            description=description,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?copy_saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
@@ -1718,6 +1945,31 @@ def update_standalone_mug_graphics_post(
     )
     return RedirectResponse(
         f"{product_url}?result={result['outcome']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/{design_id}/mug/update-copy")
+def update_standalone_mug_copy_post(
+    design_id: int,
+    confirmed: bool = Form(False),
+    blueprint_key: str = Form(DEFAULT_MUG_BLUEPRINT_KEY),
+):
+    try:
+        result = update_mug_draft_copy(
+            design_id,
+            confirmed=confirmed,
+            blueprint_key=blueprint_key,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?result={result['outcome']}&update=copy",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

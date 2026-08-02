@@ -70,6 +70,18 @@ assets/marketing/*.jpg
 assets/marketing/*.jpeg
 assets/marketing/*.webp
 
+# Local standalone-design and collection cover artwork
+assets/designs/
+assets/collections/**/collection-cover.*
+
+# Local generated output and runtime data
+/output/
+/tmp/
+/shangoolios.db
+
+# Independently hosted marketing-site repository
+/marketing-site/
+
 # Database backups
 data/*backup*.db
 

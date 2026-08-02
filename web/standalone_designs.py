@@ -229,6 +229,7 @@ def _teacher_metadata(message: str):
         "typography mug",
     ]
     return {
+        "subject": subject,
         "audience": (
             f"{subject} teachers, educators, coworkers, or students looking "
             "for a memorable teacher gift"
@@ -237,6 +238,28 @@ def _teacher_metadata(message: str):
         ),
         "tags": _etsy_safe_tags(candidates),
     }
+
+
+def suggested_mug_title(
+    message: str, blueprint_key: str = DEFAULT_MUG_BLUEPRINT_KEY
+):
+    """Create concise search-oriented copy for one specific mug blueprint."""
+    exact_message = " ".join(str(message or "").split()).strip()
+    if not exact_message:
+        return ""
+    _, blueprint = get_product_blueprint(blueprint_key)
+    product_label = blueprint["marketplace_title_product"]
+    display_message = exact_message.rstrip(" .!?")
+    teacher_metadata = _teacher_metadata(exact_message)
+    if teacher_metadata:
+        subject = teacher_metadata.get("subject") or ""
+        prefix = (
+            f"{subject.title()} Teacher {product_label}"
+            if subject
+            else f"Teacher {product_label}"
+        )
+        return f"{prefix} – {display_message}"
+    return f"{product_label} – {display_message}"
 
 
 def design_metadata_from_message(message: str):
@@ -579,6 +602,52 @@ def design_opposite_source_path(design):
     return candidate if candidate.is_file() else None
 
 
+_MUG_PLACEMENT_DESCRIPTIONS = {
+    "front": (
+        "The design is printed on the right-handed side of the mug, so it "
+        "faces outward when held in the right hand."
+    ),
+    "reverse": (
+        "The design is printed on the left-handed side of the mug, so it "
+        "faces outward when held in the left hand."
+    ),
+    "both": (
+        "The design is printed on both sides for clear visibility when held "
+        "in either hand."
+    ),
+    "different": (
+        "The mug features a different design on each side for a distinct "
+        "view from either direction."
+    ),
+}
+
+
+def mug_description_for_placement(description, placement_mode):
+    """Keep customer-facing mug copy accurate when its side setup changes."""
+    normalized = " ".join(str(description or "").split()).strip()
+    for placement_copy in _MUG_PLACEMENT_DESCRIPTIONS.values():
+        normalized = normalized.replace(placement_copy, "").strip()
+    normalized = normalized.rstrip()
+    if normalized and normalized[-1] not in ".!?":
+        normalized += "."
+    placement_copy = _MUG_PLACEMENT_DESCRIPTIONS[placement_mode]
+    return f"{normalized} {placement_copy}".strip()
+
+
+def suggested_mug_description(description, blueprint_key, placement_mode):
+    """Add only the selected blueprint's product facts and saved side setup."""
+    normalized = " ".join(str(description or "").split()).strip()
+    for blueprint in PRODUCT_BLUEPRINTS.values():
+        detail = blueprint.get("marketplace_description_detail") or ""
+        if detail:
+            normalized = normalized.replace(detail, "").strip()
+    _, blueprint = get_product_blueprint(blueprint_key)
+    detail = blueprint.get("marketplace_description_detail") or ""
+    if detail:
+        normalized = f"{normalized.rstrip()} {detail}".strip()
+    return mug_description_for_placement(normalized, placement_mode)
+
+
 def save_mug_setup(
     design_id,
     *,
@@ -631,7 +700,9 @@ def save_mug_setup(
         blueprint_version=profile["version"],
         production_asset_filename=design["source_filename"],
         title=normalized_title,
-        description=(description or "").strip(),
+        description=mug_description_for_placement(
+            description, placement_mode
+        ),
         price_cents=price_cents,
         blueprint_id=profile["blueprint_id"],
         provider_id=profile["provider_id"],
@@ -917,5 +988,73 @@ def update_mug_draft_graphics(
     return {
         "outcome": "updated",
         "message": "The existing Printify mug draft was updated.",
+        "product_url": design["printify_product_url"],
+    }
+
+
+def update_mug_draft_copy(
+    design_id,
+    *,
+    confirmed,
+    api=None,
+    blueprint_key=DEFAULT_MUG_BLUEPRINT_KEY,
+):
+    """Update only a connected Printify product's title and description."""
+    if not confirmed:
+        raise ValueError(
+            "Confirm the wording update to the existing Printify product"
+        )
+    design = get_standalone_design(design_id, blueprint_key)
+    if design is None:
+        raise ValueError("Design not found")
+    if not design["printify_product_id"]:
+        raise ValueError("Create the Printify mug draft first")
+    if design["external_state"] == "update_outcome_unknown":
+        raise ValueError(
+            "The previous update result is uncertain. Check Printify before retrying."
+        )
+
+    printify_api = api or PrintifyAPI.from_env()
+    set_standalone_product_state(
+        design_id,
+        "updating",
+        "Updating the Printify product wording.",
+        product_key=blueprint_key,
+    )
+    try:
+        printify_api.update_product(
+            design["printify_product_id"],
+            {
+                "title": design["product_title"],
+                "description": design["product_description"] or "",
+            },
+        )
+    except PrintifyAPIConnectionError:
+        message = (
+            "Printify did not confirm the wording update. Check the existing "
+            "product before trying again."
+        )
+        set_standalone_product_state(
+            design_id,
+            "update_outcome_unknown",
+            message,
+            product_key=blueprint_key,
+        )
+        return {"outcome": "outcome_unknown", "message": message}
+    except (PrintifyAPIError, ValueError, KeyError) as error:
+        set_standalone_product_state(
+            design_id, "needs_update", str(error), product_key=blueprint_key
+        )
+        return {"outcome": "failed", "message": str(error)}
+
+    set_standalone_product_state(
+        design_id,
+        "created",
+        "The Printify product title and description were updated.",
+        product_key=blueprint_key,
+    )
+    return {
+        "outcome": "updated",
+        "message": "The existing Printify product wording was updated.",
         "product_url": design["printify_product_url"],
     }

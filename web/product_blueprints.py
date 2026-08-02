@@ -43,6 +43,8 @@ WHITE_CERAMIC_MUG_11OZ = {
     "default_price_cents": 1900,
     "placement_profile": "mug_centered_two_sided",
     "artwork_treatment": "original",
+    "marketplace_title_product": "Mug",
+    "marketplace_description_detail": "",
     "print_area": {"position": "front", "width": 2700, "height": 1120},
     "required_for_readiness": ("source", "setup"),
 }
@@ -61,6 +63,10 @@ BLACK_ACCENT_MUG_11OZ = {
     "default_price_cents": 2200,
     "placement_profile": "mug_centered_two_sided",
     "artwork_treatment": "original",
+    "marketplace_title_product": "Black Accent Mug",
+    "marketplace_description_detail": (
+        "The black handle and interior give this 11 oz mug a bold, premium look."
+    ),
     "print_area": {"position": "front", "width": 2550, "height": 1155},
     "required_for_readiness": ("source", "setup"),
 }
