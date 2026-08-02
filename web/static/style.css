@@ -5526,127 +5526,196 @@ a.collection-count:hover {
 }
 
 /* Standalone message designs */
-.design-gallery {
+.design-list-header,
+.design-list-row {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: .8rem;
+    grid-template-columns: 4.5rem minmax(12rem, 1.2fr) minmax(14rem, 1fr) minmax(10rem, .8fr) auto;
+    gap: .9rem;
+    align-items: center;
 }
 
-.design-card {
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-height: 14rem;
-    color: var(--ink);
-    text-decoration: none;
+.design-list-header {
+    padding: 0 1rem .45rem;
+    color: #747d90;
+    font-size: .68rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.design-list {
+    display: grid;
+    gap: .55rem;
+}
+
+.design-list-row {
+    min-height: 5.8rem;
+    padding: .65rem .8rem;
     background: #fff;
     border: 1px solid #dde2ed;
-    border-radius: 1rem;
-    box-shadow: 0 10px 24px rgba(34, 42, 66, .06);
-    transition: transform .16s ease, box-shadow .16s ease;
+    border-radius: .85rem;
+    box-shadow: 0 7px 18px rgba(34, 42, 66, .045);
+    transition: border-color .16s ease, box-shadow .16s ease;
 }
 
-.design-card:hover {
-    color: var(--ink);
-    transform: translateY(-2px);
-    box-shadow: 0 14px 30px rgba(34, 42, 66, .1);
+.design-list-row:hover {
+    border-color: #c9c2f7;
+    box-shadow: 0 10px 24px rgba(48, 42, 100, .08);
 }
 
-.design-card-image {
+.design-list-image {
+    overflow: hidden;
     display: grid;
     place-items: center;
-    height: 8.5rem;
-    padding: .75rem;
+    width: 4.5rem;
+    height: 4.5rem;
+    padding: .35rem;
     background: linear-gradient(145deg, #f8f4eb, #ece8df);
+    border-radius: .65rem;
 }
 
-.design-card-image img {
+.design-list-image img {
     width: 100%;
     height: 100%;
     object-fit: contain;
 }
 
-.design-card-copy {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: .35rem;
-    padding: .75rem;
-}
-
-.design-card-copy strong {
-    overflow: hidden;
-    display: -webkit-box;
-    font-size: .9rem;
-    line-height: 1.25;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-}
-
-.design-card-copy small {
-    overflow: hidden;
-    display: -webkit-box;
-    color: var(--muted);
-    font-size: .78rem;
-    line-height: 1.3;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-}
-
-.design-card-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .3rem;
-    margin-top: .2rem;
-}
-
-.design-card-tags span {
-    padding: .2rem .45rem;
-    border-radius: 999px;
-    background: #f0edff;
-    color: #5746b5;
-    font-size: .67rem;
-    font-weight: 700;
-    line-height: 1.2;
-}
-
-.design-card-products {
+.design-list-identity,
+.design-list-products {
     display: grid;
-    gap: .25rem;
-    width: 100%;
+    align-content: center;
+    justify-items: start;
+    gap: .28rem;
+    min-width: 0;
 }
 
-.design-card-products > span {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .4rem;
-    padding: .3rem .45rem;
-    border-radius: .5rem;
-    background: #f5f6fa;
-    color: #333b4d;
-    font-size: .68rem;
-    font-weight: 700;
-}
-
-.design-card-products strong {
-    display: block;
+.design-list-name {
     overflow: hidden;
-    font-size: .68rem;
-    line-height: 1.2;
+    max-width: 100%;
+    color: var(--ink);
+    font-size: .9rem;
+    font-weight: 800;
+    line-height: 1.25;
+    text-decoration: none;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.design-card-products em {
-    color: var(--success);
-    font-size: .62rem;
-    font-style: normal;
+.design-list-name:hover {
+    color: var(--primary);
 }
 
-.design-card-products .is-empty {
+.design-list-identity small {
+    overflow: hidden;
+    max-width: 100%;
     color: var(--muted);
-    font-weight: 600;
+    font-size: .74rem;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.design-list-product {
+    display: grid;
+    grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .55rem;
+    width: 100%;
+    padding: .3rem .45rem;
+    border-radius: .48rem;
+    background: #f5f6fa;
+    color: #333b4d;
+    font-size: .68rem;
+}
+
+.design-list-mug {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 1.85rem;
+    height: 2rem;
+    padding: .35rem .22rem;
+    background: #fff;
+    border: 1px solid #d8dbe3;
+    border-radius: .22rem .22rem .45rem .45rem;
+    box-shadow: 0 2px 5px rgba(30, 35, 48, .1);
+}
+
+.design-list-mug::after {
+    position: absolute;
+    top: .35rem;
+    right: -.42rem;
+    width: .55rem;
+    height: .9rem;
+    content: "";
+    border: .14rem solid #d8dbe3;
+    border-left: 0;
+    border-radius: 0 .5rem .5rem 0;
+}
+
+.design-list-mug.is-black-accent {
+    border-top: .24rem solid #20222a;
+}
+
+.design-list-mug.is-black-accent::after {
+    border-color: #20222a;
+}
+
+.design-list-mug img {
+    width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.design-list-product strong {
+    overflow: hidden;
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.design-list-product em {
+    flex-shrink: 0;
+    color: var(--success);
+    font-size: .63rem;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.design-list-tags {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .28rem;
+}
+
+.design-list-tags > span:not(.design-list-mobile-label, .design-list-empty) {
+    padding: .2rem .43rem;
+    border-radius: 999px;
+    background: #f0edff;
+    color: #5746b5;
+    font-size: .65rem;
+    font-weight: 700;
+    line-height: 1.15;
+}
+
+.design-list-empty {
+    color: var(--muted);
+    font-size: .74rem;
+}
+
+.design-list-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.design-list-mobile-label {
+    display: none;
+    color: #747d90;
+    font-size: .64rem;
+    font-weight: 800;
+    letter-spacing: .07em;
+    text-transform: uppercase;
 }
 
 .design-tag-filter {
@@ -6086,9 +6155,49 @@ a.collection-count:hover {
     letter-spacing: .05em;
 }
 
-@media (max-width: 1000px) {
-    .design-gallery {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+@media (max-width: 1200px) {
+    .design-list-header {
+        display: none;
+    }
+
+    .design-list-row {
+        grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+        align-items: center;
+    }
+
+    .design-list-image {
+        grid-row: 1 / 3;
+    }
+
+    .design-list-identity {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .design-list-products {
+        grid-column: 2;
+        grid-row: 2;
+        display: flex;
+        flex-wrap: wrap;
+    }
+
+    .design-list-product {
+        width: auto;
+        min-width: 10rem;
+    }
+
+    .design-list-tags {
+        grid-column: 3;
+        grid-row: 2;
+    }
+
+    .design-list-actions {
+        grid-column: 3;
+        grid-row: 1;
+    }
+
+    .design-list-mobile-label {
+        display: none;
     }
 
     .design-intake-card,
@@ -6099,8 +6208,47 @@ a.collection-count:hover {
 }
 
 @media (max-width: 650px) {
-    .design-gallery {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .design-list-row {
+        grid-template-columns: 4rem minmax(0, 1fr);
+        gap: .65rem;
+    }
+
+    .design-list-image {
+        width: 4rem;
+        height: 4rem;
+    }
+
+    .design-list-products,
+    .design-list-tags,
+    .design-list-actions {
+        grid-column: 1 / -1;
+        grid-row: auto;
+    }
+
+    .design-list-image,
+    .design-list-identity {
+        grid-row: auto;
+    }
+
+    .design-list-identity {
+        grid-column: 2;
+    }
+
+    .design-list-products {
+        display: grid;
+    }
+
+    .design-list-product {
+        width: 100%;
+    }
+
+    .design-list-mobile-label {
+        display: inline;
+        width: 100%;
+    }
+
+    .design-list-actions .btn {
+        width: 100%;
     }
 
     .design-intake-action {
@@ -6559,6 +6707,14 @@ a.collection-count:hover {
 .pinterest-bundle-suggestions strong {
   color: #252d40;
   font-size: .78rem;
+}
+
+.pinterest-bundle-suggestions small {
+  display: block;
+  margin-top: .35rem;
+  color: #747d90;
+  font-size: .68rem;
+  line-height: 1.35;
 }
 
 .pinterest-help-bubble {

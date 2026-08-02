@@ -26,7 +26,10 @@ from web.standalone_designs import (
     product_asset_path,
 )
 from web.product_blueprints import normalized_placement_geometry
-from web.pinterest_bundle import pinterest_bundle_copy
+from web.pinterest_bundle import (
+    pinterest_bundle_copy,
+    select_printify_context_mockup,
+)
 import web.standalone_designs as standalone_designs
 
 
@@ -748,7 +751,7 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertIn("Catalog Design 17", search.text)
         self.assertNotIn("Catalog Design 16", search.text)
         self.assertIn("biology", search.text)
-        self.assertIn("+1", search.text)
+        self.assertIn("+3", search.text)
 
         biology = self.client.get("/designs?tag=Biology")
         self.assertEqual(biology.status_code, 200)
@@ -1356,6 +1359,25 @@ class StandaloneDesignTests(unittest.TestCase):
         with Image.open(BytesIO(response.content)) as image:
             self.assertEqual(image.size, (1000, 1500))
 
+    def test_pinterest_bundle_prefers_exact_product_context_mockup(self):
+        product = {
+            "images": [
+                {
+                    "src": "https://images.printify.com/front.jpg?camera_label=front",
+                    "is_default": True,
+                },
+                {
+                    "src": "https://images.printify.com/context.jpg?camera_label=context",
+                    "is_default": False,
+                },
+            ]
+        }
+
+        self.assertEqual(
+            select_printify_context_mockup(product),
+            "https://images.printify.com/context.jpg?camera_label=context",
+        )
+
     def test_pinterest_bundle_requires_linked_etsy_product(self):
         design_id = self._create_design()
         self._save_setup(design_id)
@@ -1375,7 +1397,7 @@ class StandaloneDesignTests(unittest.TestCase):
             name="I teach the thinkers of tomorrow",
             message="I teach the thinkers of tomorrow.",
             description="A thoughtful teacher mug.",
-            tags="teacher, teacher gift, classroom",
+            tags="teacher, teacher gift, classroom, biology",
         )
         db.record_standalone_marketplace_status(
             design_id,
@@ -1390,6 +1412,7 @@ class StandaloneDesignTests(unittest.TestCase):
         )
 
         self.assertEqual(bundle["board"], "Teacher Gift Ideas")
+        self.assertEqual(bundle["topics"], ["Teacher gifts", "Biology", "Coffee mugs"])
         self.assertEqual(bundle["link"], "https://www.etsy.com/listing/1111111111")
         self.assertIn("white ceramic mug", bundle["alt_text"].lower())
 

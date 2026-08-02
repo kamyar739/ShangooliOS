@@ -12,7 +12,7 @@
         <h1 class="display-6 fw-bold">Pinterest Bundle</h1>
         <p class="text-muted mb-0">{{ blueprint["label"] }} · Ready to download and copy.</p>
       </div>
-      <a class="btn btn-primary" href="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?download=true">Download Pinterest image</a>
+      <a class="btn btn-primary" download href="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?download=true">Download Pinterest image</a>
     </div>
 
     <div class="pinterest-bundle-layout">
@@ -34,6 +34,7 @@
                 <li>Open Pinterest and choose Create Pin.</li>
                 <li>Upload the downloaded image.</li>
                 <li>Copy the title, description, link, and alt text below.</li>
+                <li>Select each suggested topic from Pinterest’s autocomplete.</li>
                 <li>Choose the suggested board and publish.</li>
               </ol>
             </div>
@@ -57,7 +58,7 @@
         </div>
         <div class="pinterest-bundle-suggestions">
           <div><span>Suggested board</span><strong>{{ bundle["board"] }}</strong></div>
-          <div><span>Suggested topics</span><strong>{{ bundle["topics"] | join(", ") }}</strong></div>
+          <div class="pinterest-topic-guidance"><span>Tagged topics to select in Pinterest</span><strong>{{ bundle["topics"] | join(", ") }}</strong><small>Select the closest autocomplete option for each one before publishing.</small></div>
           <div><span>Disclosure</span><strong>Mark as AI-modified when applicable</strong></div>
         </div>
         <a class="btn btn-outline-success" href="https://www.pinterest.com/pin-creation-tool/" target="_blank" rel="noopener noreferrer">Open Pinterest ↗</a>
