@@ -782,6 +782,41 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertNotIn("Catalog Design 00", no_product.text)
         self.assertNotIn("Catalog Design 01", no_product.text)
 
+    def test_design_catalog_filters_products_needing_etsy_sync(self):
+        needs_sync_id = self._create_design()
+        self._save_setup(needs_sync_id)
+        db.record_standalone_marketplace_status(
+            needs_sync_id,
+            etsy_listing_id="4546000001",
+            etsy_state="active",
+            paused=False,
+        )
+        synced_id = db.create_standalone_design(
+            name="Already Synced Design",
+            message="Already synchronized",
+            description="Catalog sync test",
+            tags="teacher, mug",
+            source_filename="already-synced.png",
+            source_original_filename="already-synced.png",
+            image_width=2400,
+            image_height=1000,
+        )
+        self._save_setup(synced_id)
+        db.record_standalone_marketplace_status(
+            synced_id,
+            etsy_listing_id="4546000002",
+            etsy_state="active",
+            paused=False,
+        )
+        db.mark_standalone_etsy_synced(synced_id)
+
+        page = self.client.get("/designs?status=etsy_sync")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Every Collection Tells a Story", page.text)
+        self.assertIn("Needs Etsy Sync", page.text)
+        self.assertNotIn("Already Synced Design", page.text)
+
     def test_mug_review_performs_no_printify_operations(self):
         design_id = self._create_design()
         with patch("web.standalone_designs.PrintifyAPI.from_env") as api:
@@ -1560,6 +1595,9 @@ class StandaloneDesignTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 303)
+        self.assertIsNotNone(
+            db.get_standalone_design(design_id)["etsy_last_synced_at"]
+        )
         update.assert_called_once_with(
             "4546385670",
             title=design["product_title"],

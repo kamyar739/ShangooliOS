@@ -69,6 +69,7 @@ from web.db import (
     list_mockup_sets,
     link_etsy_listing,
     mark_etsy_synced,
+    mark_standalone_etsy_synced,
     record_etsy_state,
     record_etsy_inventory_quantity,
     record_etsy_paused,
@@ -785,7 +786,9 @@ def standalone_designs_page(
     normalized_tag = tag.strip()
     normalized_status = design_status.strip().lower() or "all"
     normalized_product = product_key.strip() or "all"
-    if normalized_status not in {"all", "draft", "printify", "etsy", "paused"}:
+    if normalized_status not in {
+        "all", "draft", "printify", "etsy", "etsy_sync", "paused"
+    }:
         raise HTTPException(status_code=400, detail="Invalid design status")
     blueprint_options = mug_blueprints()
     valid_products = {item["key"] for item in blueprint_options}
@@ -808,8 +811,16 @@ def standalone_designs_page(
         item["tag_list"] = parse_tags(item.get("tags") or "")
         item["products"] = []
         for saved_key, product in products_by_design.get(item["id"], {}).items():
+            needs_etsy_sync = bool(
+                product["etsy_listing_id"]
+                and str(product["etsy_state"] or "").lower() == "active"
+                and not product["etsy_paused_at"]
+                and not product["etsy_last_synced_at"]
+            )
             if product["etsy_paused_at"]:
                 state_label = "Paused"
+            elif needs_etsy_sync:
+                state_label = "Needs Etsy Sync"
             elif str(product["etsy_state"] or "").lower() == "active":
                 state_label = "Live"
             elif product["printify_product_id"]:
@@ -822,6 +833,7 @@ def standalone_designs_page(
                     "key": saved_key,
                     "label": blueprint_labels.get(saved_key, saved_key),
                     "state_label": state_label,
+                    "needs_etsy_sync": needs_etsy_sync,
                 }
             )
     available_tags = sorted(
@@ -914,6 +926,14 @@ def standalone_designs_page(
                 for product in status_products(item)
             )
         ]
+    elif normalized_status == "etsy_sync":
+        designs = [
+            item for item in designs
+            if any(
+                product["needs_etsy_sync"]
+                for product in status_products(item)
+            )
+        ]
     elif normalized_status == "paused":
         designs = [
             item for item in designs
@@ -935,6 +955,12 @@ def standalone_designs_page(
         if item["status"] == "archived":
             item["catalog_state"] = "Archived"
             item["catalog_state_class"] = "listing-status-archived"
+        elif any(
+            product["needs_etsy_sync"]
+            for product in item["display_products"]
+        ):
+            item["catalog_state"] = "Needs Etsy Sync"
+            item["catalog_state_class"] = "listing-status-ready"
         elif any(
             product["etsy_paused_at"]
             for product in item["display_products"]
@@ -1482,6 +1508,9 @@ def standalone_design_etsy_sync_post(
                 "ShangooliOS."
             ),
             product_key=product_key,
+        )
+        mark_standalone_etsy_synced(
+            design_id, product_key=product_key
         )
     except EtsyAPIError as error:
         return RedirectResponse(

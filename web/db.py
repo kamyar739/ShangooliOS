@@ -476,6 +476,7 @@ def ensure_production_schema():
                 etsy_state TEXT,
                 etsy_paused_at TEXT,
                 marketplace_checked_at TEXT,
+                etsy_last_synced_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (design_id) REFERENCES standalone_designs(id)
@@ -520,11 +521,24 @@ def ensure_production_schema():
             "etsy_state",
             "etsy_paused_at",
             "marketplace_checked_at",
+            "etsy_last_synced_at",
         ):
             if column_name not in design_product_columns:
                 conn.execute(
                     f"ALTER TABLE standalone_design_products ADD COLUMN {column_name} TEXT"
                 )
+        conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET etsy_last_synced_at = COALESCE(
+                    marketplace_checked_at, updated_at, CURRENT_TIMESTAMP
+                )
+            WHERE etsy_last_synced_at IS NULL
+              AND etsy_listing_id IS NOT NULL
+              AND LOWER(COALESCE(external_message, '')) LIKE '%etsy%'
+              AND LOWER(COALESCE(external_message, '')) LIKE '%synchroniz%'
+            """
+        )
         run_item_columns = {
             row["name"]
             for row in conn.execute(
@@ -3543,7 +3557,7 @@ def get_standalone_design(design_id, product_key="mug_11oz"):
                    p.printify_product_url, p.printify_base_cost_cents,
                    p.external_state, p.external_message, p.etsy_listing_id,
                    p.etsy_listing_url, p.etsy_state, p.etsy_paused_at,
-                   p.marketplace_checked_at
+                   p.marketplace_checked_at, p.etsy_last_synced_at
             FROM standalone_designs AS d
             LEFT JOIN standalone_design_products AS p
               ON p.design_id = d.id AND p.product_type = ?
@@ -3574,7 +3588,7 @@ def list_standalone_product_summaries():
             """
             SELECT design_id, product_type, title, description,
                    printify_product_id, external_state, etsy_listing_id,
-                   etsy_state, etsy_paused_at
+                   etsy_state, etsy_paused_at, etsy_last_synced_at
             FROM standalone_design_products
             ORDER BY design_id, created_at, id
             """
@@ -3606,6 +3620,9 @@ def update_standalone_design(
     if not normalized_name:
         raise ValueError("Enter a design name")
     with get_connection() as conn:
+        previous = conn.execute(
+            "SELECT tags FROM standalone_designs WHERE id = ?", (design_id,)
+        ).fetchone()
         cursor = conn.execute(
             """
             UPDATE standalone_designs
@@ -3623,6 +3640,16 @@ def update_standalone_design(
         )
         if cursor.rowcount == 0:
             raise ValueError("Design not found")
+        if previous and (previous["tags"] or "").strip() != (tags or "").strip():
+            conn.execute(
+                """
+                UPDATE standalone_design_products
+                SET etsy_last_synced_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE design_id = ? AND etsy_listing_id IS NOT NULL
+                """,
+                (design_id,),
+            )
         conn.commit()
 
 
@@ -3686,6 +3713,23 @@ def record_standalone_marketplace_status(
                 design_id,
                 product_key,
             ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Save the mug setup first")
+        conn.commit()
+
+
+def mark_standalone_etsy_synced(design_id, *, product_key="mug_11oz"):
+    """Record that one product's saved copy was successfully sent to Etsy."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET etsy_last_synced_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (design_id, product_key),
         )
         if cursor.rowcount == 0:
             raise ValueError("Save the mug setup first")
@@ -3836,6 +3880,10 @@ def update_standalone_product_copy(
             """
             UPDATE standalone_design_products
             SET title = ?, description = ?,
+                etsy_last_synced_at = CASE
+                    WHEN etsy_listing_id IS NOT NULL THEN NULL
+                    ELSE etsy_last_synced_at
+                END,
                 external_state = CASE
                     WHEN printify_product_id IS NOT NULL THEN 'needs_update'
                     ELSE external_state

@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS standalone_design_products (
     etsy_state TEXT,
     etsy_paused_at TEXT,
     marketplace_checked_at TEXT,
+    etsy_last_synced_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
