@@ -30,6 +30,7 @@ from web.pinterest_bundle import (
     pinterest_bundle_copy,
     select_printify_context_mockup,
 )
+from web.portfolio_refresh import apply_portfolio_refresh
 import web.standalone_designs as standalone_designs
 
 
@@ -612,6 +613,14 @@ class StandaloneDesignTests(unittest.TestCase):
             "Teaching is my superpower. Coffee is my sidekick.",
         )
         self.assertIn("typography mug", design["tags"])
+        products = db.list_standalone_design_products(design_id)
+        self.assertEqual(
+            {product["product_type"] for product in products},
+            {"mug_11oz", "mug_11oz_black_accent"},
+        )
+        self.assertTrue(
+            all(product["placement_mode"] == "both" for product in products)
+        )
         with Image.open(self.assets_path / design["source_filename"]) as image:
             self.assertEqual(image.getchannel("A").getextrema(), (0, 255))
 
@@ -703,6 +712,53 @@ class StandaloneDesignTests(unittest.TestCase):
         page = self.client.get("/designs")
         self.assertIn("Upload finished design", page.text)
         self.assertIn("Quick text design", page.text)
+        self.assertIn("Text ideas", page.text)
+
+    def test_text_idea_library_supports_rating_reorder_and_delete(self):
+        page = self.client.get("/designs/text-ideas")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Future Mug Text", page.text)
+        self.assertIn("I Had a Plan. Then the Bell Rang.", page.text)
+
+        added = self.client.post(
+            "/designs/text-ideas",
+            data={"category": "New Category", "text": "A fresh idea."},
+            follow_redirects=False,
+        )
+        self.assertEqual(added.status_code, 303)
+        ideas = [dict(row) for row in db.list_mug_text_ideas()]
+        new_idea = next(item for item in ideas if item["text"] == "A fresh idea.")
+
+        rated = self.client.post(
+            f"/designs/text-ideas/{new_idea['id']}/rating",
+            data={"rating": "4"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rated.status_code, 303)
+        rated_idea = next(
+            dict(item) for item in db.list_mug_text_ideas()
+            if item["id"] == new_idea["id"]
+        )
+        self.assertEqual(rated_idea["rating"], 4)
+        reordered_ids = [item["id"] for item in reversed(ideas)]
+        reordered = self.client.post(
+            "/designs/text-ideas/reorder", json={"ids": reordered_ids}
+        )
+        self.assertEqual(reordered.status_code, 200)
+        self.assertEqual(db.list_mug_text_ideas()[0]["id"], reordered_ids[0])
+
+        use_page = self.client.get(
+            "/designs/quick-text", params={"message": "A fresh idea."}
+        )
+        self.assertIn(">A fresh idea.</textarea>", use_page.text)
+        deleted = self.client.post(
+            f"/designs/text-ideas/{new_idea['id']}/delete",
+            follow_redirects=False,
+        )
+        self.assertEqual(deleted.status_code, 303)
+        self.assertFalse(
+            any(row["id"] == new_idea["id"] for row in db.list_mug_text_ideas())
+        )
 
     def test_design_catalog_search_filter_and_pagination(self):
         created_ids = []
@@ -1192,15 +1248,18 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertIn("Find Etsy Listing", response.text)
         check.assert_not_called()
 
-    def test_finish_etsy_waits_without_republishing(self):
+    def test_finish_etsy_rechecks_once_before_waiting_without_republishing(self):
         design_id = self._create_design()
         self._save_setup(design_id)
         create_mug_draft(design_id, confirmed=True, api=FakePrintifyAPI())
 
-        with patch(
-            "web.app.check_design_marketplace_status",
-            return_value={"linked": False},
-        ) as check:
+        with (
+            patch(
+                "web.app.check_design_marketplace_status",
+                return_value={"linked": False},
+            ) as check,
+            patch("web.app.time.sleep") as pause,
+        ):
             response = self.client.post(
                 f"/designs/{design_id}/etsy/finish",
                 follow_redirects=False,
@@ -1211,7 +1270,34 @@ class StandaloneDesignTests(unittest.TestCase):
             response.headers["location"],
             f"/designs/{design_id}/etsy/finish?waiting=1",
         )
-        check.assert_called_once_with(design_id)
+        self.assertEqual(check.call_count, 2)
+        check.assert_any_call(design_id)
+        pause.assert_called_once_with(1)
+
+    def test_finish_etsy_recheck_finds_new_listing_on_first_click(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        create_mug_draft(design_id, confirmed=True, api=FakePrintifyAPI())
+
+        with (
+            patch(
+                "web.app.check_design_marketplace_status",
+                side_effect=[{"linked": False}, {"linked": True}],
+            ) as check,
+            patch("web.app.time.sleep") as pause,
+        ):
+            response = self.client.post(
+                f"/designs/{design_id}/etsy/finish",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/designs/{design_id}/etsy?linked=1",
+        )
+        self.assertEqual(check.call_count, 2)
+        pause.assert_called_once_with(1)
 
     def test_finish_etsy_hands_linked_listing_to_existing_review(self):
         design_id = self._create_design()
@@ -1603,6 +1689,143 @@ class StandaloneDesignTests(unittest.TestCase):
             title=design["product_title"],
             description=design["product_description"],
             tags=["storyteller gift", "creative mug"],
+        )
+
+    def _create_refreshable_portfolio_slot(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        self._save_accent_setup(design_id)
+        white_api = FakePrintifyAPI()
+        accent_api = FakePrintifyAPI()
+        create_mug_draft(design_id, confirmed=True, api=white_api)
+        create_mug_draft(
+            design_id,
+            confirmed=True,
+            blueprint_key="mug_11oz_black_accent",
+            api=accent_api,
+        )
+        return design_id
+
+    def test_portfolio_refresh_review_performs_no_external_updates(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        before = [dict(row) for row in db.list_standalone_design_products(design_id)]
+        with patch("web.portfolio_refresh.update_mug_draft_graphics") as update:
+            page = self.client.get(f"/designs/{design_id}/refresh")
+            preview = self.client.post(
+                f"/designs/{design_id}/refresh/preview",
+                data={"message": "Small steps shape bright futures."},
+            )
+        after = [dict(row) for row in db.list_standalone_design_products(design_id)]
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(preview.status_code, 200)
+        self.assertIn("White Ceramic Mug", preview.text)
+        self.assertIn("Black Accent Mug 11 oz", preview.text)
+        self.assertEqual(before, after)
+        update.assert_not_called()
+
+    def test_portfolio_refresh_requires_explicit_confirmation(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        with patch("web.portfolio_refresh.update_mug_draft_graphics") as update:
+            response = self.client.post(
+                f"/designs/{design_id}/refresh/apply",
+                data={"message": "Small steps shape bright futures."},
+            )
+        self.assertEqual(response.status_code, 400)
+        update.assert_not_called()
+
+    def test_completed_portfolio_refresh_can_start_another_cycle(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        db.set_standalone_design_refresh_state(
+            design_id, "complete", "Previous refresh finished."
+        )
+
+        page = self.client.get(f"/designs/{design_id}/refresh")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Refresh complete", page.text)
+        self.assertIn("Start another refresh", page.text)
+        self.assertIn('name="message"', page.text)
+        self.assertIn("Review the Etsy listings", page.text)
+
+    def test_portfolio_refresh_updates_both_slots_without_replacing_ids_or_setup(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        before = {
+            row["product_type"]: dict(row)
+            for row in db.list_standalone_design_products(design_id)
+        }
+        calls = []
+
+        def update(design_id, *, confirmed, blueprint_key, source_filename):
+            calls.append((design_id, confirmed, blueprint_key, source_filename))
+            return {"outcome": "updated", "message": "updated"}
+
+        results = apply_portfolio_refresh(
+            design_id,
+            "Small steps shape bright futures.",
+            confirmed=True,
+            update_printify=update,
+        )
+        after = {
+            row["product_type"]: dict(row)
+            for row in db.list_standalone_design_products(design_id)
+        }
+
+        self.assertEqual([item["outcome"] for item in results], ["updated", "updated"])
+        self.assertEqual(
+            {item[2] for item in calls},
+            {"mug_11oz", "mug_11oz_black_accent"},
+        )
+        self.assertEqual(calls[0][3], calls[1][3])
+        for key in before:
+            self.assertEqual(
+                after[key]["printify_product_id"], before[key]["printify_product_id"]
+            )
+            self.assertEqual(after[key]["price_cents"], before[key]["price_cents"])
+            self.assertEqual(after[key]["placement_x"], before[key]["placement_x"])
+            self.assertEqual(after[key]["placement_y"], before[key]["placement_y"])
+            self.assertEqual(after[key]["placement_scale"], before[key]["placement_scale"])
+            self.assertEqual(after[key]["production_asset_filename"], calls[0][3])
+        self.assertEqual(
+            db.get_standalone_design(design_id)["refresh_state"],
+            "awaiting_printify",
+        )
+
+    def test_portfolio_refresh_failure_keeps_that_products_previous_asset(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        old_assets = {
+            row["product_type"]: row["production_asset_filename"]
+            for row in db.list_standalone_design_products(design_id)
+        }
+
+        def update(design_id, *, confirmed, blueprint_key, source_filename):
+            if blueprint_key == "mug_11oz":
+                return {"outcome": "failed", "message": "Printify rejected update"}
+            return {"outcome": "updated", "message": "updated"}
+
+        results = apply_portfolio_refresh(
+            design_id,
+            "Small steps shape bright futures.",
+            confirmed=True,
+            update_printify=update,
+        )
+        products = {
+            row["product_type"]: row
+            for row in db.list_standalone_design_products(design_id)
+        }
+
+        self.assertEqual(results[0]["outcome"], "failed")
+        self.assertEqual(results[1]["outcome"], "updated")
+        self.assertEqual(
+            products["mug_11oz"]["production_asset_filename"],
+            old_assets["mug_11oz"],
+        )
+        self.assertNotEqual(
+            products["mug_11oz_black_accent"]["production_asset_filename"],
+            old_assets["mug_11oz_black_accent"],
+        )
+        self.assertEqual(
+            db.get_standalone_design(design_id)["refresh_state"], "needs_review"
         )
 
 

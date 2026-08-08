@@ -21,7 +21,9 @@
         <p class="text-muted mb-0">{% if design["printify_product_id"] %}Mug draft created in Printify.{% else %}Ready to adapt to a product.{% endif %}</p>
       </div>
       <div class="d-flex gap-2 flex-wrap">
-        {% if design["etsy_listing_url"] %}<a class="btn btn-outline-success" href="{{ design['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>{% endif %}
+        <a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/refresh">
+          {% if design["refresh_state"] in ("awaiting_printify", "needs_review") %}Resume Portfolio Refresh{% else %}Refresh Portfolio Slot{% endif %}
+        </a>
         {% if design["etsy_listing_id"] %}
         <a class="btn btn-outline-warning" href="/designs/{{ design['id'] }}/etsy">Sync Etsy details</a>
         {% elif design["printify_product_id"] %}
@@ -100,6 +102,9 @@
             {% elif product %}<span class="status-badge draft">Setup saved</span>
             {% else %}<span class="status-badge draft">Not created</span>{% endif %}
             <a class="btn btn-outline-primary btn-sm" href="{% if option['key'] == 'mug_11oz' %}/designs/{{ design['id'] }}/mug{% else %}/designs/{{ design['id'] }}/products/{{ option['key'] }}{% endif %}">{% if product %}Review product{% else %}Create product{% endif %}</a>
+            {% if product and product["etsy_listing_url"] %}
+            <a class="btn btn-outline-success btn-sm" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>
+            {% endif %}
             {% if product and product["etsy_listing_url"] %}
             <a class="btn design-pinterest-button btn-sm" href="/designs/{{ design['id'] }}/products/{{ option['key'] }}/pinterest">Pinterest bundle</a>
             {% endif %}

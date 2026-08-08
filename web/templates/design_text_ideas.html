@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Text Ideas — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content text-ideas-page">
+    <a class="workflow-back-link mb-3" href="/designs">← Back to Designs</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Idea library</div>
+        <h1 class="display-6 fw-bold">Future Mug Text</h1>
+        <p class="text-muted mb-0">Keep promising messages ready for the next portfolio refresh.</p>
+      </div>
+      <div class="text-ideas-summary"><strong>{{ ideas|length }}</strong> ideas · <strong>{{ five_star_count }}</strong> rated 5 stars</div>
+    </div>
+
+    {% if request.query_params.get('added') %}<div class="alert alert-success">Text idea added.</div>{% endif %}
+    {% if request.query_params.get('deleted') %}<div class="alert alert-success">Text idea deleted.</div>{% endif %}
+    {% if request.query_params.get('error') %}<div class="alert alert-warning">{{ request.query_params.get('error') }}</div>{% endif %}
+
+    <section class="section-card compact-section-card text-ideas-add">
+      <div>
+        <div class="eyebrow">Add an idea</div>
+        <h2 class="h5 mb-1">Save a phrase for later</h2>
+      </div>
+      <form method="post" action="/designs/text-ideas">
+        <div>
+          <label class="form-label" for="idea-category">Category</label>
+          <input class="form-control" id="idea-category" name="category" list="idea-categories" placeholder="Classroom Reality" required>
+          <datalist id="idea-categories">{% for category in categories %}<option value="{{ category }}">{% endfor %}</datalist>
+        </div>
+        <div class="text-ideas-add-copy">
+          <label class="form-label" for="idea-text">Mug text</label>
+          <input class="form-control" id="idea-text" name="text" maxlength="180" placeholder="A new teacher phrase" required>
+        </div>
+        <button class="btn btn-primary" type="submit">Add idea</button>
+      </form>
+    </section>
+
+    <section class="text-ideas-toolbar" aria-label="Filter text ideas">
+      <input class="form-control" id="idea-search" type="search" placeholder="Search ideas or categories">
+      <select class="form-select" id="idea-category-filter">
+        <option value="">All categories</option>
+        {% for category in categories %}<option value="{{ category|lower }}">{{ category }}</option>{% endfor %}
+      </select>
+      <select class="form-select" id="idea-sort" aria-label="Sort ideas">
+        <option value="manual">Manual order</option>
+        <option value="rating-desc">Highest rated first</option>
+        <option value="rating-asc">Lowest rated first</option>
+      </select>
+      <span id="idea-save-status" class="small text-muted" aria-live="polite">Drag rows to reorder</span>
+    </section>
+
+    <section class="text-ideas-list" id="text-ideas-list">
+      {% for idea in ideas %}
+      <article class="text-idea-row" draggable="true" data-id="{{ idea.id }}" data-category="{{ idea.category|lower }}" data-text="{{ idea.text|lower }}" data-rating="{{ idea.rating }}" data-manual-order="{{ loop.index }}">
+        <button class="text-idea-drag" type="button" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
+        <form class="text-idea-rating" method="post" action="/designs/text-ideas/{{ idea.id }}/rating" aria-label="Rate {{ idea.text }}">
+          {% for star in range(1, 6) %}
+          <button class="text-idea-star{% if star <= idea.rating %} is-filled{% endif %}" type="submit" name="rating" value="{% if star == idea.rating %}0{% else %}{{ star }}{% endif %}" title="Rate {{ star }} star{% if star != 1 %}s{% endif %}" aria-label="Rate {{ star }} star{% if star != 1 %}s{% endif %}">★</button>
+          {% endfor %}
+        </form>
+        <div class="text-idea-content">
+          <strong>{{ idea.text }}</strong>
+          <span>{{ idea.category }}</span>
+        </div>
+        <form method="get" action="/designs/quick-text">
+          <input type="hidden" name="message" value="{{ idea.text }}">
+          <button class="btn btn-outline-primary btn-sm" type="submit">Use idea</button>
+        </form>
+        <form method="post" action="/designs/text-ideas/{{ idea.id }}/delete" onsubmit="return confirm('Delete this text idea?')">
+          <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
+        </form>
+      </article>
+      {% endfor %}
+      <div class="text-ideas-empty" id="text-ideas-empty" hidden>No ideas match these filters.</div>
+    </section>
+  </main>
+</div>
+<script>
+(() => {
+  const list = document.getElementById('text-ideas-list');
+  const search = document.getElementById('idea-search');
+  const category = document.getElementById('idea-category-filter');
+  const sort = document.getElementById('idea-sort');
+  const sortPreferenceKey = 'shangoolios-text-ideas-sort';
+  const empty = document.getElementById('text-ideas-empty');
+  const status = document.getElementById('idea-save-status');
+  if (!list) return;
+  const rows = () => [...list.querySelectorAll('.text-idea-row')];
+  const filter = () => {
+    const query = search.value.trim().toLowerCase();
+    let visible = 0;
+    rows().forEach(row => {
+      const matchesText = !query || row.dataset.text.includes(query) || row.dataset.category.includes(query);
+      const matchesCategory = !category.value || row.dataset.category === category.value;
+      row.hidden = !(matchesText && matchesCategory);
+      if (!row.hidden) visible += 1;
+    });
+    empty.hidden = visible !== 0;
+  };
+  [search, category].forEach(control => control.addEventListener('input', filter));
+  const applySort = () => {
+    const direction = sort.value;
+    const sortedRows = rows().sort((left, right) => {
+      if (direction === 'rating-desc') return Number(right.dataset.rating) - Number(left.dataset.rating) || Number(left.dataset.manualOrder) - Number(right.dataset.manualOrder);
+      if (direction === 'rating-asc') return Number(left.dataset.rating) - Number(right.dataset.rating) || Number(left.dataset.manualOrder) - Number(right.dataset.manualOrder);
+      return Number(left.dataset.manualOrder) - Number(right.dataset.manualOrder);
+    });
+    sortedRows.forEach(row => list.insertBefore(row, empty));
+    const manual = direction === 'manual';
+    rows().forEach(row => row.draggable = manual);
+    status.textContent = manual ? 'Drag rows to reorder' : 'Sorted by rating';
+  };
+  sort.addEventListener('change', () => {
+    try { window.localStorage.setItem(sortPreferenceKey, sort.value); } catch (error) {}
+    applySort();
+  });
+  try {
+    const savedSort = window.localStorage.getItem(sortPreferenceKey);
+    if ([...sort.options].some(option => option.value === savedSort)) sort.value = savedSort;
+  } catch (error) {}
+  applySort();
+
+  let dragged = null;
+  list.addEventListener('dragstart', event => {
+    dragged = event.target.closest('.text-idea-row');
+    if (!dragged || dragged.hidden) return;
+    dragged.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+  });
+  list.addEventListener('dragover', event => {
+    if (!dragged || sort.value !== 'manual') return;
+    event.preventDefault();
+    const target = event.target.closest('.text-idea-row');
+    if (!target || target === dragged || target.hidden) return;
+    const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+    list.insertBefore(dragged, after ? target.nextSibling : target);
+  });
+  list.addEventListener('dragend', async () => {
+    if (!dragged) return;
+    dragged.classList.remove('is-dragging');
+    dragged = null;
+    status.textContent = 'Saving order…';
+    try {
+      const response = await fetch('/designs/text-ideas/reorder', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: rows().map(row => Number(row.dataset.id))})
+      });
+      if (!response.ok) throw new Error('Order could not be saved');
+      rows().forEach((row, index) => row.dataset.manualOrder = String(index + 1));
+      status.textContent = 'Order saved';
+    } catch (error) {
+      status.textContent = 'Order not saved · reload and try again';
+    }
+  });
+})();
+</script>
+{% endblock %}

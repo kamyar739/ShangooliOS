@@ -1,8 +1,10 @@
 from pathlib import Path
+import base64
 import re
 import secrets
 import shutil
 import sqlite3
+import time
 from urllib.parse import urlencode
 
 from fastapi import (
@@ -64,6 +66,11 @@ from web.db import (
     list_standalone_designs,
     list_standalone_design_products,
     list_standalone_product_summaries,
+    list_mug_text_ideas,
+    create_mug_text_idea,
+    delete_mug_text_idea,
+    rate_mug_text_idea,
+    reorder_mug_text_ideas,
     prepare_standalone_product_asset,
     list_mockup_scenes,
     list_mockup_sets,
@@ -90,6 +97,7 @@ from web.db import (
     search_artworks,
     set_artwork_production_flags,
     set_standalone_design_archived,
+    set_standalone_design_refresh_state,
     create_standalone_design,
     replace_standalone_design_source,
     update_standalone_product_copy,
@@ -187,6 +195,7 @@ from web.standalone_designs import (
     update_mug_draft_copy,
     update_mug_draft_graphics,
     mug_profile,
+    publish_standalone_product,
 )
 from web.product_blueprints import (
     DEFAULT_MUG_BLUEPRINT_KEY,
@@ -200,6 +209,13 @@ from web.pinterest_bundle import (
     pinterest_bundle_copy,
     pinterest_download_name,
     render_pinterest_bundle,
+)
+from web.portfolio_refresh import (
+    apply_portfolio_refresh,
+    publish_portfolio_refresh,
+    refresh_eligibility,
+    refresh_preview,
+    sync_portfolio_refresh_mockups,
 )
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
@@ -1042,12 +1058,77 @@ def new_standalone_design_page(request: Request):
 
 
 @app.get("/designs/quick-text")
-def quick_text_design_page(request: Request):
+def quick_text_design_page(request: Request, message: str = Query("")):
     return templates.TemplateResponse(
         request=request,
         name="design_quick_text.html",
-        context={"dashboard_sidebar_active": "designs"},
+        context={
+            "dashboard_sidebar_active": "designs",
+            "initial_message": message.strip(),
+        },
     )
+
+
+@app.get("/designs/text-ideas")
+def mug_text_ideas_page(request: Request):
+    ideas = [dict(row) for row in list_mug_text_ideas()]
+    categories = []
+    for idea in ideas:
+        if idea["category"] not in categories:
+            categories.append(idea["category"])
+    return templates.TemplateResponse(
+        request=request,
+        name="design_text_ideas.html",
+        context={
+            "ideas": ideas,
+            "categories": categories,
+            "five_star_count": sum(idea["rating"] == 5 for idea in ideas),
+            "dashboard_sidebar_active": "text_ideas",
+        },
+    )
+
+
+@app.post("/designs/text-ideas")
+def add_mug_text_idea(category: str = Form(...), text: str = Form(...)):
+    try:
+        create_mug_text_idea(category, text)
+    except ValueError as error:
+        return RedirectResponse(
+            f"/designs/text-ideas?error={urlencode({'message': str(error)})[8:]}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        "/designs/text-ideas?added=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/designs/text-ideas/{idea_id}/rating")
+def rate_mug_text_idea_post(idea_id: int, rating: int = Form(...)):
+    try:
+        rate_mug_text_idea(idea_id, rating)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse(
+        "/designs/text-ideas", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/designs/text-ideas/{idea_id}/delete")
+def remove_mug_text_idea(idea_id: int):
+    delete_mug_text_idea(idea_id)
+    return RedirectResponse(
+        "/designs/text-ideas?deleted=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/designs/text-ideas/reorder")
+async def reorder_mug_text_ideas_post(request: Request):
+    payload = await request.json()
+    try:
+        reorder_mug_text_ideas(payload.get("ids") or [])
+    except (TypeError, ValueError) as error:
+        return JSONResponse({"ok": False, "message": str(error)}, status_code=400)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/designs/quick-text")
@@ -1071,6 +1152,23 @@ def create_quick_text_design_post(message: str = Form(...)):
             image_width=saved["width"],
             image_height=saved["height"],
         )
+        # Quick Text is the normal zero-setup path: prepare both supported mug
+        # products locally, while leaving Printify and Etsy untouched.
+        for blueprint_key in PRODUCT_BLUEPRINTS:
+            profile = mug_profile(blueprint_key)
+            save_mug_setup(
+                design_id,
+                blueprint_key=blueprint_key,
+                title=suggested_mug_title(normalized_message, blueprint_key),
+                description=suggested_mug_description(
+                    generated["description"], blueprint_key, "both"
+                ),
+                price_cents=profile["default_price_cents"],
+                placement_scale=profile["placement_scale"],
+                placement_x=profile["placement_x"],
+                placement_y=profile["placement_y"],
+                placement_mode="both",
+            )
     except ValueError as error:
         if saved:
             (
@@ -1168,6 +1266,160 @@ def standalone_design_page(request: Request, design_id: int):
             "product_options": product_options,
             "dashboard_sidebar_active": "designs",
         },
+    )
+
+
+@app.get("/designs/{design_id}/refresh")
+def portfolio_refresh_page(request: Request, design_id: int):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    eligibility = refresh_eligibility(design_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="design_portfolio_refresh.html",
+        context={
+            "design": design,
+            "products": eligibility["products"],
+            "blockers": eligibility["blockers"],
+            "preview": None,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/refresh/preview")
+def portfolio_refresh_preview_post(
+    request: Request, design_id: int, message: str = Form(...)
+):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    try:
+        preview = refresh_preview(message)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    eligibility = refresh_eligibility(design_id)
+    preview_products = []
+    for product in eligibility["products"]:
+        key = product["product_type"]
+        preview_products.append(
+            {
+                "key": key,
+                "label": PRODUCT_BLUEPRINTS[key]["label"],
+                "title": suggested_mug_title(preview["message"], key),
+                "description": suggested_mug_description(
+                    preview["metadata"]["description"],
+                    key,
+                    product["placement_mode"] or "front",
+                ),
+                "price_cents": product["price_cents"],
+            }
+        )
+    preview["products"] = preview_products
+    preview["image_data"] = (
+        "data:image/png;base64," + base64.b64encode(preview["image"]).decode("ascii")
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="design_portfolio_refresh.html",
+        context={
+            "design": design,
+            "products": eligibility["products"],
+            "blockers": eligibility["blockers"],
+            "preview": preview,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/refresh/apply")
+def portfolio_refresh_apply_post(
+    design_id: int,
+    message: str = Form(...),
+    confirmed: bool = Form(False),
+):
+    try:
+        results = apply_portfolio_refresh(
+            design_id, message, confirmed=confirmed
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    outcome = "ready" if all(item["outcome"] == "updated" for item in results) else "attention"
+    return RedirectResponse(
+        f"/designs/{design_id}/refresh?result={outcome}", status_code=303
+    )
+
+
+@app.post("/designs/{design_id}/refresh/finish")
+def portfolio_refresh_finish_post(
+    design_id: int, confirmed: bool = Form(False)
+):
+    if not confirmed:
+        raise HTTPException(
+            status_code=400, detail="Confirm that Printify publishing is finished"
+        )
+    eligibility = refresh_eligibility(design_id)
+    if eligibility["blockers"]:
+        raise HTTPException(status_code=400, detail=" ".join(eligibility["blockers"]))
+    waiting = []
+    failures = []
+    for product in eligibility["products"]:
+        key = product["product_type"]
+        result, error = _check_standalone_design_marketplace(design_id, "", key)
+        if error:
+            failures.append(f"{PRODUCT_BLUEPRINTS[key]['label']}: {error}")
+            continue
+        if not result["linked"]:
+            waiting.append(PRODUCT_BLUEPRINTS[key]["label"])
+            continue
+        try:
+            _sync_standalone_design_product_etsy(design_id, key)
+            sync_portfolio_refresh_mockups(design_id, key)
+        except (EtsyAPIError, PrintifyAPIError, OSError, ValueError) as error:
+            failures.append(f"{PRODUCT_BLUEPRINTS[key]['label']}: {error}")
+    if failures:
+        set_standalone_design_refresh_state(
+            design_id, "needs_review", " ".join(failures)
+        )
+        outcome = "attention"
+    elif waiting:
+        set_standalone_design_refresh_state(
+            design_id,
+            "awaiting_etsy",
+            "Printify has not reported Etsy for: " + ", ".join(waiting),
+        )
+        outcome = "waiting"
+    else:
+        set_standalone_design_refresh_state(
+            design_id,
+            "complete",
+            "Both mug products and Etsy listings are synchronized.",
+        )
+        outcome = "complete"
+    return RedirectResponse(
+        f"/designs/{design_id}/refresh?result={outcome}", status_code=303
+    )
+
+
+@app.post("/designs/{design_id}/refresh/publish")
+def portfolio_refresh_publish_post(
+    design_id: int, confirmed: bool = Form(False)
+):
+    try:
+        results = publish_portfolio_refresh(design_id, confirmed=confirmed)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    outcome = (
+        "publish_attention"
+        if any(
+            item["outcome"] in {"publish_failed", "publish_outcome_unknown"}
+            for item in results
+        )
+        else "publish_requested"
+    )
+    return RedirectResponse(
+        f"/designs/{design_id}/refresh?result={outcome}", status_code=303
     )
 
 
@@ -1322,13 +1574,23 @@ def _check_standalone_design_marketplace(
             )
             result = {"linked": True}
         else:
-            result = (
-                check_design_marketplace_status(design_id)
+            check_kwargs = (
+                {}
                 if product_key == DEFAULT_MUG_BLUEPRINT_KEY
-                else check_design_marketplace_status(
-                    design_id, product_key=product_key
-                )
+                else {"product_key": product_key}
             )
+            result = check_design_marketplace_status(
+                design_id, **check_kwargs
+            )
+            if not result["linked"]:
+                # Printify can accept publication before its product response
+                # exposes the resulting Etsy listing. One short, read-only
+                # recheck closes that normal propagation gap without ever
+                # repeating the publication request.
+                time.sleep(1)
+                result = check_design_marketplace_status(
+                    design_id, **check_kwargs
+                )
     except (EtsyAPIError, ValueError) as error:
         return None, str(error)
     return result, ""
@@ -1478,40 +1740,10 @@ def standalone_design_etsy_sync_post(
         raise HTTPException(
             status_code=400, detail="Confirm the Etsy details update"
         )
-    design = get_standalone_design(design_id, product_key)
-    if design is None:
-        raise HTTPException(status_code=404, detail="Design not found")
-    if not design["etsy_listing_id"]:
-        raise HTTPException(
-            status_code=400, detail="Find and link the Etsy listing first"
-        )
-    content = _standalone_design_etsy_content(design)
-    problems = [
-        item["detail"]
-        for item in validate_etsy_listing(content)
-        if not item["passed"]
-    ]
-    if problems:
-        raise HTTPException(status_code=400, detail=" ".join(problems))
     try:
-        get_etsy_listing(str(design["etsy_listing_id"]))
-        update_etsy_listing(
-            str(design["etsy_listing_id"]),
-            title=content["title"],
-            description=content["description"],
-            tags=parse_tags(content["tags"]),
-        )
-        record_standalone_marketplace_status(
-            design_id,
-            message=(
-                "Etsy title, description, and tags synchronized from "
-                "ShangooliOS."
-            ),
-            product_key=product_key,
-        )
-        mark_standalone_etsy_synced(
-            design_id, product_key=product_key
-        )
+        _sync_standalone_design_product_etsy(design_id, product_key)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except EtsyAPIError as error:
         return RedirectResponse(
             f"/designs/{design_id}/etsy?"
@@ -1525,6 +1757,36 @@ def standalone_design_etsy_sync_post(
         + _standalone_product_query(product_key, synced=1),
         status_code=303,
     )
+
+
+def _sync_standalone_design_product_etsy(design_id, product_key):
+    """Shared Etsy copy sync used by individual and portfolio flows."""
+    design = get_standalone_design(design_id, product_key)
+    if design is None:
+        raise ValueError("Design not found")
+    if not design["etsy_listing_id"]:
+        raise ValueError("Find and link the Etsy listing first")
+    content = _standalone_design_etsy_content(design)
+    problems = [
+        item["detail"]
+        for item in validate_etsy_listing(content)
+        if not item["passed"]
+    ]
+    if problems:
+        raise ValueError(" ".join(problems))
+    get_etsy_listing(str(design["etsy_listing_id"]))
+    update_etsy_listing(
+        str(design["etsy_listing_id"]),
+        title=content["title"],
+        description=content["description"],
+        tags=parse_tags(content["tags"]),
+    )
+    record_standalone_marketplace_status(
+        design_id,
+        message="Etsy title, description, and tags synchronized from ShangooliOS.",
+        product_key=product_key,
+    )
+    mark_standalone_etsy_synced(design_id, product_key=product_key)
 
 
 @app.post("/designs/{design_id}/etsy/pause")
@@ -1999,6 +2261,31 @@ def update_standalone_mug_copy_post(
     )
     return RedirectResponse(
         f"{product_url}?result={result['outcome']}&update=copy",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/publish")
+def publish_standalone_product_post(
+    design_id: int,
+    blueprint_key: str,
+    confirmed: bool = Form(False),
+):
+    try:
+        result = publish_standalone_product(
+            design_id,
+            blueprint_key,
+            confirmed=confirmed,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?publish={result['outcome']}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

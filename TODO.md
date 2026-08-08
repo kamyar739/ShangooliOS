@@ -178,7 +178,7 @@ Add a compact workflow for correcting one or more listing images:
 - Synchronize only the approved Etsy images when a linked listing is stale.
 - Preserve the source, print files, writing, price, variants, Printify product, and Etsy live or paused state.
 
-## Pinterest Publishing Package
+## Completed: Pinterest Publishing Package
 
 Add a compact Pinterest package to each standalone design so creating a Pin requires minimal rewriting or lookup. Generate editable, copy-ready values from the existing design and Etsy listing data:
 
@@ -191,3 +191,106 @@ Add a compact Pinterest package to each standalone design so creating a Pin requ
 - Individual copy buttons for each value.
 
 Keep Pinterest posting manual initially. Do not introduce Pinterest API publishing until the package workflow has been used and validated with real Pins.
+
+## Completed: Portfolio Refresh
+
+Add a guided refresh flow for replacing an underperforming standalone design while preserving its existing white and Black Accent mug product slots.
+
+- Enter the replacement message once and preview the generated graphic and product copy.
+- Prepare isolated replacement assets for both existing mug products.
+- Update the existing Printify products without creating new products or changing external IDs, prices, placement, or variants.
+- Stop for the user's visual review and publication in Printify.
+- Resume at the same screen, verify both marketplace links, and synchronize Etsy title, description, and tags.
+- Continue processing the second mug if one product fails, with a clear per-product result.
+- Preserve the previous files and require explicit confirmation before external changes.
+- Hide the **New message / Preview Refresh** form while a refresh is waiting for Printify or Etsy, so the page shows only the current required action and does not look like it is asking the user to start over.
+
+## Mug Etsy Gallery Workflow
+
+Add one reusable curated-gallery workflow for both **Quick Text Design** and **Portfolio Refresh** products.
+
+- Accept finished custom mockups created outside ShangooliOS.
+- Let the user upload, preview, order, replace, download, approve, and synchronize those finished images.
+- Keep each uploaded mockup attached to the correct White Ceramic or Black Accent mug product.
+- Support replacing an individual custom mockup without rebuilding the product or the rest of its gallery.
+- Recommend a small standard gallery set: clean hero product image, lifestyle/desk scene, gift-oriented scene, and a clear both-sides presentation.
+- Keep Printify responsible for the product, production artwork, placement, variants, pricing, shipping, fulfillment, and its generated previews.
+- Let ShangooliOS upload or select finished custom mug mockups for the Etsy gallery.
+- Show the exact proposed Etsy image order, including the lead image, before anything changes externally.
+- Require explicit approval of the complete gallery before synchronization.
+- Upload the approved custom mockups directly to the linked Etsy listing rather than modifying the Printify product.
+- Preserve the existing Etsy gallery until the entire replacement set uploads successfully.
+- If an upload fails, retain the previous gallery, report the failed image, and allow a safe retry.
+- Never change Printify artwork, placement, variants, price, shipping, publication state, or product IDs while synchronizing Etsy mockups.
+- Support both newly created products and refreshed existing product slots through the same implementation.
+- Keep white and Black Accent mug galleries independently tracked and prevent one product's images from being applied to the other.
+- Make it clear when a gallery is local-only, approved, waiting for Etsy, synchronized, or needs attention.
+
+## Completed: Quick Text Design: Create Both Mug Products
+
+Make a new Quick Text Design behave like Portfolio Refresh: create one reusable
+design record with independently tracked White Ceramic and Black Accent mug
+products, rather than producing separate design rows for the two varieties.
+
+- Enter the message once and generate the shared design identity once.
+- Prepare both mug products with their existing product-specific defaults.
+- Keep each product's asset, placement, price, Printify ID, Etsy ID, readiness,
+  publication, and recovery state independent.
+- Allow either product to fail or remain uncreated without corrupting the other.
+- Preserve the option to create only one variety when explicitly requested.
+- Review existing duplicate design rows separately; do not merge or delete them
+  automatically.
+
+## Future Dark Mug Design Treatment
+
+Plan a genuinely dark-exterior mug product with a distinct typography and color
+treatment. This is separate from the current White Ceramic mug and the current
+Black Accent mug, whose exterior remains white.
+
+- Finalize one approved visual prototype before adding product automation.
+- Verify the exact Printify blueprint, provider, variant, print area, and mockups
+  from the connected catalog before configuration.
+- Add it as a new stable product blueprint key; never redefine `mug_11oz` or
+  `mug_11oz_black_accent`.
+- Generate a derived high-contrast production asset for the dark mug while
+  preserving the original design asset.
+- Keep its text, font, colors, placement, price, external IDs, and lifecycle
+  independent from the white and Black Accent products.
+- Support preparing it in batches only after a one-design manual proof succeeds.
+
+## Completed: Navigation and Product Organization
+
+Restructure the sidebar only after the product organization is settled. Prefer a
+product-oriented structure that can add T-shirts later without treating reusable
+design assets as mug-only:
+
+- **Dashboard**
+- **Posters**: Collections, Fast Flow
+- **Products**: Design Library, Mugs, Text Ideas; later T-shirts
+- **Listings**
+- **Mockup Studio**
+- **Connections**: Printify, Etsy
+
+Keep reusable message graphics in **Design Library** because one design may later
+feed mugs, T-shirts, or another product. Avoid deep sidebar nesting; use product
+page tabs when a third navigation level would be required.
+
+## Completed: Shangooli.com Featured Product Refresh
+
+Replace obsolete mug links and images on Shangooli.com with a small curated set of
+current live products, favoring the stronger Black Accent mug presentations.
+
+- Verify every destination is a current, active Etsy listing before publishing.
+- Keep the initial update content-only and small.
+- Later consider sourcing featured links from one curated ShangooliOS list so
+  refreshed product slots do not leave stale hard-coded website links.
+
+## Humorous Product Classification
+
+Use the existing tags and filters to introduce a **Humorous Gifts** or **Teacher
+Humor** classification without creating another product architecture.
+
+- Start with a controlled design tag and an optional Etsy section.
+- Let designs belong to both a subject category and the humor category.
+- Add website or navigation treatment only after enough products exist to make the
+  category useful.

@@ -12,6 +12,7 @@
         <p class="text-muted mb-0">Message-driven graphics for mugs and future products.</p>
       </div>
       <div class="d-flex gap-2">
+        {% if not show_archived %}<a class="btn btn-outline-secondary" href="/designs/text-ideas">Text ideas</a>{% endif %}
         <a class="btn btn-outline-secondary" href="{% if show_archived %}/designs{% else %}/designs?show=archived{% endif %}">{% if show_archived %}Show current{% else %}Archived designs{% endif %}</a>
         {% if not show_archived %}<a class="btn btn-outline-primary" href="/designs/new">Upload finished design</a><a class="btn btn-primary" href="/designs/quick-text">+ Quick text design</a>{% endif %}
       </div>
@@ -83,7 +84,11 @@
               <img src="/designs/{{ design['id'] }}/products/{{ product['key'] }}/image?v={{ product['production_asset_filename'] or design['source_filename'] }}" alt="">
             </span>
             <strong>{{ product['label'] }}</strong>
-            <em>{{ product['state_label'] }}</em>
+            {% if product["state_label"] == "Live" and product["etsy_listing_url"] %}
+              <a class="design-list-live-link" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer" aria-label="Verify {{ product['label'] }} on Etsy">Live ↗</a>
+            {% else %}
+              <em>{{ product['state_label'] }}</em>
+            {% endif %}
           </span>
           {% else %}<span class="design-list-empty">No product yet</span>{% endfor %}
         </div>

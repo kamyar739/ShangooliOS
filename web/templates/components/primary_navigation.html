@@ -1,12 +1,17 @@
 <nav class="primary-navigation" aria-label="Primary navigation">
   <a href="/" class="{% if primary_nav_active == 'dashboard' %}is-active{% endif %}"><span>⌂</span>Dashboard</a>
+  <div class="primary-navigation-label">Posters</div>
   {% set collection_context_code = collection['code'] if collection is defined and collection else artwork['collection_code'] if artwork is defined and artwork else '' %}
   <a href="/collections{% if collection_context_code %}?collection={{ collection_context_code }}{% endif %}" class="{% if primary_nav_active == 'collections' %}is-active{% endif %}"><span>▦</span>Collections</a>
   <a href="/fast-flow" class="{% if primary_nav_active == 'fast_flow' %}is-active{% endif %}"><span>⇥</span>Fast Flow</a>
-  <a href="/designs" class="{% if primary_nav_active == 'designs' %}is-active{% endif %}"><span>✦</span>Designs</a>
+  <a href="/recent" class="{% if primary_nav_active == 'recent' %}is-active{% endif %}"><span>◷</span>Recently updated</a>
+  <div class="primary-navigation-label">Mugs</div>
+  <a href="/designs" class="{% if primary_nav_active == 'designs' %}is-active{% endif %}"><span>✦</span>Design Library</a>
+  <a href="/designs/text-ideas" class="{% if primary_nav_active == 'text_ideas' %}is-active{% endif %}"><span>☆</span>Text Ideas</a>
+  <div class="primary-navigation-label">Marketplace</div>
   <a href="/listings" class="{% if primary_nav_active == 'listings' %}is-active{% endif %}"><span>☷</span>Listings</a>
   <a href="/mockup-studio" class="{% if primary_nav_active == 'mockup_studio' %}is-active{% endif %}"><span>▣</span>Mockup Studio</a>
+  <div class="primary-navigation-label">Connections</div>
   <a href="/printify/connect" class="{% if primary_nav_active == 'printify' %}is-active{% endif %}"><span>◆</span>Printify connection</a>
   <a href="/etsy/connect" class="{% if primary_nav_active == 'etsy' %}is-active{% endif %}"><span>↗</span>Etsy connection</a>
-  <a href="/recent" class="{% if primary_nav_active == 'recent' %}is-active{% endif %}"><span>◷</span>Recently updated</a>
 </nav>

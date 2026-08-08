@@ -21,6 +21,9 @@
     {% if request.query_params.get("result") == "created" %}<div class="alert alert-success">Unpublished mug draft created in Printify. Nothing was sent to Etsy.</div>{% endif %}
     {% if request.query_params.get("result") == "updated" and request.query_params.get("update") == "copy" %}<div class="alert alert-success">The title and description were updated in Printify. Artwork, placement, variants, price, mockups, and shipping were left unchanged.</div>{% elif request.query_params.get("result") == "updated" %}<div class="alert alert-success">The current graphic, title, and description were applied to the existing Printify mug product. Review any marketplace changes in Printify before publishing them.</div>{% endif %}
     {% if request.query_params.get("result") == "outcome_unknown" %}<div class="alert alert-warning">Printify did not confirm the update. Open the existing draft and verify it before trying again.</div>{% endif %}
+    {% if request.query_params.get("publish") == "publish_requested" %}<div class="alert alert-success">Printify accepted the publication request. Use Check Etsy Status below to finish the handoff.</div>{% endif %}
+    {% if request.query_params.get("publish") == "publish_failed" %}<div class="alert alert-danger">Printify rejected the publication request. Review the product, correct the issue, and retry safely.</div>{% endif %}
+    {% if request.query_params.get("publish") == "publish_outcome_unknown" %}<div class="alert alert-warning">Printify may have accepted the request. Do not publish again. Use Check Etsy Status below.</div>{% endif %}
     {% if design["external_state"] == "outcome_unknown" %}<div class="alert alert-warning"><strong>Manual check required.</strong> {{ design["external_message"] }}</div>{% endif %}
     {% if design["external_state"] == "failed" %}<div class="alert alert-danger">{{ design["external_message"] }}</div>{% endif %}
 
@@ -113,6 +116,9 @@
       {% elif design["printify_product_id"] and design["external_state"] == "update_outcome_unknown" %}
       <div><div class="eyebrow">Manual verification required</div><h2 class="h4">Check the existing Printify draft</h2><p class="mb-0 text-muted">The update response was lost. Verify the artwork in Printify before taking another action.</p></div>
       <a class="btn btn-success" href="{{ design['printify_product_url'] }}" target="_blank" rel="noopener">Open Printify ↗</a>
+      {% elif design["printify_product_id"] and design["external_state"] in ["publish_requested", "publish_outcome_unknown"] %}
+      <div><div class="eyebrow">Publication handoff</div><h2 class="h4">Check Etsy status</h2><p class="mb-0 text-muted">The publication request will not be sent again. ShangooliOS will only look for and synchronize the resulting Etsy listing.</p></div>
+      <a class="btn btn-primary" href="/designs/{{ design['id'] }}/etsy/finish{% if blueprint_key != 'mug_11oz' %}?product_key={{ blueprint_key }}{% endif %}">Check Etsy Status</a>
       {% elif design["printify_product_id"] %}
       <div><div class="eyebrow">Printify product</div><h2 class="h4">Product connected</h2><p class="mb-0 text-muted">Improve the wording without resending artwork, or review the current product in Printify.</p></div>
       <div class="d-flex gap-2 flex-wrap">
@@ -122,7 +128,11 @@
         <a class="btn btn-outline-success" href="/designs/{{ design['id'] }}/etsy{% if blueprint_key != 'mug_11oz' %}?product_key={{ blueprint_key }}{% endif %}">Review &amp; Sync Etsy Details</a>
         {% if design["etsy_listing_url"] %}<a class="btn btn-outline-secondary" href="{{ design['etsy_listing_url'] }}" target="_blank" rel="noopener">Open Etsy ↗</a>{% endif %}
         {% else %}
-        <a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/etsy/finish{% if blueprint_key != 'mug_11oz' %}?product_key={{ blueprint_key }}{% endif %}">Finish Etsy Setup</a>
+        <form method="post" action="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/publish" data-long-operation data-wait-stages="Sending publication request|Waiting for Printify confirmation|Saving recovery state">
+          <label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="confirmed" required><span class="form-check-label">I reviewed this product in Printify and want ShangooliOS to publish it.</span></label>
+          <button class="btn btn-primary" type="submit">Publish Through Printify</button>
+        </form>
+        <a class="btn btn-outline-secondary" href="/designs/{{ design['id'] }}/etsy/finish{% if blueprint_key != 'mug_11oz' %}?product_key={{ blueprint_key }}{% endif %}">Check Etsy Status</a>
         {% endif %}
       </div>
       {% elif design["product_id"] and design["external_state"] not in ["creating", "outcome_unknown"] %}

@@ -19,6 +19,7 @@ from web.db import (
 from web.etsy_api import get_etsy_listing
 from web.printify_api import (
     PrintifyAPI,
+    PrintifyAPIConnectionError,
     PrintifyAPIError,
     PrintifyProductCreationUnknown,
     create_printify_product,
@@ -62,6 +63,84 @@ def mug_profile(blueprint_key=DEFAULT_MUG_BLUEPRINT_KEY):
 
 # Preserve the established import and existing white-mug behavior.
 MUG_PROFILE = mug_profile()
+
+
+def publish_standalone_product(
+    design_id,
+    blueprint_key=DEFAULT_MUG_BLUEPRINT_KEY,
+    *,
+    confirmed,
+    api=None,
+):
+    """Safely submit one existing Printify product to its sales channel."""
+    if not confirmed:
+        raise ValueError("Confirm publishing through Printify")
+    design = get_standalone_design(design_id, blueprint_key)
+    if design is None:
+        raise ValueError("Design not found")
+    if not design["printify_product_id"]:
+        raise ValueError("Create the Printify mug draft first")
+    if design["etsy_listing_id"]:
+        return {"product_key": blueprint_key, "outcome": "already_published"}
+    if design["external_state"] in {
+        "publish_requested",
+        "publish_outcome_unknown",
+    }:
+        return {
+            "product_key": blueprint_key,
+            "outcome": design["external_state"],
+        }
+
+    client = api or PrintifyAPI.from_env()
+    if client is None:
+        raise ValueError("Connect Printify before publishing")
+    try:
+        client.get_product(design["printify_product_id"])
+        client.publish_product(design["printify_product_id"], include_images=True)
+    except PrintifyAPIConnectionError:
+        message = (
+            "Printify may have accepted the request. Check status; do not "
+            "publish again yet."
+        )
+        set_standalone_product_state(
+            design_id,
+            "publish_outcome_unknown",
+            message,
+            product_key=blueprint_key,
+        )
+        return {
+            "product_key": blueprint_key,
+            "outcome": "publish_outcome_unknown",
+            "message": message,
+        }
+    except PrintifyAPIError as error:
+        set_standalone_product_state(
+            design_id,
+            "publish_failed",
+            str(error),
+            product_key=blueprint_key,
+        )
+        return {
+            "product_key": blueprint_key,
+            "outcome": "publish_failed",
+            "message": str(error),
+        }
+
+    message = (
+        "Printify accepted the publication request. Check status to finish "
+        "Etsy synchronization."
+    )
+    set_standalone_product_state(
+        design_id,
+        "publish_requested",
+        message,
+        product_key=blueprint_key,
+    )
+    return {
+        "product_key": blueprint_key,
+        "outcome": "publish_requested",
+        "message": message,
+    }
 
 
 TEACHER_SUBJECTS = (
@@ -895,6 +974,7 @@ def update_mug_draft_graphics(
     confirmed,
     api=None,
     blueprint_key=DEFAULT_MUG_BLUEPRINT_KEY,
+    source_filename=None,
 ):
     """Refresh the existing mug product from current ShangooliOS content."""
     if not confirmed:
@@ -909,7 +989,12 @@ def update_mug_draft_graphics(
         raise ValueError(
             "The previous update result is uncertain. Check Printify before retrying."
         )
-    source = product_asset_path(design)
+    if source_filename:
+        source = DESIGN_ASSETS_DIR / Path(source_filename).name
+        if not source.is_file():
+            source = None
+    else:
+        source = product_asset_path(design)
     if source is None:
         raise ValueError("The corrected design graphic is missing")
     source = resolve_artwork_treatment(source, profile["artwork_treatment"])

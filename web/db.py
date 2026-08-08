@@ -440,6 +440,9 @@ def ensure_production_schema():
                 image_width INTEGER,
                 image_height INTEGER,
                 status TEXT NOT NULL DEFAULT 'draft',
+                refresh_state TEXT,
+                refresh_message TEXT,
+                refresh_updated_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
@@ -489,6 +492,154 @@ def ensure_production_schema():
             "CREATE INDEX IF NOT EXISTS idx_standalone_design_products_design "
             "ON standalone_design_products(design_id)"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mug_text_ideas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                text TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                rating INTEGER NOT NULL DEFAULT 0 CHECK (rating BETWEEN 0 AND 5),
+                display_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        idea_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mug_text_ideas)")
+        }
+        if "rating" not in idea_columns:
+            conn.execute(
+                "ALTER TABLE mug_text_ideas ADD COLUMN rating INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute(
+                "UPDATE mug_text_ideas SET rating = 5 WHERE is_favorite = 1"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mug_text_ideas_order "
+            "ON mug_text_ideas(display_order, id)"
+        )
+        idea_count = conn.execute(
+            "SELECT COUNT(*) AS count FROM mug_text_ideas"
+        ).fetchone()["count"]
+        if idea_count == 0:
+            ideas = [
+                ("Classroom Reality", "I Had a Plan. Then the Bell Rang."),
+                ("Classroom Reality", "I Have Graded Things You Can't Even Imagine."),
+                ("Classroom Reality", "Somewhere, Someone Is Sharpening a Pencil."),
+                ("Classroom Reality", "Ask Again After Coffee."),
+                ("Classroom Reality", "Today's Lesson: Flexibility."),
+                ("Classroom Reality", "That's Going in Tomorrow's Lesson."),
+                ("Classroom Reality", "This Wasn't in the Lesson Plan."),
+                ("Classroom Reality", "I Teach Future Adults. Pray for Me."),
+                ("Classroom Reality", "My Job Is Explaining Google."),
+                ("Classroom Reality", "I Run on Curiosity and Deadlines."),
+                ("Classroom Reality", "Classroom Chaos Coordinator."),
+                ("Classroom Reality", "I Make Confusion Temporary."),
+                ("Classroom Reality", "Raising Tomorrow's Smart People."),
+                ("Classroom Reality", "It's Not Magic. It's Teaching."),
+                ("Classroom Reality", 'I Turn "Huh?" into "Ohhh..."'),
+                ("Things Teachers Think", "That's Actually a Great Question."),
+                ("Things Teachers Think", "I'm Pretending I Didn't Hear That."),
+                ("Things Teachers Think", "Somebody's About to Learn Something."),
+                ("Biology", "I Know What Your Mitochondria Are Doing."),
+                ("Biology", "Cells Before Bells."),
+                ("Biology", "Everything Is Related Somehow."),
+                ("Biology", "Biology Never Sleeps."),
+                ("Biology", "Life Is Complicated. I Teach It Anyway."),
+                ("Science", "Gravity Is Having Another Great Day."),
+                ("Science", "The Evidence Disagrees."),
+                ("Science", "Evolution Never Takes a Day Off."),
+                ("Science", "Science Doesn't Care About Opinions."),
+                ("Science", "I Make Molecules Interesting."),
+                ("Science", "Ask Me About Weird Animals."),
+                ("Science", "Powered by Experiments."),
+                ("Science", "I Break Things... Scientifically."),
+                ("History", "Every Century Has Issues."),
+                ("History", "Today's Drama Happened 500 Years Ago."),
+                ("History", "The Past Is Still Talking."),
+                ("History", "I Grade Yesterday for a Living."),
+                ("History", "I Already Know How This Ends."),
+                ("History", "I've Seen This Before."),
+                ("Math", "I Solve Problems for Fun."),
+                ("Math", "Variables Build Character."),
+                ("Math", "Math Is Just Organized Thinking."),
+                ("Math", "I Know Where X Went."),
+                ("The Inner Monologue", "I Was Not Prepared for That Answer."),
+                ("The Veteran Teacher", "I've Learned Not to Ask Why First."),
+                ("The Veteran Teacher", "Nothing Surprises Me Before Lunch."),
+                ("The Veteran Teacher", "I've Seen This Lesson Before."),
+                ("Student Logic", "That Made Perfect Sense... To Somebody."),
+                ("Student Logic", "That's Creative. Not Correct, But Creative."),
+                ("Student Logic", "You Connected Some Dots."),
+                ("Student Logic", "That's an Impressive Guess."),
+                ("Student Logic", "I Respect the Confidence."),
+                ("Classroom Reality", "Somebody Just Learned by Accident."),
+                ("Classroom Reality", "Deep Breath... Everyone."),
+                ("Classroom Reality", "The Whiteboard Is Judging Me."),
+                ("Classroom Reality", "We Were So Close."),
+                ("Classroom Reality", "That Marker Is Definitely Empty."),
+                ("The Honest Ones", "They Think I Know Everything."),
+                ("The Honest Ones", "I Hope This Works."),
+                ("The Honest Ones", "I Wonder If They'll Remember This."),
+                ("Dry Humor", "That's Tomorrow's Problem."),
+                ("Dry Humor", "Future Me Will Figure It Out."),
+                ("Dry Humor", "That Was Unexpectedly Educational."),
+                ("Dry Humor", "Good Enough for First Period."),
+                ("Dry Humor", "Somehow This Became a Life Lesson."),
+                ("Dry Humor", "I Wasn't Expecting That Plot Twist."),
+                ("Dry Humor", "We Call This a Learning Opportunity."),
+                ("The Ones That Feel Real", "Please Let This Marker Last."),
+                ("The Ones That Feel Real", "I Just Sat Down."),
+                ("The Ones That Feel Real", "I Can Explain That."),
+                ("The Ones That Feel Real", "Please Don't Tell the Next Class."),
+                ("The Ones That Feel Real", "I Need More Whiteboard."),
+                ("The Ones That Feel Real", "That's Going to Be on the Test."),
+                ("My Favorites", "We Took the Scenic Route."),
+            ]
+            favorites = {
+                "that's creative. not correct, but creative.",
+                "nothing surprises me before lunch.",
+                "i respect the confidence.",
+                "we took the scenic route.",
+                "somebody just learned by accident.",
+                "the whiteboard is judging me.",
+                "please let this marker last.",
+                "they think i know everything.",
+                "that was unexpectedly educational.",
+                "i was not prepared for that answer.",
+            }
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO mug_text_ideas (
+                    category, text, is_favorite, rating, display_order
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        category,
+                        text,
+                        int(text.casefold() in favorites),
+                        5 if text.casefold() in favorites else 0,
+                        order,
+                    )
+                    for order, (category, text) in enumerate(ideas, start=1)
+                ],
+            )
+        design_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(standalone_designs)")
+        }
+        for column_name in (
+            "refresh_state",
+            "refresh_message",
+            "refresh_updated_at",
+        ):
+            if column_name not in design_columns:
+                conn.execute(
+                    f"ALTER TABLE standalone_designs ADD COLUMN {column_name} TEXT"
+                )
         design_product_columns = {
             row["name"]
             for row in conn.execute(
@@ -3588,7 +3739,8 @@ def list_standalone_product_summaries():
             """
             SELECT design_id, product_type, title, description,
                    printify_product_id, external_state, etsy_listing_id,
-                   etsy_state, etsy_paused_at, etsy_last_synced_at
+                   etsy_listing_url, etsy_state, etsy_paused_at,
+                   etsy_last_synced_at
             FROM standalone_design_products
             ORDER BY design_id, created_at, id
             """
@@ -3670,6 +3822,32 @@ def set_standalone_design_archived(design_id, archived):
             WHERE id = ?
             """,
             (bool(archived), design_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Design not found")
+        conn.commit()
+
+
+def set_standalone_design_refresh_state(design_id, state, message=""):
+    """Persist only the resume point for the guided portfolio refresh."""
+    allowed = {
+        "awaiting_printify",
+        "awaiting_etsy",
+        "needs_review",
+        "complete",
+    }
+    if state not in allowed:
+        raise ValueError("Unknown portfolio refresh state")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_designs
+            SET refresh_state = ?, refresh_message = ?,
+                refresh_updated_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (state, (message or "").strip(), design_id),
         )
         if cursor.rowcount == 0:
             raise ValueError("Design not found")
@@ -3948,6 +4126,24 @@ def prepare_standalone_product_asset(
         conn.commit()
 
 
+def store_standalone_product_asset_reference(
+    design_id, product_key, production_asset_filename
+):
+    """Record the exact asset used by one successfully updated product."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET production_asset_filename = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (production_asset_filename, design_id, product_key),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Product setup not found")
+        conn.commit()
+
+
 def set_standalone_product_state(
     design_id,
     state,
@@ -3989,5 +4185,82 @@ def set_standalone_product_state(
             WHERE id = ?
             """,
             (state, design_id),
+        )
+        conn.commit()
+
+
+def list_mug_text_ideas():
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, category, text, rating, display_order
+            FROM mug_text_ideas
+            ORDER BY display_order, id
+            """
+        ).fetchall()
+
+
+def create_mug_text_idea(category, text):
+    normalized_category = " ".join((category or "").split())
+    normalized_text = " ".join((text or "").split())
+    if not normalized_category or not normalized_text:
+        raise ValueError("Add both a category and an idea")
+    with get_connection() as conn:
+        next_order = conn.execute(
+            "SELECT COALESCE(MAX(display_order), 0) + 1 FROM mug_text_ideas"
+        ).fetchone()[0]
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO mug_text_ideas (category, text, display_order)
+                VALUES (?, ?, ?)
+                """,
+                (normalized_category, normalized_text, next_order),
+            )
+        except sqlite3.IntegrityError as error:
+            raise ValueError("That idea is already in the list") from error
+        conn.commit()
+        return cursor.lastrowid
+
+
+def delete_mug_text_idea(idea_id):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM mug_text_ideas WHERE id = ?", (idea_id,))
+        conn.commit()
+
+
+def rate_mug_text_idea(idea_id, rating):
+    normalized_rating = int(rating)
+    if normalized_rating < 0 or normalized_rating > 5:
+        raise ValueError("Rating must be between zero and five stars")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mug_text_ideas
+            SET rating = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (normalized_rating, idea_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Text idea not found")
+        conn.commit()
+
+
+def reorder_mug_text_ideas(idea_ids):
+    normalized_ids = [int(idea_id) for idea_id in idea_ids]
+    with get_connection() as conn:
+        existing_ids = {
+            row[0] for row in conn.execute("SELECT id FROM mug_text_ideas")
+        }
+        if len(normalized_ids) != len(existing_ids) or set(normalized_ids) != existing_ids:
+            raise ValueError("The text idea list changed. Reload and try again")
+        conn.executemany(
+            """
+            UPDATE mug_text_ideas
+            SET display_order = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            [(order, idea_id) for order, idea_id in enumerate(normalized_ids, start=1)],
         )
         conn.commit()

@@ -111,6 +111,9 @@ CREATE TABLE IF NOT EXISTS standalone_designs (
     image_width INTEGER,
     image_height INTEGER,
     status TEXT NOT NULL DEFAULT 'draft',
+    refresh_state TEXT,
+    refresh_message TEXT,
+    refresh_updated_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -154,3 +157,17 @@ CREATE TABLE IF NOT EXISTS standalone_design_products (
 
 CREATE INDEX IF NOT EXISTS idx_standalone_design_products_design
 ON standalone_design_products(design_id);
+
+CREATE TABLE IF NOT EXISTS mug_text_ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    text TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    is_favorite INTEGER NOT NULL DEFAULT 0,
+    rating INTEGER NOT NULL DEFAULT 0 CHECK (rating BETWEEN 0 AND 5),
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_mug_text_ideas_order
+ON mug_text_ideas(display_order, id);
