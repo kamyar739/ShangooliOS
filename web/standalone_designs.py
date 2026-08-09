@@ -1,5 +1,6 @@
 """Standalone message designs and their first Printify mug product."""
 
+import hashlib
 import re
 import secrets
 import shutil
@@ -516,6 +517,30 @@ def _fit_template_font(draw, text, font_path, max_width, preferred_size):
     return ImageFont.truetype(str(font_path), 80)
 
 
+def _mixed_word_segments(text, primary, accent, selector):
+    """Occasionally split one substantial word between two coordinated colors."""
+    matches = list(re.finditer(r"[A-Za-z]{5,}", text))
+    if not matches:
+        return [(text, primary)]
+    match = matches[selector % len(matches)]
+    word = match.group(0)
+    split = max(2, min(len(word) - 2, len(word) // 2))
+    return [
+        (text[:match.start()], primary),
+        (word[:split], primary),
+        (word[split:], accent),
+        (text[match.end():], primary),
+    ]
+
+
+def _draw_centered_segments(draw, y, segments, font):
+    widths = [draw.textlength(text, font=font) for text, _color in segments]
+    x = (TEMPLATE_CANVAS[0] - sum(widths)) / 2
+    for (text, color), width in zip(segments, widths):
+        draw.text((x, y), text, font=font, fill=color, stroke_width=1)
+        x += width
+
+
 def render_mixed_typography_design(message: str):
     """Render editable phrases with the approved colorful teacher-mug recipe."""
     normalized = "\n".join(
@@ -530,27 +555,74 @@ def render_mixed_typography_design(message: str):
     canvas = Image.new("RGBA", TEMPLATE_CANVAS, (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     lines = _balanced_template_lines(normalized)
-    recipes = [
-        (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 285),
-        (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 390),
-        (TEMPLATE_BLOCK_FONT, TEMPLATE_ORANGE, 390),
-        (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 300),
-        (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 270),
+    digest = hashlib.sha256(normalized.casefold().encode("utf-8")).digest()
+    style_recipes = [
+        [
+            (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 285, True),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 390, False),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_ORANGE, 390, True),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 300, False),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 270, True),
+        ],
+        [
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 330, True),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 300, False),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 380, False),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 310, True),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 310, False),
+        ],
+        [
+            (TEMPLATE_SERIF_FONT, TEMPLATE_ORANGE, 300, True),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 380, False),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 375, True),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 285, False),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 300, False),
+        ],
+        [
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 360, False),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 350, True),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_ORANGE, 310, True),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 320, False),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 285, True),
+        ],
+        [
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 345, True),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 390, False),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_TEAL, 315, True),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 300, False),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 300, False),
+        ],
+        [
+            (TEMPLATE_SERIF_FONT, TEMPLATE_TEAL, 300, True),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_ORANGE, 365, True),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 390, False),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_ORANGE, 285, False),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 285, True),
+        ],
     ]
+    recipes = style_recipes[digest[0] % len(style_recipes)]
+    accents = [TEMPLATE_TEAL, TEMPLATE_ORANGE, TEMPLATE_GOLD, TEMPLATE_INK]
+    mixed_line = digest[1] % len(lines) if digest[2] % 3 else -1
     rendered = []
     max_width = 1980
     for index, line in enumerate(lines):
-        font_path, color, preferred = recipes[index % len(recipes)]
-        display = line.upper() if index in {0, 2} else line
+        font_path, color, preferred, uppercase = recipes[index % len(recipes)]
+        display = line.upper() if uppercase else line
         font = _fit_template_font(draw, display, font_path, max_width, preferred)
         box = draw.textbbox((0, 0), display, font=font)
-        rendered.append((display, font, color, box[2] - box[0], box[3] - box[1]))
+        segments = [(display, color)]
+        if index == mixed_line:
+            accent = accents[digest[3] % len(accents)]
+            if accent == color:
+                accent = accents[(digest[3] + 1) % len(accents)]
+            segments = _mixed_word_segments(display, color, accent, digest[4])
+        rendered.append((display, font, color, segments, box[2] - box[0], box[3] - box[1]))
     gap = 24
-    total_height = sum(item[4] for item in rendered) + gap * (len(rendered) - 1)
+    total_height = sum(item[5] for item in rendered) + gap * (len(rendered) - 1)
     y = (TEMPLATE_CANVAS[1] - total_height) / 2
-    for index, (text, font, color, width, height) in enumerate(rendered):
+    for index, (text, font, color, segments, width, height) in enumerate(rendered):
         x = (TEMPLATE_CANVAS[0] - width) / 2
-        draw.text((x, y), text, font=font, fill=color, stroke_width=1)
+        _draw_centered_segments(draw, y, segments, font)
         if index == 0 and len(rendered) > 1:
             ray_y = y + height / 2
             for offset in (-42, 0, 42):

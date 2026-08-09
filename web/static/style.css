@@ -5700,6 +5700,10 @@ a.collection-count:hover {
 }
 
 .design-list-live-link {
+  padding: .18rem .42rem;
+  border-radius: 999px;
+  background: #dff5e8;
+  box-shadow: inset 0 0 0 1px #a8ddbd;
   color: #267246;
   font-size: .68rem;
   font-style: normal;
@@ -5709,7 +5713,8 @@ a.collection-count:hover {
 }
 
 .design-list-live-link:hover {
-  text-decoration: underline;
+  background: #ccefd9;
+  color: #185b35;
 }
 
 .design-list-tags {
