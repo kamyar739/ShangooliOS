@@ -480,6 +480,11 @@ def ensure_production_schema():
                 etsy_paused_at TEXT,
                 marketplace_checked_at TEXT,
                 etsy_last_synced_at TEXT,
+                gallery_manifest TEXT,
+                gallery_state TEXT NOT NULL DEFAULT 'not_prepared',
+                gallery_approved_at TEXT,
+                gallery_synced_at TEXT,
+                gallery_message TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (design_id) REFERENCES standalone_designs(id)
@@ -491,6 +496,19 @@ def ensure_production_schema():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standalone_design_products_design "
             "ON standalone_design_products(design_id)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS standalone_product_placement_defaults (
+                product_key TEXT PRIMARY KEY,
+                placement_x REAL NOT NULL,
+                placement_y REAL NOT NULL,
+                placement_scale REAL NOT NULL,
+                placement_mode TEXT NOT NULL DEFAULT 'front',
+                source_printify_product_id TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
         )
         conn.execute(
             """
@@ -677,6 +695,18 @@ def ensure_production_schema():
             if column_name not in design_product_columns:
                 conn.execute(
                     f"ALTER TABLE standalone_design_products ADD COLUMN {column_name} TEXT"
+                )
+        gallery_columns = {
+            "gallery_manifest": "TEXT",
+            "gallery_state": "TEXT NOT NULL DEFAULT 'not_prepared'",
+            "gallery_approved_at": "TEXT",
+            "gallery_synced_at": "TEXT",
+            "gallery_message": "TEXT",
+        }
+        for column_name, definition in gallery_columns.items():
+            if column_name not in design_product_columns:
+                conn.execute(
+                    f"ALTER TABLE standalone_design_products ADD COLUMN {column_name} {definition}"
                 )
         conn.execute(
             """
@@ -3709,6 +3739,9 @@ def get_standalone_design(design_id, product_key="mug_11oz"):
                    p.external_state, p.external_message, p.etsy_listing_id,
                    p.etsy_listing_url, p.etsy_state, p.etsy_paused_at,
                    p.marketplace_checked_at, p.etsy_last_synced_at
+                   , p.gallery_manifest, p.gallery_state,
+                   p.gallery_approved_at, p.gallery_synced_at,
+                   p.gallery_message
             FROM standalone_designs AS d
             LEFT JOIN standalone_design_products AS p
               ON p.design_id = d.id AND p.product_type = ?
@@ -3730,6 +3763,52 @@ def list_standalone_design_products(design_id):
             """,
             (design_id,),
         ).fetchall()
+
+
+def save_standalone_product_gallery(
+    design_id, product_key, *, manifest, state, message=""
+):
+    """Persist one product's exact gallery without affecting sibling products."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET gallery_manifest = ?, gallery_state = ?, gallery_message = ?,
+                gallery_approved_at = CASE
+                    WHEN ? = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                gallery_synced_at = CASE
+                    WHEN ? = 'synced' THEN CURRENT_TIMESTAMP ELSE gallery_synced_at END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (manifest, state, (message or "").strip(), state, state, design_id, product_key),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Product setup not found")
+        conn.commit()
+
+
+def update_standalone_product_gallery_state(
+    design_id, product_key, *, state, message=""
+):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET gallery_state = ?, gallery_message = ?,
+                gallery_approved_at = CASE
+                    WHEN ? = 'approved' THEN CURRENT_TIMESTAMP
+                    WHEN ? = 'prepared' THEN NULL ELSE gallery_approved_at END,
+                gallery_synced_at = CASE
+                    WHEN ? = 'synced' THEN CURRENT_TIMESTAMP ELSE gallery_synced_at END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (state, (message or "").strip(), state, state, state, design_id, product_key),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Product setup not found")
+        conn.commit()
 
 
 def list_standalone_product_summaries():
@@ -4198,6 +4277,58 @@ def list_mug_text_ideas():
             ORDER BY display_order, id
             """
         ).fetchall()
+
+
+def get_standalone_product_placement_default(product_key):
+    with get_connection() as conn:
+        try:
+            return conn.execute(
+                """
+                SELECT product_key, placement_x, placement_y, placement_scale,
+                       placement_mode, source_printify_product_id, updated_at
+                FROM standalone_product_placement_defaults
+                WHERE product_key = ?
+                """,
+                (product_key,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+
+
+def save_standalone_product_placement_default(
+    product_key,
+    *,
+    placement_x,
+    placement_y,
+    placement_scale,
+    placement_mode,
+    source_printify_product_id,
+):
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO standalone_product_placement_defaults (
+                product_key, placement_x, placement_y, placement_scale,
+                placement_mode, source_printify_product_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(product_key) DO UPDATE SET
+                placement_x = excluded.placement_x,
+                placement_y = excluded.placement_y,
+                placement_scale = excluded.placement_scale,
+                placement_mode = excluded.placement_mode,
+                source_printify_product_id = excluded.source_printify_product_id,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                product_key,
+                placement_x,
+                placement_y,
+                placement_scale,
+                placement_mode,
+                source_printify_product_id,
+            ),
+        )
+        conn.commit()
 
 
 def create_mug_text_idea(category, text):

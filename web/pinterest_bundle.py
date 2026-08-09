@@ -12,6 +12,10 @@ from web import standalone_designs
 from web.etsy_validation import parse_tags
 from web.printify_api import PrintifyAPI, PrintifyAPIError
 from web.product_blueprints import get_product_blueprint
+from web.mug_scene_profiles import (
+    BLACK_ACCENT_PINTEREST_SCENE,
+    composite_design_on_scene,
+)
 
 
 PINTEREST_IMAGE_SIZE = (1000, 1500)
@@ -41,6 +45,15 @@ def _font(path, size):
 
 def _clean(value):
     return " ".join(str(value or "").split()).strip()
+
+
+def _placement_claim(placement_mode):
+    return {
+        "front": "Right-handed placement · faces outward in the right hand",
+        "reverse": "Left-handed placement · faces outward in the left hand",
+        "both": "Printed on both sides · easy to see from either hand",
+        "different": "A different design is printed on each side",
+    }.get(_clean(placement_mode), "Right-handed placement")
 
 
 def _shorten(text, maximum):
@@ -188,7 +201,13 @@ def render_pinterest_bundle(design, product_key, *, product_mockup=None):
         raise ValueError("The prepared product graphic is missing")
     with Image.open(source) as opened:
         graphic = opened.convert("RGBA")
-    if product_mockup is None:
+    if product_key == "mug_11oz_black_accent" and BLACK_ACCENT_PINTEREST_SCENE.path.is_file():
+        with Image.open(BLACK_ACCENT_PINTEREST_SCENE.path) as opened:
+            approved_scene = composite_design_on_scene(
+                opened, graphic, BLACK_ACCENT_PINTEREST_SCENE
+            )
+        product_mockup = approved_scene
+    elif product_mockup is None:
         product_mockup = load_printify_product_mockup(design)
 
     accent = product_key == "mug_11oz_black_accent"
@@ -247,7 +266,7 @@ def render_pinterest_bundle(design, product_key, *, product_mockup=None):
     draw.text((70, 1402), "ShangooliShop", font=brand_font, fill="#ffffff")
     draw.text(
         (70, 1445),
-        "Printed on both sides · easy to see from either hand",
+        _placement_claim(design["placement_mode"]),
         font=_font(FONT_REGULAR, 24),
         fill="#c9cddd",
     )

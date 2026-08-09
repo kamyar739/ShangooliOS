@@ -21,6 +21,7 @@
         <p class="text-muted mb-0">{% if design["printify_product_id"] %}Mug draft created in Printify.{% else %}Ready to adapt to a product.{% endif %}</p>
       </div>
       <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary" href="/designs/{{ design['id'] }}/launch">Launch both mugs</a>
         <a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/refresh">
           {% if design["refresh_state"] in ("awaiting_printify", "needs_review") %}Resume Portfolio Refresh{% else %}Refresh Portfolio Slot{% endif %}
         </a>
@@ -31,9 +32,6 @@
           <button class="btn btn-outline-warning" type="submit">Finish Etsy Setup</button>
         </form>
         {% endif %}
-        <a class="btn btn-primary" href="/designs/{{ design['id'] }}/mug">
-          {% if design["printify_product_id"] %}Review Mug{% else %}Create Mug{% endif %}
-        </a>
       </div>
     </div>
 
@@ -101,12 +99,17 @@
             {% elif product and product["printify_product_id"] %}<span class="status-badge ready">On Printify</span>
             {% elif product %}<span class="status-badge draft">Setup saved</span>
             {% else %}<span class="status-badge draft">Not created</span>{% endif %}
-            <a class="btn btn-outline-primary btn-sm" href="{% if option['key'] == 'mug_11oz' %}/designs/{{ design['id'] }}/mug{% else %}/designs/{{ design['id'] }}/products/{{ option['key'] }}{% endif %}">{% if product %}Review product{% else %}Create product{% endif %}</a>
+            <a class="btn design-product-primary-action btn-sm" href="{% if option['key'] == 'mug_11oz' %}/designs/{{ design['id'] }}/mug{% else %}/designs/{{ design['id'] }}/products/{{ option['key'] }}{% endif %}">{% if product %}Review {{ option["label"] }}{% else %}Create {{ option["label"] }}{% endif %}</a>
             {% if product and product["etsy_listing_url"] %}
-            <a class="btn btn-outline-success btn-sm" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>
+            <a class="btn design-product-support-action btn-sm" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>
             {% endif %}
             {% if product and product["etsy_listing_url"] %}
-            <a class="btn design-pinterest-button btn-sm" href="/designs/{{ design['id'] }}/products/{{ option['key'] }}/pinterest">Pinterest bundle</a>
+            <a class="btn design-product-support-action btn-sm" href="/designs/{{ design['id'] }}/products/{{ option['key'] }}/pinterest">Pinterest bundle</a>
+            {% endif %}
+            {% if product and product["printify_product_id"] %}
+            <a class="btn design-product-support-action btn-sm" href="/designs/{{ design['id'] }}/products/{{ option['key'] }}/gallery">
+              {% if product["gallery_state"] == "synced" %}Etsy gallery ✓{% elif product["gallery_state"] in ("prepared", "approved", "needs_review") %}Review gallery{% else %}Prepare gallery{% endif %}
+            </a>
             {% endif %}
           </div>
           {% if product and product["printify_product_id"] %}
@@ -148,6 +151,9 @@
           <input type="hidden" name="confirmed" value="true">
           <button class="btn btn-outline-danger btn-sm" type="submit" onclick="return confirm('Archive this design? External products remain unchanged.')">Archive design</button>
         </form>
+        {% endif %}
+        {% if design["status"] != "archived" %}
+        <a class="btn btn-danger btn-sm" href="/designs/{{ design['id'] }}/retire">Retire Everywhere</a>
         {% endif %}
       </div>
     </section>

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Etsy Gallery — {{ blueprint["label"] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content mug-gallery-page">
+    <a class="workflow-back-link mb-3" href="/designs/{{ product['id'] }}">← Back to Design</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Marketplace gallery</div>
+        <h1 class="display-6 fw-bold">Review {{ blueprint["label"] }} images</h1>
+        <p class="text-muted mb-0">Prepare once, adjust if needed, then send the approved set directly to Etsy.</p>
+      </div>
+      <span class="status-badge {% if product['gallery_state'] == 'synced' %}live{% elif product['gallery_state'] == 'approved' %}ready{% elif product['gallery_state'] == 'needs_review' %}blocked{% else %}draft{% endif %}">
+        {{ product["gallery_state"]|replace("_", " ")|title }}
+      </span>
+    </div>
+
+    {% if request.query_params.get("prepared") %}<div class="alert alert-success">Fresh Printify product renders are ready. Confirm that they show the current artwork before approval.</div>{% endif %}
+    {% if request.query_params.get("uploaded") %}<div class="alert alert-success">Four finished mockups were uploaded in the selected order. Review and approve them below.</div>{% endif %}
+    {% if request.query_params.get("approved") %}<div class="alert alert-success">Gallery approved. It is now eligible for Etsy synchronization.</div>{% endif %}
+    {% if request.query_params.get("synced") %}<div class="alert alert-success">The approved gallery is now on Etsy.</div>{% endif %}
+    {% if product["gallery_message"] %}<p class="mug-gallery-message">{{ product["gallery_message"] }}</p>{% endif %}
+
+    {% if not gallery %}
+    <section class="section-card mug-gallery-empty">
+      <div><div class="eyebrow">Accurate product renders</div><h2 class="h4">Build this product's gallery</h2><p class="text-muted mb-0">ShangooliOS downloads this exact product's rendered mockups from Printify and creates four reusable listing images. Etsy is not changed.</p></div>
+      <form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/prepare" data-long-operation data-wait-stages="Reading the Printify product|Downloading accurate product renders|Saving the review set">
+        <button class="btn btn-primary" type="submit">Get Printify Renders</button>
+      </form>
+    </section>
+    <section class="section-card mug-gallery-empty mt-3">
+      <div><div class="eyebrow">Finished mockups</div><h2 class="h4">Already made the images elsewhere?</h2><p class="text-muted mb-0">Choose exactly four images in this order: hero, lifestyle, gift, placement proof.</p></div>
+      <form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/upload" enctype="multipart/form-data" data-long-operation data-wait-stages="Uploading four mockups|Preparing the review set">
+        <input class="form-control" type="file" name="images" accept="image/png,image/jpeg" multiple required>
+        <button class="btn btn-outline-primary" type="submit">Upload Four Mockups</button>
+      </form>
+    </section>
+    {% else %}
+    <section class="section-card mug-gallery-empty mb-3">
+      <div>
+        <div class="eyebrow">Automatic regeneration</div>
+        <h2 class="h5 mb-1">Replace this prepared set?</h2>
+        <p class="text-muted mb-0">Download the latest rendered images from this exact Printify product. If Printify still shows the previous artwork, update the product there first. Etsy is not changed until you approve and sync.</p>
+      </div>
+      <form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/prepare" data-long-operation data-wait-stages="Reading the Printify product|Downloading accurate product renders|Saving the new review set">
+        <button class="btn btn-primary" type="submit">Refresh Printify Renders</button>
+      </form>
+    </section>
+    <details class="section-card compact-section-card mb-3">
+      <summary><strong>Replace the complete set with four finished mockups</strong></summary>
+      <form class="mt-3" method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/upload" enctype="multipart/form-data" data-long-operation data-wait-stages="Uploading four mockups|Preparing the review set">
+        <p class="small text-muted">Choose exactly four images in this order: hero, lifestyle, gift, placement proof.</p>
+        <input class="form-control mb-2" type="file" name="images" accept="image/png,image/jpeg" multiple required>
+        <button class="btn btn-outline-primary" type="submit">Replace Review Set</button>
+      </form>
+    </details>
+    <div class="mug-gallery-grid">
+      {% for item in gallery %}
+      <article class="mug-gallery-card">
+        <div class="mug-gallery-position">{{ item["position"] }}</div>
+        <img src="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/images/{{ item['slot'] }}?v={{ product['updated_at'] }}" alt="{{ item['label'] }}">
+        <div class="mug-gallery-card-body">
+          <div><strong>{{ item["label"] }}</strong><small>{% if item.get("source") == "uploaded" %}Custom replacement{% else %}Created from the connected Printify product{% endif %}</small></div>
+          <div class="mug-gallery-order-actions">
+            <form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/reorder"><input type="hidden" name="slot" value="{{ item['slot'] }}"><input type="hidden" name="direction" value="up"><button class="btn btn-outline-secondary btn-sm" type="submit" {% if loop.first %}disabled{% endif %}>← Earlier</button></form>
+            <form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/reorder"><input type="hidden" name="slot" value="{{ item['slot'] }}"><input type="hidden" name="direction" value="down"><button class="btn btn-outline-secondary btn-sm" type="submit" {% if loop.last %}disabled{% endif %}>Later →</button></form>
+          </div>
+          <a class="btn btn-outline-primary btn-sm" href="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/images/{{ item['slot'] }}?download=true">Download</a>
+          <details><summary>Replace this image</summary><form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/{{ item['slot'] }}/replace" enctype="multipart/form-data" data-long-operation data-wait-stages="Uploading replacement|Preparing gallery image"><input class="form-control form-control-sm" type="file" name="image" accept="image/png,image/jpeg" required><button class="btn btn-outline-primary btn-sm" type="submit">Use replacement</button></form></details>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+
+    <section class="section-card mug-gallery-final mt-4">
+      {% if product["gallery_state"] not in ("approved", "synced") %}
+      <div><div class="eyebrow">Visual approval</div><h2 class="h4">Approve this order and image set?</h2><p class="text-muted mb-0">Approval does not contact Etsy. Replacing or reordering an image clears approval.</p></div>
+      <form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/approve"><label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> I reviewed every image and its order.</label><button class="btn btn-primary" type="submit">Approve Gallery</button></form>
+      {% else %}
+      <div><div class="eyebrow">Etsy synchronization</div><h2 class="h4">Send this approved gallery to Etsy?</h2><p class="text-muted mb-0">The new set uploads first. Existing Etsy images remain intact if any upload fails.</p></div>
+      <form method="post" action="/designs/{{ product['id'] }}/products/{{ blueprint_key }}/gallery/sync" data-long-operation data-wait-stages="Uploading approved images|Confirming the complete set|Updating Etsy image order"><label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Replace this product's Etsy gallery with the approved images.</label><button class="btn btn-success" type="submit">Sync Approved Gallery to Etsy</button></form>
+      {% endif %}
+    </section>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

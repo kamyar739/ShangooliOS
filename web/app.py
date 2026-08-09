@@ -97,6 +97,7 @@ from web.db import (
     search_artworks,
     set_artwork_production_flags,
     set_standalone_design_archived,
+    set_standalone_product_state,
     set_standalone_design_refresh_state,
     create_standalone_design,
     replace_standalone_design_source,
@@ -179,6 +180,7 @@ from web.listing_publication import (
 )
 from web.standalone_designs import (
     analyze_design_image,
+    capture_printify_placement_default,
     design_metadata_from_message,
     MUG_PROFILE,
     check_design_marketplace_status,
@@ -215,7 +217,16 @@ from web.portfolio_refresh import (
     publish_portfolio_refresh,
     refresh_eligibility,
     refresh_preview,
-    sync_portfolio_refresh_mockups,
+)
+from web.mug_gallery import (
+    approve_mug_gallery,
+    gallery_items,
+    gallery_path,
+    prepare_mug_gallery,
+    reorder_mug_gallery,
+    replace_mug_gallery_item,
+    sync_mug_gallery_to_etsy,
+    upload_mug_gallery,
 )
 from web.artwork_intelligence import analyze_artwork
 from web.artwork_certifier import certify_artwork
@@ -234,6 +245,7 @@ from web.printify import validate_printify_product
 from web.printify_handoff import build_printify_handoff, inspect_printify_handoff
 from web.printify_api import (
     PrintifyAPI,
+    PrintifyAPIConnectionError,
     PrintifyAPIError,
     PrintifyPublishPending,
     clear_printify_local_config,
@@ -1161,13 +1173,13 @@ def create_quick_text_design_post(message: str = Form(...)):
                 blueprint_key=blueprint_key,
                 title=suggested_mug_title(normalized_message, blueprint_key),
                 description=suggested_mug_description(
-                    generated["description"], blueprint_key, "both"
+                    generated["description"], blueprint_key, "front"
                 ),
                 price_cents=profile["default_price_cents"],
                 placement_scale=profile["placement_scale"],
                 placement_x=profile["placement_x"],
                 placement_y=profile["placement_y"],
-                placement_mode="both",
+                placement_mode="front",
             )
     except ValueError as error:
         if saved:
@@ -1179,7 +1191,7 @@ def create_quick_text_design_post(message: str = Form(...)):
             ).unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse(
-        f"/designs/{design_id}?created=1", status_code=303
+        f"/designs/{design_id}/launch?created=1", status_code=303
     )
 
 
@@ -1266,6 +1278,134 @@ def standalone_design_page(request: Request, design_id: int):
             "product_options": product_options,
             "dashboard_sidebar_active": "designs",
         },
+    )
+
+
+def _quick_text_launch_context(design_id):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    saved = {
+        item["product_type"]: item
+        for item in list_standalone_design_products(design_id)
+    }
+    products = []
+    for blueprint in mug_blueprints():
+        product = saved.get(blueprint["key"])
+        products.append({**blueprint, "product": product})
+    all_created = all(
+        item["product"] and item["product"]["printify_product_id"]
+        for item in products
+    )
+    all_linked = all(
+        item["product"] and item["product"]["etsy_listing_id"]
+        for item in products
+    )
+    publication_started = any(
+        item["product"]
+        and item["product"]["external_state"]
+        in {"publish_requested", "publish_outcome_unknown"}
+        for item in products
+    )
+    return design, products, all_created, all_linked, publication_started
+
+
+@app.get("/designs/{design_id}/launch")
+def quick_text_launch_page(request: Request, design_id: int):
+    design, products, all_created, all_linked, publication_started = (
+        _quick_text_launch_context(design_id)
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="design_quick_launch.html",
+        context={
+            "design": design,
+            "products": products,
+            "all_created": all_created,
+            "all_linked": all_linked,
+            "publication_started": publication_started,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/launch/create")
+def quick_text_launch_create_post(
+    design_id: int, confirmed: bool = Form(False)
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm creating both drafts")
+    outcomes = []
+    for blueprint_key in PRODUCT_BLUEPRINTS:
+        try:
+            result = create_mug_draft(
+                design_id, confirmed=True, blueprint_key=blueprint_key
+            )
+            outcomes.append(result["outcome"])
+            if result["outcome"] == "created":
+                try:
+                    prepare_mug_gallery(design_id, blueprint_key)
+                except (PrintifyAPIError, OSError, ValueError):
+                    pass
+        except ValueError:
+            outcomes.append("failed")
+    result = "attention" if "failed" in outcomes else "created"
+    return RedirectResponse(
+        f"/designs/{design_id}/launch?result={result}", status_code=303
+    )
+
+
+@app.post("/designs/{design_id}/launch/publish")
+def quick_text_launch_publish_post(
+    design_id: int, confirmed: bool = Form(False)
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm publishing both mugs")
+    outcomes = []
+    for blueprint_key in PRODUCT_BLUEPRINTS:
+        try:
+            result = publish_standalone_product(
+                design_id, blueprint_key, confirmed=True
+            )
+            outcomes.append(result["outcome"])
+        except ValueError:
+            outcomes.append("publish_failed")
+    result = (
+        "attention"
+        if any(value in {"publish_failed", "publish_outcome_unknown"} for value in outcomes)
+        else "publish_requested"
+    )
+    return RedirectResponse(
+        f"/designs/{design_id}/launch?result={result}", status_code=303
+    )
+
+
+@app.post("/designs/{design_id}/launch/finish")
+def quick_text_launch_finish_post(
+    design_id: int, confirmed: bool = Form(False)
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm checking Etsy status")
+    waiting = []
+    failures = []
+    for blueprint_key in PRODUCT_BLUEPRINTS:
+        result, error = _check_standalone_design_marketplace(
+            design_id, "", blueprint_key
+        )
+        if error:
+            failures.append(error)
+            continue
+        if not result["linked"]:
+            waiting.append(blueprint_key)
+            continue
+        try:
+            _sync_standalone_design_product_etsy(design_id, blueprint_key)
+            prepare_mug_gallery(design_id, blueprint_key)
+        except (EtsyAPIError, PrintifyAPIError, OSError, ValueError) as error:
+            failures.append(str(error))
+    result = "attention" if failures else "waiting" if waiting else "complete"
+    return RedirectResponse(
+        f"/designs/{design_id}/launch?result={result}", status_code=303
     )
 
 
@@ -1375,7 +1515,7 @@ def portfolio_refresh_finish_post(
             continue
         try:
             _sync_standalone_design_product_etsy(design_id, key)
-            sync_portfolio_refresh_mockups(design_id, key)
+            prepare_mug_gallery(design_id, key)
         except (EtsyAPIError, PrintifyAPIError, OSError, ValueError) as error:
             failures.append(f"{PRODUCT_BLUEPRINTS[key]['label']}: {error}")
     if failures:
@@ -1524,6 +1664,160 @@ def restore_standalone_design_post(design_id: int):
     )
 
 
+def _standalone_retirement_rows(design_id):
+    saved = {
+        row["product_type"]: row
+        for row in list_standalone_design_products(design_id)
+    }
+    rows = []
+    for blueprint in mug_blueprints():
+        product = saved.get(blueprint["key"])
+        if product is None:
+            continue
+        etsy_action = (
+            "Already paused or unavailable"
+            if product["etsy_listing_id"]
+            and (product["etsy_paused_at"] or product["etsy_state"] != "active")
+            else "Pause this listing"
+            if product["etsy_listing_id"]
+            else "No linked listing"
+        )
+        printify_action = (
+            "Already removed"
+            if product["external_state"] == "retired"
+            else "Permanently remove this product"
+            if product["printify_product_id"]
+            else "No connected product"
+        )
+        rows.append(
+            {
+                "key": blueprint["key"],
+                "label": blueprint["label"],
+                "product": product,
+                "etsy_action": etsy_action,
+                "printify_action": printify_action,
+            }
+        )
+    return rows
+
+
+@app.get("/designs/{design_id}/retire")
+def retire_standalone_design_page(request: Request, design_id: int):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    return templates.TemplateResponse(
+        request=request,
+        name="design_retire.html",
+        context={
+            "design": design,
+            "products": _standalone_retirement_rows(design_id),
+            "results": None,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/retire")
+def retire_standalone_design_post(
+    request: Request,
+    design_id: int,
+    confirmed: bool = Form(False),
+):
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise HTTPException(status_code=404, detail="Design not found")
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm retiring everywhere")
+    printify = PrintifyAPI.from_env()
+    rows = _standalone_retirement_rows(design_id)
+    results = []
+    all_safe = True
+    for row in rows:
+        product = row["product"]
+        product_key = row["key"]
+        messages = []
+        safe = True
+
+        etsy_retired = not product["etsy_listing_id"] or bool(
+            product["etsy_paused_at"] or product["etsy_state"] != "active"
+        )
+        if product["etsy_listing_id"] and not etsy_retired:
+            try:
+                update_etsy_listing_state(str(product["etsy_listing_id"]), "inactive")
+                record_standalone_marketplace_status(
+                    design_id,
+                    etsy_state="inactive",
+                    paused=True,
+                    message="Etsy sales retired.",
+                    product_key=product_key,
+                )
+                etsy_retired = True
+                messages.append("Etsy sales paused")
+            except (EtsyAPIError, ValueError) as error:
+                safe = False
+                messages.append(f"Etsy could not be paused: {error}")
+        elif product["etsy_listing_id"]:
+            messages.append("Etsy was already unavailable")
+        else:
+            messages.append("No linked Etsy listing")
+
+        printify_retired = (
+            not product["printify_product_id"]
+            or product["external_state"] == "retired"
+        )
+        if product["printify_product_id"] and not printify_retired and etsy_retired:
+            if printify is None:
+                safe = False
+                messages.append("Connect Printify to remove its product")
+            else:
+                try:
+                    printify.delete_product(str(product["printify_product_id"]))
+                    set_standalone_product_state(
+                        design_id,
+                        "retired",
+                        "Retired everywhere. Printify product removed and Etsy sales paused.",
+                        product_key=product_key,
+                    )
+                    printify_retired = True
+                    messages.append("Printify product removed")
+                except PrintifyAPIConnectionError:
+                    safe = False
+                    set_standalone_product_state(
+                        design_id,
+                        "retirement_outcome_unknown",
+                        "Printify retirement outcome is unknown. Verify in Printify before retrying.",
+                        product_key=product_key,
+                    )
+                    messages.append("Printify outcome unknown — verify manually")
+                except PrintifyAPIError as error:
+                    safe = False
+                    messages.append(f"Printify product was preserved: {error}")
+        elif product["printify_product_id"] and not etsy_retired:
+            safe = False
+            messages.append("Printify product preserved until Etsy is safely paused")
+        elif printify_retired:
+            messages.append("Printify was already clear")
+
+        complete = safe and etsy_retired and printify_retired
+        all_safe = all_safe and complete
+        results.append({**row, "complete": complete, "messages": messages})
+
+    if all_safe:
+        set_standalone_design_archived(design_id, True)
+    return templates.TemplateResponse(
+        request=request,
+        name="design_retire.html",
+        context={
+            "design": get_standalone_design(design_id),
+            "products": rows,
+            "results": results,
+            "retirement_complete": all_safe,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
 @app.post("/designs/{design_id}/marketplace/check")
 def check_standalone_design_marketplace_post(
     design_id: int,
@@ -1644,12 +1938,29 @@ def standalone_design_finish_etsy_post(
             status_code=303,
         )
     if result["linked"]:
-        linked_query = {"linked": 1}
-        if product_key != DEFAULT_MUG_BLUEPRINT_KEY:
-            linked_query["product_key"] = product_key
+        linked_design = get_standalone_design(design_id, product_key)
+        if not linked_design or not linked_design["etsy_listing_id"]:
+            return RedirectResponse(
+                f"/designs/{design_id}/etsy?"
+                + _standalone_product_query(product_key, linked=1),
+                status_code=303,
+            )
+        try:
+            _sync_standalone_design_product_etsy(design_id, product_key)
+            try:
+                prepare_mug_gallery(design_id, product_key)
+            except (PrintifyAPIError, OSError, ValueError):
+                pass
+        except (EtsyAPIError, ValueError) as sync_error:
+            return RedirectResponse(
+                f"/designs/{design_id}/etsy?"
+                + _standalone_product_query(
+                    product_key, etsy_sync_error=str(sync_error)
+                ),
+                status_code=303,
+            )
         return RedirectResponse(
-            f"/designs/{design_id}/etsy?"
-            + urlencode(linked_query),
+            f"/designs/{design_id}/products/{product_key}/pinterest?finished=1",
             status_code=303,
         )
     waiting_query = {"waiting": 1}
@@ -1752,9 +2063,12 @@ def standalone_design_etsy_sync_post(
             ),
             status_code=303,
         )
+    try:
+        prepare_mug_gallery(design_id, product_key)
+    except (PrintifyAPIError, OSError, ValueError):
+        pass
     return RedirectResponse(
-        f"/designs/{design_id}/etsy?"
-        + _standalone_product_query(product_key, synced=1),
+        f"/designs/{design_id}/products/{product_key}/pinterest?synced=1",
         status_code=303,
     )
 
@@ -1929,7 +2243,7 @@ def standalone_design_image(design_id: int):
     source = design_source_path(design)
     if source is None:
         raise HTTPException(status_code=404, detail="Design image not found")
-    return FileResponse(source)
+    return FileResponse(source, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/designs/{design_id}/products/{blueprint_key}/image")
@@ -1946,7 +2260,7 @@ def standalone_design_product_image(design_id: int, blueprint_key: str):
     )
     if source is None:
         raise HTTPException(status_code=404, detail="Product image not found")
-    return FileResponse(source)
+    return FileResponse(source, headers={"Cache-Control": "no-store"})
 
 
 def _pinterest_bundle_design(design_id, blueprint_key):
@@ -2005,6 +2319,152 @@ def standalone_product_pinterest_bundle_image(
     return Response(content=content, media_type="image/png", headers=headers)
 
 
+def _mug_gallery_product(design_id, blueprint_key):
+    try:
+        _, blueprint = get_product_blueprint(blueprint_key)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    product = get_standalone_design(design_id, blueprint_key)
+    if product is None or not product["product_id"]:
+        raise HTTPException(status_code=404, detail="Product setup not found")
+    return product, blueprint
+
+
+@app.get("/designs/{design_id}/products/{blueprint_key}/gallery")
+def standalone_product_gallery_page(
+    request: Request, design_id: int, blueprint_key: str
+):
+    product, blueprint = _mug_gallery_product(design_id, blueprint_key)
+    return templates.TemplateResponse(
+        request=request,
+        name="mug_gallery.html",
+        context={
+            "product": product,
+            "blueprint": blueprint,
+            "blueprint_key": blueprint_key,
+            "gallery": sorted(
+                gallery_items(product), key=lambda item: item.get("position", 0)
+            ),
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.get("/designs/{design_id}/products/{blueprint_key}/gallery/images/{slot}")
+def standalone_product_gallery_image(
+    design_id: int, blueprint_key: str, slot: str, download: bool = Query(False)
+):
+    product, _ = _mug_gallery_product(design_id, blueprint_key)
+    item = next((entry for entry in gallery_items(product) if entry["slot"] == slot), None)
+    source = gallery_path(item["filename"] if item else "")
+    if source is None:
+        raise HTTPException(status_code=404, detail="Gallery image not found")
+    headers = {"Cache-Control": "no-store"}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{source.name}"'
+    return FileResponse(source, headers=headers)
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/gallery/prepare")
+def standalone_product_gallery_prepare(design_id: int, blueprint_key: str):
+    _mug_gallery_product(design_id, blueprint_key)
+    try:
+        prepare_mug_gallery(design_id, blueprint_key)
+    except (PrintifyAPIError, OSError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}/products/{blueprint_key}/gallery?prepared=1",
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/gallery/upload")
+async def standalone_product_gallery_upload(
+    design_id: int,
+    blueprint_key: str,
+    images: list[UploadFile] = File(...),
+):
+    _mug_gallery_product(design_id, blueprint_key)
+    try:
+        uploads = [(await image.read(), image.filename or "mockup.jpg") for image in images]
+        upload_mug_gallery(design_id, blueprint_key, uploads)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}/products/{blueprint_key}/gallery?uploaded=1",
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/gallery/reorder")
+def standalone_product_gallery_reorder(
+    design_id: int,
+    blueprint_key: str,
+    slot: str = Form(...),
+    direction: str = Form(...),
+):
+    product, _ = _mug_gallery_product(design_id, blueprint_key)
+    order = [item["slot"] for item in sorted(gallery_items(product), key=lambda item: item["position"])]
+    if slot in order and direction in {"up", "down"}:
+        index = order.index(slot)
+        target = index - 1 if direction == "up" else index + 1
+        if 0 <= target < len(order):
+            order[index], order[target] = order[target], order[index]
+    reorder_mug_gallery(design_id, blueprint_key, order)
+    return RedirectResponse(
+        f"/designs/{design_id}/products/{blueprint_key}/gallery?ordered=1",
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/gallery/{slot}/replace")
+async def standalone_product_gallery_replace(
+    design_id: int, blueprint_key: str, slot: str, image: UploadFile = File(...)
+):
+    _mug_gallery_product(design_id, blueprint_key)
+    contents = await image.read()
+    try:
+        replace_mug_gallery_item(
+            design_id, blueprint_key, slot, contents, image.filename or "custom.jpg"
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}/products/{blueprint_key}/gallery?replaced=1",
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/gallery/approve")
+def standalone_product_gallery_approve(
+    design_id: int, blueprint_key: str, confirmed: bool = Form(False)
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm the complete gallery review")
+    try:
+        approve_mug_gallery(design_id, blueprint_key)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}/products/{blueprint_key}/gallery?approved=1",
+        status_code=303,
+    )
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/gallery/sync")
+def standalone_product_gallery_sync(
+    design_id: int, blueprint_key: str, confirmed: bool = Form(False)
+):
+    try:
+        sync_mug_gallery_to_etsy(design_id, blueprint_key, confirmed=confirmed)
+    except (EtsyAPIError, OSError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/{design_id}/products/{blueprint_key}/gallery?synced=1",
+        status_code=303,
+    )
+
+
 @app.get("/designs/{design_id}/mug/opposite-image")
 def standalone_design_opposite_image(
     design_id: int,
@@ -2055,6 +2515,13 @@ def _standalone_product_review_page(
         request.query_params.get("edit_copy") == "1"
         and bool(design["printify_product_id"])
     )
+    edit_setup = (
+        request.query_params.get("edit_setup") == "1"
+        and bool(design["printify_product_id"])
+        and design["external_state"] not in {
+            "creating", "outcome_unknown", "updating", "update_outcome_unknown"
+        }
+    )
     readiness = product_readiness(
         product=design if design["product_id"] else None,
         source_exists=(
@@ -2074,7 +2541,11 @@ def _standalone_product_review_page(
     placement_scale = (
         design["placement_scale"] if design["product_id"] else profile["placement_scale"]
     )
-    placement_mode = design["placement_mode"] if design["product_id"] else "both"
+    placement_mode = (
+        design["placement_mode"]
+        if design["product_id"]
+        else profile.get("placement_mode", "front")
+    )
     suggested_description = suggested_mug_description(
         design["product_description"] or design["description"] or "",
         blueprint_key,
@@ -2099,6 +2570,7 @@ def _standalone_product_review_page(
             "suggested_title": suggested_title,
             "suggested_description": suggested_description,
             "edit_copy": edit_copy,
+            "edit_setup": edit_setup,
             "configuration_source": printify_configuration_source(),
             "dashboard_sidebar_active": "designs",
         },
@@ -2133,6 +2605,31 @@ def update_standalone_product_copy_post(
     )
 
 
+@app.post("/designs/{design_id}/products/{blueprint_key}/placement-default")
+def capture_standalone_product_placement_default_post(
+    design_id: int,
+    blueprint_key: str,
+    confirmed: bool = Form(False),
+):
+    try:
+        capture_printify_placement_default(
+            design_id,
+            blueprint_key,
+            confirmed=confirmed,
+        )
+    except (PrintifyAPIError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    product_url = (
+        f"/designs/{design_id}/mug"
+        if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
+        else f"/designs/{design_id}/products/{blueprint_key}"
+    )
+    return RedirectResponse(
+        f"{product_url}?placement_default_saved=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.post("/designs/{design_id}/mug/setup")
 async def save_standalone_mug_setup_post(
     design_id: int,
@@ -2145,6 +2642,7 @@ async def save_standalone_mug_setup_post(
     placement_y: float = Form(MUG_PROFILE["placement_y"]),
     placement_mode: str = Form("front"),
     opposite_image: UploadFile | None = File(None),
+    allow_existing_update: bool = Form(False),
 ):
     saved_opposite = None
     try:
@@ -2171,6 +2669,7 @@ async def save_standalone_mug_setup_post(
             opposite_source_filename=(
                 saved_opposite["filename"] if saved_opposite else None
             ),
+            allow_existing_update=allow_existing_update,
         )
     except ValueError as error:
         if saved_opposite:
@@ -2204,6 +2703,11 @@ def create_standalone_mug_draft_post(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    if result["outcome"] == "created":
+        try:
+            prepare_mug_gallery(design_id, blueprint_key)
+        except (PrintifyAPIError, OSError, ValueError):
+            pass  # Printify renders can lag; the gallery page remains a safe retry.
     product_url = (
         f"/designs/{design_id}/mug"
         if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY
@@ -2229,6 +2733,11 @@ def update_standalone_mug_graphics_post(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    if result["outcome"] == "updated":
+        try:
+            prepare_mug_gallery(design_id, blueprint_key)
+        except (PrintifyAPIError, OSError, ValueError):
+            pass
     product_url = (
         f"/designs/{design_id}/mug"
         if blueprint_key == DEFAULT_MUG_BLUEPRINT_KEY

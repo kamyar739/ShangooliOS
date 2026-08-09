@@ -10,7 +10,7 @@
       <div>
         <div class="eyebrow">Etsy handoff</div>
         <h1 class="display-6 fw-bold">Finish Etsy Setup</h1>
-        <p class="text-muted mb-0">{{ design["name"] }} · Find the Etsy listing, then review its saved details.</p>
+        <p class="text-muted mb-0">{{ design["name"] }} · Find the Etsy listing and finish its saved details.</p>
       </div>
       {% if design["printify_product_url"] %}
       <a class="btn btn-outline-success" href="{{ design['printify_product_url'] }}" target="_blank" rel="noopener">Open Printify ↗</a>
@@ -35,15 +35,15 @@
       {% else %}
       <div>
         <div class="eyebrow">Safe status check</div>
-        <h2 class="h4 mb-1">Find the connected Etsy listing</h2>
-        <p class="text-muted mb-0">This checks the existing Printify product only. It cannot publish or duplicate the product.</p>
+        <h2 class="h4 mb-1">Find and finish the connected Etsy listing</h2>
+        <p class="text-muted mb-0">This never republishes the product. Once Etsy is found, ShangooliOS synchronizes its saved title, description, and tags, then opens the Pinterest bundle.</p>
       </div>
       {% endif %}
 
       <form method="post" action="/designs/{{ design['id'] }}/etsy/finish" data-long-operation data-wait-stages="Checking Printify|Looking for the Etsy listing">
         <input type="hidden" name="product_key" value="{{ product_key }}">
         <button class="btn btn-primary" type="submit">
-          {{ "Check Again" if request.query_params.get("waiting") else "Find Etsy Listing" }}
+          {{ "Check Status & Finish" if request.query_params.get("waiting") else "Find Etsy Listing & Finish" }}
         </button>
       </form>
 

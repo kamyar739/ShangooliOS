@@ -15,6 +15,10 @@
       <a class="btn btn-primary" download href="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?download=true">Download Pinterest image</a>
     </div>
 
+    {% if request.query_params.get("finished") or request.query_params.get("synced") %}
+    <div class="alert alert-success">Etsy details are synchronized. Your Pinterest bundle is ready.</div>
+    {% endif %}
+
     <div class="pinterest-bundle-layout">
       <section class="pinterest-bundle-preview section-card">
         <div class="eyebrow">Pin image · 1000 × 1500</div>

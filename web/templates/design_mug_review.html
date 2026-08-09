@@ -18,6 +18,7 @@
     {% if request.query_params.get("saved") %}<div class="alert alert-success">Mug setup saved. Review the final confirmation below.</div>{% endif %}
     {% if request.query_params.get("copy_saved") %}<div class="alert alert-success">Product copy saved locally. Review it, then sync this product to Printify and Etsy.</div>{% endif %}
     {% if request.query_params.get("prepared") %}<div class="alert alert-success">The latest design graphic is prepared for this product only. Review the setup, then update its existing Printify draft when ready.</div>{% endif %}
+    {% if request.query_params.get("placement_default_saved") %}<div class="alert alert-success">The current Printify placement is now the future default for {{ mug_profile["label"] }}. Existing products were not changed.</div>{% endif %}
     {% if request.query_params.get("result") == "created" %}<div class="alert alert-success">Unpublished mug draft created in Printify. Nothing was sent to Etsy.</div>{% endif %}
     {% if request.query_params.get("result") == "updated" and request.query_params.get("update") == "copy" %}<div class="alert alert-success">The title and description were updated in Printify. Artwork, placement, variants, price, mockups, and shipping were left unchanged.</div>{% elif request.query_params.get("result") == "updated" %}<div class="alert alert-success">The current graphic, title, and description were applied to the existing Printify mug product. Review any marketplace changes in Printify before publishing them.</div>{% endif %}
     {% if request.query_params.get("result") == "outcome_unknown" %}<div class="alert alert-warning">Printify did not confirm the update. Open the existing draft and verify it before trying again.</div>{% endif %}
@@ -30,6 +31,7 @@
     <div class="mug-review-grid">
       {% set setup_locked = design["printify_product_id"] and design["external_state"] != "needs_update" %}
       {% set copy_editing = edit_copy and setup_locked %}
+      {% set setup_editing = edit_setup and design["printify_product_id"] %}
       <section class="mug-preview-card">
         <div class="eyebrow">Placement preview</div>
         <div class="mug-preview">
@@ -50,23 +52,24 @@
 
       <form class="section-card compact-section-card" method="post" action="{% if copy_editing %}/designs/{{ design['id'] }}/products/{{ blueprint_key }}/copy{% else %}/designs/{{ design['id'] }}/mug/setup{% endif %}" enctype="multipart/form-data" data-long-operation data-wait-stages="{% if copy_editing %}Saving product copy{% else %}Uploading opposite-side graphic|Saving mug setup{% endif %}">
         <input type="hidden" name="blueprint_key" value="{{ blueprint_key }}">
+        {% if setup_editing %}<input type="hidden" name="allow_existing_update" value="true">{% endif %}
         <div class="eyebrow">Mug setup</div>
         <div class="mug-product-summary">
           <div><small>Product</small><strong>{{ mug_profile["product_name"] }}</strong></div>
           <div><small>Provider</small><strong>{{ mug_profile["provider_name"] }}</strong></div>
           <div><small>Variant</small><strong>{{ mug_profile["variant_title"] }}</strong></div>
         </div>
-        <div class="mb-3"><label class="form-label">Product title</label><textarea class="form-control" name="title" rows="3" required {% if setup_locked and not copy_editing %}disabled{% endif %}>{% if copy_editing and suggested_title %}{{ suggested_title }}{% else %}{{ design["product_title"] or default_title }}{% endif %}</textarea>{% if copy_editing %}<div class="form-text">ShangooliOS proposed a concise, search-oriented title. Review it before saving.</div>{% endif %}</div>
-        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" id="mug-description" rows="9" {% if setup_locked and not copy_editing %}disabled{% endif %}>{% if copy_editing %}{{ suggested_description }}{% else %}{{ design["product_description"] if design["product_id"] else design["description"] or "" }}{% endif %}</textarea>{% if copy_editing %}<div class="form-text">ShangooliOS included this mug's product details and saved side placement. Review it before saving.</div>{% endif %}</div>
+        <div class="mb-3"><label class="form-label">Product title</label><textarea class="form-control" name="title" rows="3" required {% if setup_locked and not copy_editing and not setup_editing %}disabled{% endif %}>{% if copy_editing and suggested_title %}{{ suggested_title }}{% else %}{{ design["product_title"] or default_title }}{% endif %}</textarea>{% if copy_editing %}<div class="form-text">ShangooliOS proposed a concise, search-oriented title. Review it before saving.</div>{% endif %}</div>
+        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" id="mug-description" rows="9" {% if setup_locked and not copy_editing and not setup_editing %}disabled{% endif %}>{% if copy_editing %}{{ suggested_description }}{% else %}{{ design["product_description"] if design["product_id"] else design["description"] or "" }}{% endif %}</textarea>{% if copy_editing %}<div class="form-text">ShangooliOS included this mug's product details and saved side placement. Review it before saving.</div>{% endif %}</div>
         <div class="mug-setup-primary-grid">
-          <div><label class="form-label">Retail price</label><div class="input-group"><span class="input-group-text">$</span><input class="form-control" name="price" value="{{ '%.2f'|format((design['price_cents'] or mug_profile['default_price_cents']) / 100) }}" required {% if setup_locked %}disabled{% endif %}></div></div>
-          <div><label class="form-label">Design size</label><select class="form-select" name="placement_scale" {% if setup_locked %}disabled{% endif %}>{% set scale = design["placement_scale"] or mug_profile["placement_scale"] %}<option value="0.35" {% if scale == 0.35 %}selected{% endif %}>Compact</option><option value="0.45" {% if scale == 0.45 %}selected{% endif %}>Standard</option><option value="0.60" {% if scale == 0.60 %}selected{% endif %}>Large</option><option value="0.80" {% if scale == 0.80 %}selected{% endif %}>Near wrap</option></select></div>
+          <div><label class="form-label">Retail price</label><div class="input-group"><span class="input-group-text">$</span><input class="form-control" name="price" value="{{ '%.2f'|format((design['price_cents'] or mug_profile['default_price_cents']) / 100) }}" required {% if setup_locked and not setup_editing %}disabled{% endif %}></div></div>
+          <div><label class="form-label">Design size</label><select class="form-select" name="placement_scale" {% if setup_locked and not setup_editing %}disabled{% endif %}>{% set scale = design["placement_scale"] or mug_profile["placement_scale"] %}<option value="0.35" {% if scale == 0.35 %}selected{% endif %}>Compact</option><option value="0.45" {% if scale == 0.45 %}selected{% endif %}>Standard</option><option value="0.60" {% if scale == 0.60 %}selected{% endif %}>Large</option><option value="0.80" {% if scale == 0.80 %}selected{% endif %}>Near wrap</option></select></div>
           {% set placement_mode = design["placement_mode"] if design["product_id"] else "both" %}
-          <div><label class="form-label">Mug sides</label><select class="form-select" name="placement_mode" id="placement-mode" {% if setup_locked %}disabled{% endif %}><option value="front" {% if placement_mode == "front" %}selected{% endif %}>Right-handed side</option><option value="reverse" {% if placement_mode == "reverse" %}selected{% endif %}>Left-handed side</option><option value="both" {% if placement_mode == "both" %}selected{% endif %}>Same graphic — both sides</option><option value="different" {% if placement_mode == "different" %}selected{% endif %}>Different graphic — each side</option></select></div>
+          <div><label class="form-label">Mug sides</label><select class="form-select" name="placement_mode" id="placement-mode" {% if setup_locked and not setup_editing %}disabled{% endif %}><option value="front" {% if placement_mode == "front" %}selected{% endif %}>Right-handed side</option><option value="reverse" {% if placement_mode == "reverse" %}selected{% endif %}>Left-handed side</option><option value="both" {% if placement_mode == "both" %}selected{% endif %}>Same graphic — both sides</option><option value="different" {% if placement_mode == "different" %}selected{% endif %}>Different graphic — each side</option></select></div>
         </div>
         <div class="mug-opposite-upload mt-3" id="mug-opposite-upload" {% if placement_mode != "different" %}hidden{% endif %}>
           <label class="form-label" for="opposite-image">Opposite-side graphic</label>
-          <input class="form-control" id="opposite-image" name="opposite_image" type="file" accept="image/png,image/jpeg" {% if setup_locked %}disabled{% endif %} {% if placement_mode == "different" and not design["opposite_source_filename"] %}required{% endif %}>
+          <input class="form-control" id="opposite-image" name="opposite_image" type="file" accept="image/png,image/jpeg" {% if setup_locked and not setup_editing %}disabled{% endif %} {% if placement_mode == "different" and not design["opposite_source_filename"] %}required{% endif %}>
           <div class="form-text">{% if design["opposite_source_filename"] %}A separate opposite-side graphic is saved. Choose another file only to replace it before creating the Printify draft.{% else %}Upload the completed transparent PNG for the other side of the mug.{% endif %}</div>
         </div>
         {% set position_x = design["placement_x"] if design["product_id"] else mug_profile["placement_x"] %}
@@ -74,15 +77,15 @@
         <div class="mug-placement-controls mt-3">
           <div>
             <label class="form-label" for="placement-x">Shared horizontal position <span id="placement-x-value">{{ (position_x * 100)|round|int }}%</span></label>
-            <input class="form-range" id="placement-x" name="placement_x" type="range" min="0.1" max="0.9" step="0.05" value="{{ position_x }}" {% if setup_locked %}disabled{% endif %}>
+            <input class="form-range" id="placement-x" name="placement_x" type="range" min="0.1" max="0.9" step="0.05" value="{{ position_x }}" {% if setup_locked and not setup_editing %}disabled{% endif %}>
           </div>
           <div>
             <label class="form-label" for="placement-y">Vertical position <span id="placement-y-value">{{ (position_y * 100)|round|int }}%</span></label>
-            <input class="form-range" id="placement-y" name="placement_y" type="range" min="0.1" max="0.9" step="0.05" value="{{ position_y }}" {% if setup_locked %}disabled{% endif %}>
+            <input class="form-range" id="placement-y" name="placement_y" type="range" min="0.1" max="0.9" step="0.05" value="{{ position_y }}" {% if setup_locked and not setup_editing %}disabled{% endif %}>
           </div>
         </div>
         <p class="small text-muted mt-2 mb-0">Use the preview to position the graphic, then verify the generated mockups in Printify before publishing. This blueprint uses a {{ placement_geometry["print_area_width"] }} × {{ placement_geometry["print_area_height"] }} px print area; ShangooliOS converts the saved normalized placement for it automatically.</p>
-        {% if copy_editing %}<div class="d-flex justify-content-end gap-2 mt-4"><a class="btn btn-outline-secondary" href="{{ product_url_base }}">Cancel</a><button class="btn btn-primary" type="submit">Save Product Copy</button></div>{% elif not setup_locked %}<div class="text-end mt-4"><button class="btn btn-outline-primary" type="submit">{% if design["printify_product_id"] %}Save Corrected Mug Setup{% else %}Save Mug Setup{% endif %}</button></div>{% endif %}
+        {% if copy_editing %}<div class="d-flex justify-content-end gap-2 mt-4"><a class="btn btn-outline-secondary" href="{{ product_url_base }}">Cancel</a><button class="btn btn-primary" type="submit">Save Product Copy</button></div>{% elif setup_editing %}<div class="d-flex justify-content-end gap-2 mt-4"><a class="btn btn-outline-secondary" href="{{ product_url_base }}">Cancel</a><button class="btn btn-primary" type="submit">Save Mug Setup Changes</button></div>{% elif not setup_locked %}<div class="text-end mt-4"><button class="btn btn-outline-primary" type="submit">{% if design["printify_product_id"] %}Save Corrected Mug Setup{% else %}Save Mug Setup{% endif %}</button></div>{% endif %}
       </form>
     </div>
 
@@ -123,7 +126,16 @@
       <div><div class="eyebrow">Printify product</div><h2 class="h4">Product connected</h2><p class="mb-0 text-muted">Improve the wording without resending artwork, or review the current product in Printify.</p></div>
       <div class="d-flex gap-2 flex-wrap">
         <a class="btn btn-outline-primary" href="{{ product_url_base }}?edit_copy=1">Improve Product Copy</a>
+        <a class="btn btn-outline-primary" href="{{ product_url_base }}?edit_setup=1">Edit Mug Setup</a>
         <a class="btn btn-success" href="{{ design['printify_product_url'] }}" target="_blank" rel="noopener">Review in Printify ↗</a>
+        <details class="w-100 mt-2">
+          <summary class="small text-muted">Use this Printify placement for future {{ mug_profile["label"] }} products</summary>
+          <form class="mt-2" method="post" action="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/placement-default" data-long-operation data-wait-stages="Reading current Printify placement|Saving this blueprint default">
+            <p class="small text-muted">Use this only after positioning the design in Printify. It changes the future default for this mug type only; existing products stay untouched.</p>
+            <label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="confirmed" required><span class="form-check-label">Use the current Printify placement as this mug type's future default.</span></label>
+            <button class="btn btn-outline-secondary btn-sm" type="submit">Capture Printify Placement</button>
+          </form>
+        </details>
         {% if design["etsy_listing_id"] %}
         <a class="btn btn-outline-success" href="/designs/{{ design['id'] }}/etsy{% if blueprint_key != 'mug_11oz' %}?product_key={{ blueprint_key }}{% endif %}">Review &amp; Sync Etsy Details</a>
         {% if design["etsy_listing_url"] %}<a class="btn btn-outline-secondary" href="{{ design['etsy_listing_url'] }}" target="_blank" rel="noopener">Open Etsy ↗</a>{% endif %}

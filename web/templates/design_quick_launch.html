@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Launch Both Mugs — {{ design["name"] }}{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content portfolio-refresh-page">
+    <a class="workflow-back-link mb-3" href="/designs/{{ design['id'] }}">← Back to Design</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Quick text design</div>
+        <h1 class="display-6 fw-bold">Launch both mugs</h1>
+        <p class="text-muted mb-0">{{ design["name"] }} · White Ceramic and Black Accent mugs move together through one guided flow.</p>
+      </div>
+    </div>
+
+    {% if request.query_params.get("result") == "created" %}<div class="alert alert-success">Both Printify drafts are ready for review.</div>{% endif %}
+    {% if request.query_params.get("result") == "publish_requested" %}<div class="alert alert-success">Printify accepted both publication requests. Wait briefly, then finish Etsy synchronization below.</div>{% endif %}
+    {% if request.query_params.get("result") == "waiting" %}<div class="alert alert-warning">Printify has not reported both Etsy listings yet. Wait briefly and check again.</div>{% endif %}
+    {% if request.query_params.get("result") == "attention" %}<div class="alert alert-warning">One mug needs attention. The other mug was allowed to continue safely.</div>{% endif %}
+    {% if request.query_params.get("result") == "complete" %}<div class="alert alert-success">Both mugs are linked and synchronized with Etsy.</div>{% endif %}
+
+    <section class="section-card portfolio-refresh-resume">
+      <div class="eyebrow">Two products · one flow</div>
+      <div class="portfolio-refresh-products">
+        {% for item in products %}
+        {% set product = item["product"] %}
+        <article>
+          <div>
+            <strong>{{ item["label"] }}</strong>
+            <small>{% if product and product["etsy_listing_id"] %}Etsy linked{% elif product and product["printify_product_id"] %}Printify draft ready{% else %}Ready to create{% endif %}</small>
+          </div>
+          <div class="portfolio-refresh-product-links">
+            {% if product and product["printify_product_url"] %}<a class="btn btn-outline-success" href="{{ product['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Review in Printify ↗</a>{% endif %}
+            {% if product and product["etsy_listing_url"] %}<a class="btn btn-outline-secondary" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Open Etsy ↗</a>{% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+
+      {% if not all_created %}
+      <form method="post" action="/designs/{{ design['id'] }}/launch/create" data-long-operation data-wait-stages="Creating White Ceramic mug|Creating Black Accent mug|Preparing product galleries">
+        <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Create two unpublished Printify drafts. Nothing is sent to Etsy.</label>
+        <button class="btn btn-primary" type="submit">Create Both Mug Drafts</button>
+      </form>
+      {% elif all_linked %}
+      <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary" href="/designs/{{ design['id'] }}">Return to Design</a>
+        {% for item in products %}<a class="btn btn-outline-secondary" href="/designs/{{ design['id'] }}/products/{{ item['key'] }}/pinterest">{{ item['label'] }} Pinterest bundle →</a>{% endfor %}
+      </div>
+      {% elif publication_started %}
+      <form method="post" action="/designs/{{ design['id'] }}/launch/finish" data-long-operation data-wait-stages="Checking both Printify products|Finding Etsy listings|Synchronizing Etsy details">
+        <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Check status and synchronize both Etsy listings without publishing again.</label>
+        <button class="btn btn-primary" type="submit">Check Status &amp; Finish</button>
+      </form>
+      {% else %}
+      <p class="text-muted">Review placement and mockups in Printify. Return here to publish both safely.</p>
+      <form method="post" action="/designs/{{ design['id'] }}/launch/publish" data-long-operation data-wait-stages="Verifying White Ceramic mug|Publishing White Ceramic mug|Verifying Black Accent mug|Publishing Black Accent mug">
+        <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> I reviewed both products and want Printify to publish them to the connected Etsy shop.</label>
+        <button class="btn btn-primary" type="submit">Publish Both Through Printify</button>
+      </form>
+      {% endif %}
+    </section>
+  </main>
+</div>
+{% endblock %}

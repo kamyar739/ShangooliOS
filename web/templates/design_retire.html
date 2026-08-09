@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Retire {{ design["name"] }} — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content">
+    <a class="workflow-back-link mb-3" href="/designs/{{ design['id'] }}">← Back to Design</a>
+    <div class="page-header mb-4">
+      <div><div class="eyebrow">Design retirement</div><h1 class="display-6 fw-bold">Retire Everywhere</h1><p class="text-muted mb-0">{{ design["name"] }} · Review every external change before continuing.</p></div>
+    </div>
+
+    {% if results %}
+      <div class="alert {% if retirement_complete %}alert-success{% else %}alert-warning{% endif %}">
+        {% if retirement_complete %}Retirement complete. The design is archived in ShangooliOS.{% else %}Some work needs attention. The design remains visible in ShangooliOS so you can safely retry.{% endif %}
+      </div>
+    {% else %}
+      <div class="alert alert-warning"><strong>This is destructive in Printify.</strong> Etsy listings will be paused, then their Printify products will be permanently removed. ShangooliOS keeps the saved IDs and history.</div>
+    {% endif %}
+
+    <section class="section-card">
+      <div class="eyebrow">Affected products</div>
+      <h2 class="h4">What will change</h2>
+      <div class="retirement-product-list">
+        {% for row in results or products %}
+        <article class="retirement-product-row {% if results %}{% if row['complete'] %}is-complete{% else %}needs-attention{% endif %}{% endif %}">
+          <div><strong>{{ row["label"] }}</strong><small>Printify {{ row["product"]["printify_product_id"] or "not linked" }} · Etsy {{ row["product"]["etsy_listing_id"] or "not linked" }}</small></div>
+          {% if results %}
+          <ul>{% for message in row["messages"] %}<li>{{ message }}</li>{% endfor %}</ul>
+          {% else %}
+          <div class="retirement-actions"><span><b>Etsy:</b> {{ row["etsy_action"] }}</span><span><b>Printify:</b> {{ row["printify_action"] }}</span></div>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if not results %}
+    <section class="section-card mt-3 border-danger">
+      <h2 class="h4">Retire this design and all linked mug products?</h2>
+      <p>This pauses Etsy first. A Printify product is removed only after its Etsy listing is safely unavailable. White and Black Accent mugs are handled independently.</p>
+      <form method="post" action="/designs/{{ design['id'] }}/retire" data-long-operation data-wait-stages="Pausing Etsy sales|Removing Printify products|Archiving the design">
+        <label class="form-check mb-3"><input class="form-check-input" type="checkbox" name="confirmed" value="true" required><span class="form-check-label">I understand that linked Printify products will be permanently removed.</span></label>
+        <button class="btn btn-danger" type="submit">Retire Everywhere</button>
+      </form>
+    </section>
+    {% else %}
+    <div class="mt-3"><a class="btn btn-primary" href="{% if retirement_complete %}/designs?show=archived{% else %}/designs/{{ design['id'] }}/retire{% endif %}">{% if retirement_complete %}View archived designs{% else %}Review and retry{% endif %}</a></div>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

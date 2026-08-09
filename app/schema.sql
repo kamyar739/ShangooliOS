@@ -148,6 +148,11 @@ CREATE TABLE IF NOT EXISTS standalone_design_products (
     etsy_paused_at TEXT,
     marketplace_checked_at TEXT,
     etsy_last_synced_at TEXT,
+    gallery_manifest TEXT,
+    gallery_state TEXT NOT NULL DEFAULT 'not_prepared',
+    gallery_approved_at TEXT,
+    gallery_synced_at TEXT,
+    gallery_message TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

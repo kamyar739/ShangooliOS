@@ -301,6 +301,12 @@ class PrintifyAPI:
             "PUT", f"/shops/{self.shop_id}/products/{product_id}.json", payload
         )
 
+    def delete_product(self, product_id: str):
+        """Permanently remove one product from the connected Printify shop."""
+        return self._request(
+            "DELETE", f"/shops/{self.shop_id}/products/{product_id}.json"
+        )
+
     def publish_product(self, product_id: str, *, include_images: bool = True):
         return self._request(
             "POST",

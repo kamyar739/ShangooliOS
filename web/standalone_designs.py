@@ -11,9 +11,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from web.db import (
+    get_standalone_product_placement_default,
     get_standalone_design,
     record_standalone_marketplace_status,
     save_standalone_design_product,
+    save_standalone_product_placement_default,
     set_standalone_product_state,
 )
 from web.etsy_api import get_etsy_listing
@@ -48,16 +50,74 @@ def mug_profile(blueprint_key=DEFAULT_MUG_BLUEPRINT_KEY):
     if blueprint["family"] != "mugs":
         raise ValueError("Choose a supported mug product")
     placement = placement_profile(blueprint["placement_profile"])
+    saved = get_standalone_product_placement_default(key)
     return {
         "product_key": key,
         # Compatibility for existing callers and templates.
         "product_type": key,
         **blueprint,
-        "placement_x": placement["x"],
-        "placement_y": placement["y"],
-        "placement_scale": placement["scale"],
+        "placement_x": saved["placement_x"] if saved else placement["x"],
+        "placement_y": saved["placement_y"] if saved else placement["y"],
+        "placement_scale": saved["placement_scale"] if saved else placement["scale"],
+        "placement_mode": saved["placement_mode"] if saved else "front",
         "right_hand_x": placement["right_hand_x"],
         "left_hand_x": placement["left_hand_x"],
+    }
+
+
+def capture_printify_placement_default(
+    design_id,
+    blueprint_key,
+    *,
+    confirmed,
+    api=None,
+):
+    """Store a linked product's current Printify placement for future products."""
+    if not confirmed:
+        raise ValueError("Confirm using the current Printify placement as the future default")
+    profile = mug_profile(blueprint_key)
+    design = get_standalone_design(design_id, blueprint_key)
+    if design is None or not design["printify_product_id"]:
+        raise ValueError("Create and review this product in Printify first")
+    client = api or PrintifyAPI.from_env()
+    if client is None:
+        raise ValueError("Connect Printify before capturing its placement")
+    remote = client.get_product(design["printify_product_id"])
+    areas = remote.get("print_areas") or []
+    matching = [
+        area for area in areas
+        if profile["variant_id"] in (area.get("variant_ids") or [])
+    ]
+    if len(matching) != 1:
+        raise ValueError("Printify returned an ambiguous print area; no default was changed")
+    placeholders = matching[0].get("placeholders") or []
+    if len(placeholders) != 1 or placeholders[0].get("position") != "front":
+        raise ValueError("Printify returned an unexpected mug placeholder; no default was changed")
+    images = placeholders[0].get("images") or []
+    if not images:
+        raise ValueError("Printify did not return a placed design")
+    mode = design["placement_mode"] or "front"
+    placed = max(images, key=lambda item: float(item.get("scale") or 0))
+    remote_x = float(placed["x"])
+    remote_y = float(placed["y"])
+    remote_scale = float(placed["scale"])
+    base_x = profile["left_hand_x"] if mode == "reverse" else profile["right_hand_x"]
+    normalized_x = 0.5 + ((remote_x - base_x) / 0.3)
+    if not (0.0 <= normalized_x <= 1.0 and 0.0 <= remote_y <= 1.0 and 0.05 <= remote_scale <= 2.0):
+        raise ValueError("Printify returned placement values outside the safe range")
+    save_standalone_product_placement_default(
+        blueprint_key,
+        placement_x=normalized_x,
+        placement_y=remote_y,
+        placement_scale=remote_scale,
+        placement_mode=mode,
+        source_printify_product_id=design["printify_product_id"],
+    )
+    return {
+        "placement_x": normalized_x,
+        "placement_y": remote_y,
+        "placement_scale": remote_scale,
+        "placement_mode": mode,
     }
 
 
@@ -739,6 +799,7 @@ def save_mug_setup(
     placement_y=None,
     placement_mode="front",
     opposite_source_filename=None,
+    allow_existing_update=False,
 ):
     profile = mug_profile(blueprint_key)
     if placement_x is None:
@@ -751,6 +812,7 @@ def save_mug_setup(
     if (
         design["printify_product_id"]
         and design["external_state"] != "needs_update"
+        and not allow_existing_update
     ):
         raise ValueError("The existing Printify mug is protected")
     if design["external_state"] in {"creating", "outcome_unknown"}:
@@ -773,11 +835,22 @@ def save_mug_setup(
         opposite_source_filename or existing_opposite
     ):
         raise ValueError("Upload the graphic for the opposite side")
+    if design["printify_product_id"] and allow_existing_update:
+        set_standalone_product_state(
+            design_id,
+            "needs_update",
+            "Mug setup changed. Update the existing Printify product.",
+            product_key=blueprint_key,
+        )
     save_standalone_design_product(
         design_id,
         product_key=blueprint_key,
         blueprint_version=profile["version"],
-        production_asset_filename=design["source_filename"],
+        # Editing placement must keep using this product's prepared artwork;
+        # a newer design source is adopted only through the explicit prepare flow.
+        production_asset_filename=(
+            design["production_asset_filename"] or design["source_filename"]
+        ),
         title=normalized_title,
         description=mug_description_for_placement(
             description, placement_mode

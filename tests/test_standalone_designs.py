@@ -31,7 +31,14 @@ from web.pinterest_bundle import (
     select_printify_context_mockup,
 )
 from web.portfolio_refresh import apply_portfolio_refresh
+from web.mug_gallery import (
+    approve_mug_gallery,
+    prepare_mug_gallery,
+    sync_mug_gallery_to_etsy,
+    upload_mug_gallery,
+)
 import web.standalone_designs as standalone_designs
+import web.mug_gallery as mug_gallery
 
 
 class FakePrintifyAPI:
@@ -40,6 +47,7 @@ class FakePrintifyAPI:
         self.uploads = []
         self.payloads = []
         self.updates = []
+        self.deletes = []
         self.external = None
 
     def list_providers(self, blueprint_id):
@@ -103,6 +111,10 @@ class FakePrintifyAPI:
     def update_product(self, product_id, payload):
         self.updates.append((product_id, payload))
         return {"id": product_id}
+
+    def delete_product(self, product_id):
+        self.deletes.append(product_id)
+        return {}
 
 
 class StandaloneDesignTests(unittest.TestCase):
@@ -189,6 +201,69 @@ class StandaloneDesignTests(unittest.TestCase):
             placement_scale=0.45,
         )
 
+    def test_retire_everywhere_review_is_read_only(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        create_mug_draft(design_id, confirmed=True, api=FakePrintifyAPI())
+
+        with patch("web.app.PrintifyAPI.from_env") as printify, patch(
+            "web.app.update_etsy_listing_state"
+        ) as etsy:
+            response = self.client.get(f"/designs/{design_id}/retire")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Retire Everywhere", response.text)
+        printify.assert_not_called()
+        etsy.assert_not_called()
+
+    def test_retire_everywhere_handles_both_mugs_and_preserves_ids(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        self._save_accent_setup(design_id)
+        api = FakePrintifyAPI()
+        create_mug_draft(design_id, confirmed=True, api=api)
+        create_mug_draft(
+            design_id,
+            confirmed=True,
+            api=api,
+            blueprint_key="mug_11oz_black_accent",
+        )
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="1111111",
+            etsy_state="active",
+            product_key="mug_11oz",
+        )
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="2222222",
+            etsy_state="active",
+            product_key="mug_11oz_black_accent",
+        )
+
+        with patch("web.app.PrintifyAPI.from_env", return_value=api), patch(
+            "web.app.update_etsy_listing_state"
+        ) as etsy:
+            response = self.client.post(
+                f"/designs/{design_id}/retire", data={"confirmed": "true"}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Retirement complete", response.text)
+        self.assertEqual(etsy.call_count, 2)
+        self.assertEqual(set(api.deletes), {"mug-product-1", "accent-product-1"})
+        products = {
+            row["product_type"]: row
+            for row in db.list_standalone_design_products(design_id)
+        }
+        self.assertEqual(products["mug_11oz"]["external_state"], "retired")
+        self.assertEqual(
+            products["mug_11oz_black_accent"]["external_state"], "retired"
+        )
+        self.assertEqual(products["mug_11oz"]["printify_product_id"], "mug-product-1")
+        self.assertEqual(products["mug_11oz"]["etsy_listing_id"], "1111111")
+        self.assertEqual(db.get_standalone_design(design_id)["status"], "archived")
+
     def test_one_design_can_prepare_two_independent_mug_products(self):
         design_id = self._create_design()
         self._save_setup(design_id)
@@ -206,6 +281,145 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertEqual(
             products["mug_11oz_black_accent"]["blueprint_version"], 1
         )
+
+    def test_mug_galleries_are_prepared_and_stored_per_product(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        self._save_accent_setup(design_id)
+        create_mug_draft(design_id, confirmed=True, api=FakePrintifyAPI())
+        create_mug_draft(
+            design_id,
+            blueprint_key="mug_11oz_black_accent",
+            confirmed=True,
+            api=FakePrintifyAPI(),
+        )
+
+        class GalleryAPI:
+            def get_product(self, product_id):
+                return {"images": [{"src": f"https://images.printify.com/{product_id}.jpg"}]}
+
+        original_root = mug_gallery.GALLERY_ROOT
+        mug_gallery.GALLERY_ROOT = self.root / "galleries"
+        try:
+            with patch.object(
+                mug_gallery,
+                "_download_image",
+                return_value=Image.new("RGB", (600, 600), "white"),
+            ):
+                prepare_mug_gallery(design_id, "mug_11oz", api=GalleryAPI())
+                prepare_mug_gallery(
+                    design_id, "mug_11oz_black_accent", api=GalleryAPI()
+                )
+            white = db.get_standalone_design(design_id, "mug_11oz")
+            accent = db.get_standalone_design(design_id, "mug_11oz_black_accent")
+            self.assertEqual(white["gallery_state"], "prepared")
+            self.assertEqual(accent["gallery_state"], "prepared")
+            self.assertEqual(len(__import__("json").loads(white["gallery_manifest"])), 4)
+            accent_manifest = __import__("json").loads(accent["gallery_manifest"])
+            self.assertEqual(len(accent_manifest), 4)
+            self.assertTrue(
+                all(item["source"] == "printify_render" for item in accent_manifest)
+            )
+        finally:
+            mug_gallery.GALLERY_ROOT = original_root
+
+    def test_gallery_review_page_performs_no_external_action(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        create_mug_draft(design_id, confirmed=True, api=FakePrintifyAPI())
+        with patch("web.mug_gallery.PrintifyAPI.from_env") as printify, patch(
+            "web.mug_gallery.upload_etsy_listing_image"
+        ) as etsy_upload:
+            response = self.client.get(
+                f"/designs/{design_id}/products/mug_11oz/gallery"
+            )
+        self.assertEqual(response.status_code, 200)
+        printify.assert_not_called()
+        etsy_upload.assert_not_called()
+
+    def test_uploaded_galleries_and_etsy_sync_are_isolated_per_product(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        self._save_accent_setup(design_id)
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="1111111",
+            etsy_state="active",
+            product_key="mug_11oz",
+        )
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="2222222",
+            etsy_state="active",
+            product_key="mug_11oz_black_accent",
+        )
+        uploads = [
+            (self._opaque_image_bytes(), f"mockup-{position}.png")
+            for position in range(1, 5)
+        ]
+        original_root = mug_gallery.GALLERY_ROOT
+        mug_gallery.GALLERY_ROOT = self.root / "galleries"
+        try:
+            upload_mug_gallery(design_id, "mug_11oz_black_accent", uploads)
+            approve_mug_gallery(design_id, "mug_11oz_black_accent")
+            with patch(
+                "web.mug_gallery.upload_etsy_listing_image",
+                side_effect=[
+                    {"listing_image_id": 101},
+                    {"listing_image_id": 102},
+                    {"listing_image_id": 103},
+                    {"listing_image_id": 104},
+                ],
+            ) as upload, patch(
+                "web.mug_gallery.get_etsy_listing_images",
+                return_value=[{"listing_image_id": 101}, {"listing_image_id": 9}],
+            ), patch("web.mug_gallery.delete_etsy_listing_image") as delete:
+                sync_mug_gallery_to_etsy(
+                    design_id, "mug_11oz_black_accent", confirmed=True
+                )
+
+            self.assertEqual({call.args[0] for call in upload.call_args_list}, {"2222222"})
+            delete.assert_called_once_with("2222222", 9)
+            white = db.get_standalone_design(design_id, "mug_11oz")
+            accent = db.get_standalone_design(
+                design_id, "mug_11oz_black_accent"
+            )
+            self.assertEqual(white["gallery_state"], "not_prepared")
+            self.assertEqual(accent["gallery_state"], "synced")
+        finally:
+            mug_gallery.GALLERY_ROOT = original_root
+
+    def test_gallery_upload_failure_does_not_delete_existing_etsy_images(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="1111111",
+            etsy_state="active",
+            product_key="mug_11oz",
+        )
+        uploads = [
+            (self._opaque_image_bytes(), f"mockup-{position}.png")
+            for position in range(1, 5)
+        ]
+        original_root = mug_gallery.GALLERY_ROOT
+        mug_gallery.GALLERY_ROOT = self.root / "galleries"
+        try:
+            upload_mug_gallery(design_id, "mug_11oz", uploads)
+            approve_mug_gallery(design_id, "mug_11oz")
+            with patch(
+                "web.mug_gallery.upload_etsy_listing_image",
+                side_effect=[{"listing_image_id": 101}, ValueError("upload failed")],
+            ), patch("web.mug_gallery.delete_etsy_listing_image") as delete:
+                with self.assertRaisesRegex(ValueError, "upload failed"):
+                    sync_mug_gallery_to_etsy(
+                        design_id, "mug_11oz", confirmed=True
+                    )
+            delete.assert_not_called()
+            product = db.get_standalone_design(design_id, "mug_11oz")
+            self.assertEqual(product["gallery_state"], "needs_review")
+        finally:
+            mug_gallery.GALLERY_ROOT = original_root
 
     def test_connected_product_copy_can_be_corrected_without_changing_setup(self):
         design_id = self._create_design()
@@ -433,10 +647,13 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertEqual(white["etsy_state"], "active")
         self.assertEqual(accent["etsy_state"], "inactive")
 
-    def test_preparing_one_blueprint_never_overwrites_other_asset(self):
+    def test_saving_one_blueprint_setup_never_overwrites_prepared_assets(self):
         design_id = self._create_design()
         self._save_setup(design_id)
         self._save_accent_setup(design_id)
+        white_before = db.get_standalone_design(
+            design_id, "mug_11oz"
+        )["production_asset_filename"]
         accent_before = db.get_standalone_design(
             design_id, "mug_11oz_black_accent"
         )["production_asset_filename"]
@@ -456,7 +673,7 @@ class StandaloneDesignTests(unittest.TestCase):
         accent = db.get_standalone_design(
             design_id, "mug_11oz_black_accent"
         )
-        self.assertEqual(white["production_asset_filename"], replacement["filename"])
+        self.assertEqual(white["production_asset_filename"], white_before)
         self.assertEqual(accent["production_asset_filename"], accent_before)
 
     def test_explicit_latest_asset_preparation_is_scoped_and_confirmed(self):
@@ -582,7 +799,7 @@ class StandaloneDesignTests(unittest.TestCase):
         )
         page = self.client.get(f"/designs/{design_id}")
         self.assertEqual(page.status_code, 200)
-        self.assertIn("Create Mug", page.text)
+        self.assertIn("Launch both mugs", page.text)
         self.assertIn("Designs", self.client.get("/designs").text)
 
     def test_quick_text_design_creates_transparent_normal_design(self):
@@ -604,6 +821,7 @@ class StandaloneDesignTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(response.status_code, 303)
+        self.assertIn("/launch", response.headers["location"])
         design_id = int(
             response.headers["location"].split("/")[2].split("?")[0]
         )
@@ -619,8 +837,12 @@ class StandaloneDesignTests(unittest.TestCase):
             {"mug_11oz", "mug_11oz_black_accent"},
         )
         self.assertTrue(
-            all(product["placement_mode"] == "both" for product in products)
+            all(product["placement_mode"] == "front" for product in products)
         )
+        launch = self.client.get(response.headers["location"])
+        self.assertEqual(launch.status_code, 200)
+        self.assertIn("Launch both mugs", launch.text)
+        self.assertIn("Create Both Mug Drafts", launch.text)
         with Image.open(self.assets_path / design["source_filename"]) as image:
             self.assertEqual(image.getchannel("A").getextrema(), (0, 255))
 

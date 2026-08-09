@@ -45,6 +45,8 @@
           <div><strong>{{ product["product_type"]|replace("mug_11oz_black_accent", "Black Accent Mug 11 oz")|replace("mug_11oz", "White Ceramic Mug") }}</strong><small>{{ product["external_message"] or "Ready for Printify review" }}</small></div>
           <div class="portfolio-refresh-product-links">
             <a class="btn btn-outline-success" href="{{ product['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Review in Printify ↗</a>
+            {% if design["refresh_state"] == "complete" %}<a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/products/{{ product['product_type'] }}/gallery">Review new gallery →</a>{% endif %}
+            {% if design["refresh_state"] == "complete" and product["etsy_listing_url"] %}<a class="btn btn-outline-secondary" href="/designs/{{ design['id'] }}/products/{{ product['product_type'] }}/pinterest">Pinterest bundle →</a>{% endif %}
             {% if product["etsy_listing_url"] and product["etsy_state"] == "active" %}<a class="status-badge live portfolio-refresh-etsy-link" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Live on Etsy ↗</a>
             {% elif product["etsy_listing_url"] %}<a class="status-badge ready portfolio-refresh-etsy-link" href="/designs/{{ design['id'] }}#product-{{ product['product_type'] }}">Paused on Etsy · Reactivate →</a>{% endif %}
           </div>

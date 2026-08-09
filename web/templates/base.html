@@ -12,7 +12,7 @@
         rel="stylesheet"
     >
     <link
-        href="{{ url_for('static', path='style.css') }}?v=20260803-text-idea-sort"
+        href="{{ url_for('static', path='style.css') }}?v=20260808-mug-gallery"
         rel="stylesheet"
     >
 </head>
@@ -121,7 +121,19 @@
           }).then(async (response) => {
             if (!response.ok) {
               let detail = 'The operation could not be completed.';
-              try { detail = (await response.json()).detail || detail; } catch (_) {}
+              try {
+                const payload = await response.json();
+                const responseDetail = payload.detail;
+                if (typeof responseDetail === 'string') {
+                  detail = responseDetail;
+                } else if (Array.isArray(responseDetail)) {
+                  detail = responseDetail
+                    .map((item) => item && item.msg ? item.msg : String(item))
+                    .join('\n');
+                } else if (responseDetail && typeof responseDetail === 'object') {
+                  detail = responseDetail.message || JSON.stringify(responseDetail);
+                }
+              } catch (_) {}
               throw new Error(detail);
             }
             window.location.assign(response.url);

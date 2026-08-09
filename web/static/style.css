@@ -6366,6 +6366,16 @@ a.collection-count:hover {
     gap: .6rem;
 }
 
+.retirement-product-list { display: grid; gap: .75rem; margin-top: 1rem; }
+.retirement-product-row { display: grid; grid-template-columns: minmax(12rem, .8fr) 1.4fr; gap: 1rem; align-items: center; border: 1px solid #dce2ee; border-radius: .8rem; padding: 1rem; background: #fff; }
+.retirement-product-row > div:first-child { display: grid; gap: .2rem; }
+.retirement-product-row small { color: #6b7280; }
+.retirement-product-row.is-complete { border-color: #a7dfbd; background: #f4fbf6; }
+.retirement-product-row.needs-attention { border-color: #edca7a; background: #fffaf0; }
+.retirement-product-row ul { margin: 0; padding-left: 1.2rem; }
+.retirement-actions { display: grid; gap: .35rem; }
+@media (max-width: 720px) { .retirement-product-row { grid-template-columns: 1fr; } }
+
 .design-status-form {
     display: flex;
     gap: .5rem;
@@ -6598,7 +6608,7 @@ a.collection-count:hover {
   white-space: nowrap;
 }
 
-.design-product-option-status .btn {
+.design-product-option-status .design-product-primary-action {
   background: #5b4bd8;
   border: 1px solid #5b4bd8;
   border-radius: 999px;
@@ -6608,21 +6618,26 @@ a.collection-count:hover {
   padding: 0.38rem 0.8rem;
 }
 
-.design-product-option-status .btn:hover {
+.design-product-option-status .design-product-primary-action:hover {
   background: #4939c2;
   border-color: #4939c2;
   color: #fff;
 }
 
-.design-product-option-status .design-pinterest-button {
-  background: #b51f5f;
-  border-color: #b51f5f;
-  color: #fff;
+.design-product-option-status .design-product-support-action {
+  background: transparent;
+  border: 1px solid #d9dce6;
+  border-radius: 999px;
+  color: #596174;
+  font-size: 0.74rem;
+  font-weight: 650;
+  padding: 0.34rem 0.7rem;
 }
 
-.design-product-option-status .design-pinterest-button:hover {
-  background: #94194d;
-  border-color: #94194d;
+.design-product-option-status .design-product-support-action:hover {
+  background: #f1f2f7;
+  border-color: #c9ceda;
+  color: #30394c;
 }
 
 .pinterest-bundle-layout {
@@ -7012,6 +7027,81 @@ a.collection-count:hover {
   .portfolio-refresh-grid { grid-template-columns: 1fr; }
   .portfolio-refresh-products article { align-items: flex-start; flex-direction: column; }
   .portfolio-refresh-products article > .portfolio-refresh-product-links { justify-content: flex-start; }
+}
+
+/* Product-specific mug galleries */
+.mug-gallery-message {
+  padding: .8rem 1rem;
+  border-radius: .75rem;
+  background: #f4f2ff;
+  color: #4d4674;
+}
+
+.mug-gallery-empty,
+.mug-gallery-final {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.mug-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.mug-gallery-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #dde2ed;
+  border-radius: 1rem;
+  background: white;
+}
+
+.mug-gallery-card > img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  display: block;
+  background: #f7f5ef;
+}
+
+.mug-gallery-position {
+  position: absolute;
+  z-index: 1;
+  top: .75rem;
+  left: .75rem;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: white;
+  background: #5b4bdb;
+  font-weight: 700;
+}
+
+.mug-gallery-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .75rem;
+  padding: 1rem;
+}
+
+.mug-gallery-card-body > div:first-child { display: grid; }
+.mug-gallery-card-body small { color: var(--text-muted, #667085); }
+.mug-gallery-order-actions { display: flex; gap: .35rem; }
+.mug-gallery-card details { grid-column: 1 / -1; }
+.mug-gallery-card details form { display: flex; gap: .5rem; margin-top: .65rem; }
+
+@media (max-width: 800px) {
+  .mug-gallery-grid { grid-template-columns: 1fr; }
+  .mug-gallery-empty,
+  .mug-gallery-final { align-items: stretch; flex-direction: column; }
+  .mug-gallery-card-body { grid-template-columns: 1fr; }
+  .mug-gallery-card details { grid-column: auto; }
 }
 
 .text-ideas-summary {
