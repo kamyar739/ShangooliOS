@@ -319,3 +319,17 @@ Humor** classification without creating another product architecture.
 - Let designs belong to both a subject category and the humor category.
 - Add website or navigation treatment only after enough products exist to make the
   category useful.
+
+## Portfolio Refresh Gallery Completion
+
+Make the portfolio-refresh workflow clearly incomplete until every intended
+product gallery has been approved and synchronized to Etsy.
+
+- Do not present Etsy verification or the overall refresh as complete while a
+  White Ceramic or Black Accent mug gallery is still pending approval or sync.
+- Guide the user directly through each pending product gallery in sequence.
+- Show separate, unmistakable states for copy synchronized, gallery prepared,
+  gallery approved, gallery synchronized, and live listing verified.
+- Only expose the final Etsy verification step after all required galleries have
+  been synchronized, so a listing cannot appear finished while Etsy still shows
+  old product images.

@@ -72,7 +72,7 @@
           <img src="/designs/{{ design['id'] }}/image?v={{ design['source_filename'] }}" alt="{{ design['name'] }}">
         </a>
         <div class="design-list-identity">
-          <span class="status-pill {{ design['catalog_state_class'] }}">{{ design['catalog_state'] }}</span>
+          {% if design['catalog_state'] != 'Paused on Etsy' %}<span class="status-pill {{ design['catalog_state_class'] }}">{{ design['catalog_state'] }}</span>{% endif %}
           <a class="design-list-name" href="/designs/{{ design['id'] }}">{{ design["name"] }}</a>
           {% if design["message"] %}<small>{{ design["message"] }}</small>{% endif %}
         </div>
@@ -87,7 +87,7 @@
             {% if product["state_label"] == "Live" and product["etsy_listing_url"] %}
               <a class="design-list-live-link" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer" aria-label="Verify {{ product['label'] }} on Etsy">Live ↗</a>
             {% else %}
-              <em>{{ product['state_label'] }}</em>
+              <em{% if product['state_label'] == 'Paused' %} class="is-paused"{% endif %}>{{ product['state_label'] }}</em>
             {% endif %}
           </span>
           {% else %}<span class="design-list-empty">No product yet</span>{% endfor %}

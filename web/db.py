@@ -3912,6 +3912,7 @@ def set_standalone_design_refresh_state(design_id, state, message=""):
     allowed = {
         "awaiting_printify",
         "awaiting_etsy",
+        "awaiting_gallery",
         "needs_review",
         "complete",
     }

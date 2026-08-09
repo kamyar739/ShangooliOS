@@ -807,7 +807,7 @@ class StandaloneDesignTests(unittest.TestCase):
             "Teaching is my superpower.\nCoffee is my sidekick."
         )
         with Image.open(BytesIO(rendered)) as image:
-            self.assertEqual(image.size, (3200, 1312))
+            self.assertEqual(image.size, (2400, 2400))
             self.assertEqual(image.mode, "RGBA")
             self.assertEqual(image.getpixel((0, 0))[3], 0)
 

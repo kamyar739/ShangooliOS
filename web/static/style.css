@@ -5691,6 +5691,14 @@ a.collection-count:hover {
     font-weight: 800;
 }
 
+.design-list-product em.is-paused {
+    padding: .18rem .42rem;
+    border-radius: 999px;
+    background: #fff0cc;
+    box-shadow: inset 0 0 0 1px #efcf7a;
+    color: #855800;
+}
+
 .design-list-live-link {
   color: #267246;
   font-size: .68rem;

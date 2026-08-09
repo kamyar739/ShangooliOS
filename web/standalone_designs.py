@@ -43,6 +43,14 @@ QUICK_TEXT_FONT = Path(
 QUICK_TEXT_CANVAS = (3200, 1312)
 QUICK_TEXT_NAVY = (7, 14, 48, 255)
 QUICK_TEXT_BLUE = (41, 36, 190, 255)
+TEMPLATE_CANVAS = (2400, 2400)
+TEMPLATE_INK = (39, 38, 38, 255)
+TEMPLATE_TEAL = (28, 112, 104, 255)
+TEMPLATE_ORANGE = (192, 75, 42, 255)
+TEMPLATE_GOLD = (232, 171, 42, 255)
+TEMPLATE_SERIF_FONT = Path("/System/Library/Fonts/Supplemental/Didot.ttc")
+TEMPLATE_SCRIPT_FONT = Path("/System/Library/Fonts/Supplemental/SignPainter.ttc")
+TEMPLATE_BLOCK_FONT = Path("/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf")
 
 def mug_profile(blueprint_key=DEFAULT_MUG_BLUEPRINT_KEY):
     """Resolve one supported mug blueprint and its reusable placement rules."""
@@ -466,7 +474,7 @@ def _wrap_quick_text(draw, message, font, max_width):
 
 
 def render_quick_text_design(message: str):
-    """Render the fixed Shangooli quick-text style as a transparent PNG."""
+    """Render the approved Shangooli mixed-typography template as a transparent PNG."""
     normalized = "\n".join(
         " ".join(line.split()) for line in str(message or "").splitlines()
         if line.strip()
@@ -475,49 +483,94 @@ def render_quick_text_design(message: str):
         raise ValueError("Enter the message for the design")
     if len(normalized) > 180:
         raise ValueError("Keep the quick design message under 180 characters")
-    canvas = Image.new("RGBA", QUICK_TEXT_CANVAS, (0, 0, 0, 0))
+    return render_mixed_typography_design(normalized)
+
+
+def _balanced_template_lines(message, target_lines=4):
+    explicit = [" ".join(line.split()) for line in message.splitlines() if line.strip()]
+    if len(explicit) > 1:
+        return explicit[:5]
+    words = " ".join(message.split()).split()
+    if len(words) <= 3:
+        return [" ".join(words)]
+    line_count = min(target_lines, max(2, (len(words) + 1) // 2))
+    lines = []
+    start = 0
+    for index in range(line_count):
+        remaining_words = len(words) - start
+        remaining_lines = line_count - index
+        take = max(1, round(remaining_words / remaining_lines))
+        lines.append(" ".join(words[start:start + take]))
+        start += take
+    if start < len(words):
+        lines[-1] = f"{lines[-1]} {' '.join(words[start:])}"
+    return lines
+
+
+def _fit_template_font(draw, text, font_path, max_width, preferred_size):
+    for size in range(preferred_size, 79, -8):
+        font = ImageFont.truetype(str(font_path), size)
+        box = draw.textbbox((0, 0), text, font=font)
+        if box[2] - box[0] <= max_width:
+            return font
+    return ImageFont.truetype(str(font_path), 80)
+
+
+def render_mixed_typography_design(message: str):
+    """Render editable phrases with the approved colorful teacher-mug recipe."""
+    normalized = "\n".join(
+        " ".join(line.split()) for line in str(message or "").splitlines()
+        if line.strip()
+    ).strip()
+    if not normalized:
+        raise ValueError("Enter the message for the design")
+    if len(normalized) > 180:
+        raise ValueError("Keep the quick design message under 180 characters")
+
+    canvas = Image.new("RGBA", TEMPLATE_CANVAS, (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
-    max_width = 2720
-    selected = None
-    for size in range(270, 109, -10):
-        font = ImageFont.truetype(str(QUICK_TEXT_FONT), size)
-        lines = _wrap_quick_text(draw, normalized, font, max_width)
-        line_height = round(size * 1.08)
-        total_height = line_height * len(lines)
-        widest_line = max(
-            draw.textlength(line, font=font) for line in lines
+    lines = _balanced_template_lines(normalized)
+    recipes = [
+        (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 285),
+        (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 390),
+        (TEMPLATE_BLOCK_FONT, TEMPLATE_ORANGE, 390),
+        (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 300),
+        (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 270),
+    ]
+    rendered = []
+    max_width = 1980
+    for index, line in enumerate(lines):
+        font_path, color, preferred = recipes[index % len(recipes)]
+        display = line.upper() if index in {0, 2} else line
+        font = _fit_template_font(draw, display, font_path, max_width, preferred)
+        box = draw.textbbox((0, 0), display, font=font)
+        rendered.append((display, font, color, box[2] - box[0], box[3] - box[1]))
+    gap = 24
+    total_height = sum(item[4] for item in rendered) + gap * (len(rendered) - 1)
+    y = (TEMPLATE_CANVAS[1] - total_height) / 2
+    for index, (text, font, color, width, height) in enumerate(rendered):
+        x = (TEMPLATE_CANVAS[0] - width) / 2
+        draw.text((x, y), text, font=font, fill=color, stroke_width=1)
+        if index == 0 and len(rendered) > 1:
+            ray_y = y + height / 2
+            for offset in (-42, 0, 42):
+                draw.line((x - 115, ray_y + offset, x - 45, ray_y + offset / 2), fill=TEMPLATE_GOLD, width=18)
+                draw.line((x + width + 45, ray_y + offset / 2, x + width + 115, ray_y + offset), fill=TEMPLATE_GOLD, width=18)
+        y += height + gap
+    if len(rendered) > 1:
+        ornament_y = min(TEMPLATE_CANVAS[1] - 150, y + 40)
+        center = TEMPLATE_CANVAS[0] / 2
+        draw.line((center - 260, ornament_y, center - 70, ornament_y), fill=TEMPLATE_GOLD, width=14)
+        draw.line((center + 70, ornament_y, center + 260, ornament_y), fill=TEMPLATE_GOLD, width=14)
+        # Draw the small heart directly so it is reliable across local font versions.
+        heart_x = center
+        heart_y = ornament_y - 4
+        draw.ellipse((heart_x - 31, heart_y - 34, heart_x - 1, heart_y - 4), fill=TEMPLATE_GOLD)
+        draw.ellipse((heart_x + 1, heart_y - 34, heart_x + 31, heart_y - 4), fill=TEMPLATE_GOLD)
+        draw.polygon(
+            ((heart_x - 31, heart_y - 17), (heart_x + 31, heart_y - 17), (heart_x, heart_y + 27)),
+            fill=TEMPLATE_GOLD,
         )
-        if (
-            len(lines) <= 4
-            and total_height <= 900
-            and widest_line <= max_width
-        ):
-            selected = (font, lines, line_height, total_height)
-            break
-    if selected is None:
-        raise ValueError(
-            "This message is too long for the quick design. Shorten it or "
-            "upload a finished graphic."
-        )
-    font, lines, line_height, total_height = selected
-    y = (QUICK_TEXT_CANVAS[1] - total_height) / 2
-    space_width = draw.textlength(" ", font=font)
-    for line in lines:
-        words = line.split()
-        if len(words) == 1:
-            segments = [(words[0], QUICK_TEXT_BLUE)]
-        else:
-            segments = [
-                (" ".join(words[:-1]), QUICK_TEXT_NAVY),
-                (words[-1], QUICK_TEXT_BLUE),
-            ]
-        widths = [draw.textlength(text, font=font) for text, _ in segments]
-        total_width = sum(widths) + space_width * (len(segments) - 1)
-        x = (QUICK_TEXT_CANVAS[0] - total_width) / 2
-        for index, ((text, color), width) in enumerate(zip(segments, widths)):
-            draw.text((x, y), text, font=font, fill=color)
-            x += width + (space_width if index < len(segments) - 1 else 0)
-        y += line_height
     output = BytesIO()
     canvas.save(output, "PNG", optimize=True)
     return output.getvalue()

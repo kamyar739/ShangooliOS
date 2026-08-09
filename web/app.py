@@ -1533,10 +1533,10 @@ def portfolio_refresh_finish_post(
     else:
         set_standalone_design_refresh_state(
             design_id,
-            "complete",
-            "Both mug products and Etsy listings are synchronized.",
+            "awaiting_gallery",
+            "Etsy copy is synchronized. Review and send both refreshed galleries to Etsy.",
         )
-        outcome = "complete"
+        outcome = "gallery_review"
     return RedirectResponse(
         f"/designs/{design_id}/refresh?result={outcome}", status_code=303
     )
@@ -2459,6 +2459,22 @@ def standalone_product_gallery_sync(
         sync_mug_gallery_to_etsy(design_id, blueprint_key, confirmed=confirmed)
     except (EtsyAPIError, OSError, ValueError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    products = list_standalone_design_products(design_id)
+    refreshed_products = [
+        product
+        for product in products
+        if product["product_type"] in PRODUCT_BLUEPRINTS
+        and product["printify_product_id"]
+        and product["etsy_listing_id"]
+    ]
+    if refreshed_products and all(
+        product["gallery_state"] == "synced" for product in refreshed_products
+    ):
+        set_standalone_design_refresh_state(
+            design_id,
+            "complete",
+            "Both mug products, Etsy copy, and Etsy galleries are synchronized.",
+        )
     return RedirectResponse(
         f"/designs/{design_id}/products/{blueprint_key}/gallery?synced=1",
         status_code=303,

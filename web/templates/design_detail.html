@@ -22,9 +22,12 @@
       </div>
       <div class="d-flex gap-2 flex-wrap">
         <a class="btn btn-primary" href="/designs/{{ design['id'] }}/launch">Launch both mugs</a>
-        <a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/refresh">
-          {% if design["refresh_state"] in ("awaiting_printify", "needs_review") %}Resume Portfolio Refresh{% else %}Refresh Portfolio Slot{% endif %}
+        <a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/refresh{% if design['refresh_state'] == 'complete' %}?new=1#new-refresh{% endif %}">
+          {% if design["refresh_state"] in ("awaiting_printify", "needs_review") %}Resume Portfolio Refresh{% elif design["refresh_state"] == "complete" %}Start New Portfolio Refresh{% else %}Refresh Portfolio Slot{% endif %}
         </a>
+        {% if design["refresh_state"] in ("awaiting_printify", "awaiting_etsy", "needs_review") %}
+        <a class="btn btn-outline-secondary" href="/designs/{{ design['id'] }}/refresh?new=1#new-refresh">Start New Refresh</a>
+        {% endif %}
         {% if design["etsy_listing_id"] %}
         <a class="btn btn-outline-warning" href="/designs/{{ design['id'] }}/etsy">Sync Etsy details</a>
         {% elif design["printify_product_id"] %}
