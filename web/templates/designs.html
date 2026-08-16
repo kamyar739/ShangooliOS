@@ -7,24 +7,41 @@
   <main class="workflow-stage-content">
     <div class="page-header mb-4">
       <div>
-        <div class="eyebrow">Standalone creations</div>
-        <h1 class="display-6 fw-bold">Designs</h1>
-        <p class="text-muted mb-0">Message-driven graphics for mugs and future products.</p>
+        <div class="eyebrow">Mug catalog</div>
+        <h1 class="display-6 fw-bold">{% if selected_mug_collection %}{{ selected_mug_collection.name }}{% else %}Designs{% endif %}</h1>
+        <p class="text-muted mb-0">{% if selected_mug_collection %}Current listings and future possibilities for this collection.{% else %}Finished mug designs and their marketplace status.{% endif %}</p>
       </div>
-      <div class="d-flex gap-2">
-        {% if not show_archived %}<a class="btn btn-outline-secondary" href="/designs/text-ideas">Text ideas</a>{% endif %}
-        <a class="btn btn-outline-secondary" href="{% if show_archived %}/designs{% else %}/designs?show=archived{% endif %}">{% if show_archived %}Show current{% else %}Archived designs{% endif %}</a>
-        {% if not show_archived %}<a class="btn btn-outline-primary" href="/designs/new">Upload finished design</a><a class="btn btn-primary" href="/designs/quick-text">+ Quick text design</a>{% endif %}
+      <div class="design-page-actions">
+        {% if not show_archived and not selected_mug_collection %}
+        <form method="post" action="/designs/storefront-update" class="design-storefront-update-form" onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Checking…';">
+          <button class="btn btn-storefront-update" type="submit" title="Validate current Etsy listings and prepare Shangooli.com storefront files">↻ Update Shangooli.com</button>
+        </form>
+        {% endif %}
+        {% if selected_mug_collection %}
+          {% if not show_archived %}<a class="btn btn-outline-danger" href="/designs/pinterest-launch?collection={{ selected_mug_collection.code }}">Pinterest launch</a>{% endif %}
+          <a class="btn btn-outline-secondary" href="/designs?collection={{ selected_mug_collection.code }}{% if not show_archived %}&amp;show=archived{% endif %}">{% if show_archived %}Show current{% else %}Archived designs{% endif %}</a>
+          {% if not show_archived %}<a class="btn btn-outline-primary" href="/designs/new?collection={{ selected_mug_collection.code }}">Upload finished design</a><a class="btn btn-primary" href="/designs/quick-text?collection={{ selected_mug_collection.code }}">+ Quick text design</a>{% endif %}
+        {% endif %}
       </div>
     </div>
     {% if request.query_params.get("archived") %}<div class="alert alert-success">Design archived. Its local and external product history was preserved.</div>{% endif %}
+    {% if request.query_params.get("storefront_update") == "ready" %}<div class="alert alert-success storefront-update-result"><strong>{{ request.query_params.get("count") }} products verified.</strong> Shangooli.com files are prepared with the current active Etsy listings and local side-view images. They are ready for the authenticated Sites publish step.</div>{% endif %}
+    {% if request.query_params.get("storefront_update") == "error" %}<div class="alert alert-danger storefront-update-result"><strong>Update stopped safely.</strong> {{ request.query_params.get("message") }}</div>{% endif %}
 
     <section class="design-catalog-toolbar mb-3">
-      <form method="get" action="/designs" class="design-catalog-filters">
+      <form method="get" action="/designs" class="design-catalog-filters" id="design-catalog-filters">
         {% if show_archived %}<input type="hidden" name="show" value="archived">{% endif %}
         <div class="design-catalog-search">
           <label class="form-label" for="design-search">Search designs</label>
           <input class="form-control" id="design-search" name="search" value="{{ active_search }}" placeholder="Name, message, title, or tag">
+        </div>
+        <div>
+          <label class="form-label" for="design-collection">Collection</label>
+          <select class="form-select" id="design-collection" name="collection" onchange="this.form.requestSubmit()">
+            <option value="all"{% if active_collection_code == "ALL" %} selected{% endif %}>All collections</option>
+            {% for collection in mug_collections %}<option value="{{ collection['code']|lower }}"{% if active_collection_code == collection['code']|upper %} selected{% endif %}>{{ collection['name'] }}</option>{% endfor %}
+            <option value="unassigned"{% if active_collection_code == "UNASSIGNED" %} selected{% endif %}>Unassigned</option>
+          </select>
         </div>
         <div>
           <label class="form-label" for="design-status">Status</label>
@@ -35,6 +52,14 @@
             <option value="etsy"{% if active_design_status == "etsy" %} selected{% endif %}>Live on Etsy</option>
             <option value="etsy_sync"{% if active_design_status == "etsy_sync" %} selected{% endif %}>Needs Etsy Sync</option>
             <option value="paused"{% if active_design_status == "paused" %} selected{% endif %}>Paused on Etsy</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label" for="design-sort">Sort</label>
+          <select class="form-select" id="design-sort" name="sort" onchange="this.form.requestSubmit()">
+            <option value="manual"{% if active_design_sort == "manual" %} selected{% endif %}>Manual order</option>
+            <option value="pinterest_desc"{% if active_design_sort == "pinterest_desc" %} selected{% endif %}>Best Pinterest ads</option>
+            <option value="pinterest_asc"{% if active_design_sort == "pinterest_asc" %} selected{% endif %}>Lowest Pinterest ads</option>
           </select>
         </div>
         <div>
@@ -53,53 +78,69 @@
           </datalist>
         </div>
         <button class="btn btn-primary" type="submit">Apply</button>
-        {% if active_search or active_tag or active_design_status != "all" or active_product_key != "all" %}<a class="btn btn-outline-secondary" href="/designs{% if show_archived %}?show=archived{% endif %}">Clear</a>{% endif %}
+        {% if active_search or active_tag or active_design_status != "all" or active_product_key != "all" or active_collection_code != "ALL" or active_design_sort != "manual" %}<a class="btn btn-outline-secondary" id="design-filters-clear" href="/designs{% if show_archived %}?show=archived{% endif %}">Clear</a>{% endif %}
       </form>
       <span class="design-result-count">{{ total_designs }} design{% if total_designs != 1 %}s{% endif %}</span>
     </section>
 
     <div class="design-list-header" aria-hidden="true">
-      <span></span>
+      <span></span><span></span>
       <span>Design</span>
       <span>Products</span>
-      <span>Tags</span>
+      <span>Etsy</span>
+      <a class="design-pinterest-sort{% if active_design_sort in ['pinterest_desc', 'pinterest_asc'] %} is-active{% endif %}" href="{{ pinterest_sort_url }}" aria-label="Sort by Pinterest stars">Pinterest <span aria-hidden="true">{% if active_design_sort == 'pinterest_desc' %}↓{% elif active_design_sort == 'pinterest_asc' %}↑{% else %}↕{% endif %}</span></a>
       <span></span>
     </div>
-    <div class="design-list" role="list">
+    <div class="design-list" id="design-list" role="list" data-sort="{{ active_design_sort }}">
       {% for design in designs %}
-      <article class="design-list-row" role="listitem">
+      <article class="design-list-row" role="listitem" draggable="{% if active_design_sort == 'manual' %}true{% else %}false{% endif %}" data-id="{{ design['id'] }}">
+        <button class="design-card-drag" type="button" title="Drag to reorder" aria-label="Drag {{ design['name'] }} to reorder">⋮⋮</button>
         <a class="design-list-image" href="/designs/{{ design['id'] }}" aria-label="Open {{ design['name'] }}">
           <img src="/designs/{{ design['id'] }}/image?v={{ design['source_filename'] }}" alt="{{ design['name'] }}">
         </a>
         <div class="design-list-identity">
-          {% if design['catalog_state'] != 'Paused on Etsy' %}<span class="status-pill {{ design['catalog_state_class'] }}">{{ design['catalog_state'] }}</span>{% endif %}
+          {% if design['mug_collection_name'] %}<span class="design-collection-badge">{{ design['mug_collection_profession'] }}</span>{% else %}<span class="design-collection-badge is-unassigned">Unassigned</span>{% endif %}
+          {% if design['catalog_state'] not in ['Paused on Etsy', 'Live on Etsy'] %}<span class="status-pill {{ design['catalog_state_class'] }}">{{ design['catalog_state'] }}</span>{% endif %}
           <a class="design-list-name" href="/designs/{{ design['id'] }}">{{ design["name"] }}</a>
           {% if design["message"] %}<small>{{ design["message"] }}</small>{% endif %}
         </div>
         <div class="design-list-products">
           <span class="design-list-mobile-label">Products</span>
           {% for product in design["display_products"] %}
-          <span class="design-list-product" title="{{ product['label'] }} · {{ product['state_label'] }}">
-            <span class="design-list-mug{% if product['key'] == 'mug_11oz_black_accent' %} is-black-accent{% endif %}" aria-hidden="true">
-              <img src="/designs/{{ design['id'] }}/products/{{ product['key'] }}/image?v={{ product['production_asset_filename'] or design['source_filename'] }}" alt="">
+          <span class="design-list-product" data-pinterest-rating="{{ product['pinterest_ad_rating'] or 0 }}">
+            <span class="design-list-product-main">
+              {% if product['product_thumbnail_filename'] %}
+              <span class="design-product-thumbnail">
+                <img src="/designs/{{ design['id'] }}/products/{{ product['key'] }}/thumbnail?v={{ product['product_thumbnail_filename'] }}" alt="{{ product['label'] }} right-side mug">
+                <form class="design-product-thumbnail-upload is-replace" method="post" enctype="multipart/form-data" action="/designs/{{ design['id'] }}/products/{{ product['key'] }}/thumbnail">
+                  <label title="Replace right-side mug image" aria-label="Replace right-side image for {{ product['label'] }}">
+                    <span aria-hidden="true">＋</span>
+                    <input type="file" name="image" accept="image/png,image/jpeg" required onchange="this.form.requestSubmit()">
+                  </label>
+                </form>
+              </span>
+              {% else %}
+              <form class="design-product-thumbnail-upload" method="post" enctype="multipart/form-data" action="/designs/{{ design['id'] }}/products/{{ product['key'] }}/thumbnail">
+                <label title="Upload right-side mug image" aria-label="Upload right-side image for {{ product['label'] }}">
+                  <span aria-hidden="true">＋</span>
+                  <input type="file" name="image" accept="image/png,image/jpeg" required onchange="this.form.requestSubmit()">
+                </label>
+              </form>
+              {% endif %}
+              <strong>{% if product['key'] == 'mug_11oz_black_accent' %}Black Accent{% elif product['key'] == 'mug_11oz' %}White Mug{% else %}{{ product['label'] }}{% endif %}</strong>
             </span>
-            <strong>{{ product['label'] }}</strong>
             {% if product["state_label"] == "Live" and product["etsy_listing_url"] %}
               <a class="design-list-live-link" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer" aria-label="Verify {{ product['label'] }} on Etsy">Live ↗</a>
             {% else %}
               <em{% if product['state_label'] == 'Paused' %} class="is-paused"{% endif %}>{{ product['state_label'] }}</em>
             {% endif %}
+            <form class="design-pinterest-rating" method="post" action="/designs/{{ design['id'] }}/products/{{ product['key'] }}/pinterest-rating" aria-label="Pinterest ad performance for {{ product['label'] }}">
+              {% for star in range(1, 4) %}
+              <button class="design-pinterest-star{% if star <= (product['pinterest_ad_rating'] or 0) %} is-filled{% endif %}" type="submit" name="rating" value="{% if star == (product['pinterest_ad_rating'] or 0) %}0{% else %}{{ star }}{% endif %}" title="{{ star }} star Pinterest performance" aria-label="Rate Pinterest performance {{ star }} star{% if star != 1 %}s{% endif %}">★</button>
+              {% endfor %}
+            </form>
           </span>
           {% else %}<span class="design-list-empty">No product yet</span>{% endfor %}
-        </div>
-        <div class="design-list-tags"{% if design["tag_list"] %} title="{{ design['tag_list']|join(', ') }}"{% endif %}>
-          <span class="design-list-mobile-label">Tags</span>
-          {% if design["tag_list"] %}
-            <span>{{ design["tag_list"][0] }}</span>
-            {% if design["tag_list"]|length > 1 %}<span>+{{ design["tag_list"]|length - 1 }}</span>{% endif %}
-          {% else %}
-            <span class="design-list-empty">No tags</span>
-          {% endif %}
         </div>
         <div class="design-list-actions">
           <a class="btn btn-sm btn-outline-primary" href="/designs/{{ design['id'] }}">Open</a>
@@ -119,6 +160,98 @@
       {% if next_url %}<a class="btn btn-outline-secondary" href="{{ next_url }}">Next →</a>{% else %}<span></span>{% endif %}
     </nav>
     {% endif %}
+    {% if selected_mug_collection and not show_archived %}
+    <details class="collection-future-panel" open>
+      <summary>
+        <span><span class="eyebrow">Next designs</span><strong>Future potentials</strong><small>Ideas saved specifically for {{ selected_mug_collection.name }}</small></span>
+        <span class="collection-future-count">{{ collection_future_ideas|length }}</span>
+      </summary>
+      <div class="collection-future-actions">
+        <p>Rate, refine, and choose the next {{ selected_mug_collection.target_count|default(20) }} messages without mixing professions.</p>
+        <a class="btn btn-primary btn-sm" href="/designs/text-ideas?collection={{ selected_mug_collection.code }}">Review and choose ideas →</a>
+      </div>
+      {% if collection_future_ideas %}
+      <div class="collection-future-grid">
+        {% for idea in collection_future_ideas %}
+        <article><span>{{ loop.index }}</span><div><strong>{{ idea.text }}</strong><small>{{ idea.category }}</small></div><em>{{ idea.rating }}★</em></article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="collection-future-empty">No future potentials yet. Open the collection idea builder to generate or add candidates.</div>
+      {% endif %}
+    </details>
+    {% endif %}
   </main>
 </div>
+<script>
+(() => {
+  const filterForm = document.getElementById('design-catalog-filters');
+  const statusFilter = document.getElementById('design-status');
+  const clearFilters = document.getElementById('design-filters-clear');
+  const statusStorageKey = 'shangooli-design-status-filter';
+  if (filterForm && statusFilter) {
+    const parameters = new URLSearchParams(window.location.search);
+    const savedStatus = localStorage.getItem(statusStorageKey);
+    if (!parameters.has('status') && savedStatus && savedStatus !== 'all') {
+      parameters.set('status', savedStatus);
+      window.location.replace(`${window.location.pathname}?${parameters.toString()}`);
+      return;
+    }
+    const rememberStatus = () => localStorage.setItem(statusStorageKey, statusFilter.value);
+    statusFilter.addEventListener('change', rememberStatus);
+    filterForm.addEventListener('submit', rememberStatus);
+    clearFilters?.addEventListener('click', () => localStorage.removeItem(statusStorageKey));
+  }
+  const list = document.getElementById('design-list');
+  if (!list) return;
+  const rows = () => [...list.querySelectorAll('.design-list-row')];
+
+  list.querySelectorAll('.design-pinterest-rating').forEach(form => {
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.submitter;
+      if (!button) return;
+      const body = new FormData();
+      body.set('rating', button.value);
+      const response = await fetch(form.action, {method: 'POST', body});
+      if (!response.ok) return;
+      const rating = Number(button.value);
+      form.querySelectorAll('.design-pinterest-star').forEach((star, index) => {
+        star.classList.toggle('is-filled', index < rating);
+        star.value = String(index + 1 === rating ? 0 : index + 1);
+      });
+      form.closest('.design-list-product').dataset.pinterestRating = String(rating);
+    });
+  });
+
+  if (list.dataset.sort !== 'manual') return;
+  let dragged = null;
+  list.addEventListener('dragstart', event => {
+    dragged = event.target.closest('.design-list-row');
+    if (!dragged) return;
+    dragged.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+  });
+  list.addEventListener('dragover', event => {
+    if (!dragged) return;
+    event.preventDefault();
+    const target = event.target.closest('.design-list-row');
+    if (!target || target === dragged) return;
+    const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+    list.insertBefore(dragged, after ? target.nextSibling : target);
+  });
+  list.addEventListener('dragend', async () => {
+    if (!dragged) return;
+    dragged.classList.remove('is-dragging');
+    dragged = null;
+    try {
+      await fetch('/designs/reorder', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: rows().map(row => Number(row.dataset.id))}),
+      });
+    } catch (error) {}
+  });
+})();
+</script>
 {% endblock %}

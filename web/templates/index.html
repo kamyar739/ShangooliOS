@@ -1,263 +1,91 @@
 {% extends "base.html" %}
-
 {% block title %}Dashboard — ShangooliOS{% endblock %}
-
 {% block content %}
 <div class="workflow-shell dashboard-workflow-shell">
 {% include "components/dashboard_sidebar.html" %}
 <main class="workflow-stage-content">
-
-<div class="hero-panel dashboard-hero mb-5">
+  <div class="hero-panel dashboard-hero mb-4">
     <div>
-        <div class="eyebrow">ShangooliShop</div>
-        <h1 class="display-6 fw-bold mb-2">Production dashboard</h1>
-        <p class="text-muted mb-0">
-            See what is ready, what needs attention, and what to work on next.
-        </p>
+      <div class="eyebrow">ShangooliOS</div>
+      <h1 class="display-6 fw-bold mb-2">Business overview</h1>
+      <p class="text-muted mb-0">A global view of Shangooli, with production work organized inside Posters and Mugs.</p>
     </div>
+  </div>
 
-</div>
-
-{% if continue_collection %}
-<section class="dashboard-continue-card mb-4" aria-labelledby="continue-collection-title">
-    <div class="dashboard-continue-copy">
-        <div class="eyebrow">Continue collection · {{ continue_collection["current_stage"] }}</div>
-        <h2 class="h3 mb-1" id="continue-collection-title">{{ continue_collection["title"] }}</h2>
-        <strong>{{ continue_collection["next_action"]["label"] }}</strong>
-        <p class="text-muted mb-0">{{ continue_collection["next_action"]["description"] }}</p>
+  <section class="website-traffic-panel mb-4" data-website-traffic>
+    <div class="website-traffic-heading">
+      <div><div class="eyebrow">Shangooli.com</div><h2 class="h4 mb-1">Website traffic</h2><p class="text-muted mb-0">Anonymous aggregate counts across the public storefront.</p></div>
+      <span data-traffic-status>Loading current totals…</span>
     </div>
-    <a class="btn btn-primary" href="{{ continue_collection['next_action']['url'] }}">
-        {{ continue_collection["next_action"]["label"] }} →
+    <div class="website-traffic-metrics">
+      <div><span>Views · 30 days</span><strong data-traffic-value="views_30d">—</strong></div>
+      <div><span>Visitors · 30 days</span><strong data-traffic-value="visitors_30d">—</strong></div>
+      <div><span>From Pinterest · 30 days</span><strong data-traffic-value="pinterest_30d">—</strong></div>
+      <div><span>Etsy clicks · 30 days</span><strong data-traffic-value="etsy_clicks_30d">—</strong></div>
+    </div>
+    <div class="website-traffic-table-wrap">
+      <table class="website-traffic-table">
+        <thead><tr><th>Traffic type</th><th>Last 7 days</th><th>Last 30 days</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><th><span class="traffic-kind human"></span>Human page views</th><td data-traffic-value="views_7d">—</td><td data-traffic-value="views_30d">—</td><td>Pages viewed by people</td></tr>
+          <tr><th><span class="traffic-kind visitor"></span>Estimated visitors</th><td data-traffic-value="visitors_7d">—</td><td data-traffic-value="visitors_30d">—</td><td>One browser counted once per day</td></tr>
+          <tr><th><span class="traffic-kind pinterest"></span>Pinterest visitors</th><td data-traffic-value="pinterest_7d">—</td><td data-traffic-value="pinterest_30d">—</td><td>Human traffic referred by Pinterest</td></tr>
+          <tr><th><span class="traffic-kind bot"></span>Detected bot views</th><td data-traffic-value="bot_views_7d">—</td><td data-traffic-value="bot_views_30d">—</td><td>Known crawlers excluded from human totals</td></tr>
+          <tr><th><span class="traffic-kind pinterest-bot"></span>Pinterest crawler</th><td data-traffic-value="pinterest_bot_7d">—</td><td data-traffic-value="pinterest_bot_30d">—</td><td>Pinterest checking or indexing pages</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="website-traffic-products"><strong>Most-viewed mugs · 30 days</strong><div data-traffic-products><span class="text-muted">Traffic will appear as visitors view the storefront.</span></div></div>
+    <p class="website-traffic-note">Visitor and bot counts are privacy-friendly estimates. A returning person can be counted again on a different day.</p>
+  </section>
+
+  <section class="global-business-grid mb-4" aria-label="Business areas">
+    <a class="global-business-card" href="/collections">
+      <span class="global-business-icon poster">▦</span>
+      <div><div class="eyebrow">Posters</div><h2>Poster business</h2><p>Collections, production, listings, and mockups.</p></div>
+      <dl><div><dt>Collections</dt><dd>{{ collections|length }}</dd></div><div><dt>Artworks</dt><dd>{{ stats['total_artworks'] or 0 }}</dd></div><div><dt>Live listings</dt><dd>{{ listing_stats['published'] or 0 }}</dd></div></dl>
+      <strong class="global-business-open">Open Posters →</strong>
     </a>
-</section>
-{% endif %}
+    <a class="global-business-card" href="/designs/collections">
+      <span class="global-business-icon mug">☕</span>
+      <div><div class="eyebrow">Mugs</div><h2>Mug business</h2><p>Profession collections, designs, products, and launches.</p></div>
+      <dl><div><dt>Collections</dt><dd>{{ mug_collections|length }}</dd></div><div><dt>Active designs</dt><dd>{{ mug_active_designs }}</dd></div><div><dt>Live designs</dt><dd>{{ mug_live_designs }}</dd></div></dl>
+      <strong class="global-business-open">Open Mugs →</strong>
+    </a>
+  </section>
 
-<div class="row g-4 mb-5">
-    <div class="col-6 col-lg-3">
-        <a href="/?view=artworks" class="dashboard-metric-link {% if dashboard_view == 'artworks' %}is-selected{% endif %}">
-        <div class="metric-card dashboard-action-metric metric-artworks">
-            <div class="metric-label">Artworks</div>
-            <div class="metric-value">{{ stats["total_artworks"] or 0 }}</div>
-            <div class="metric-action">Browse collections <span>→</span></div>
-        </div>
-        </a>
-    </div>
-    <div class="col-6 col-lg-3">
-        <a href="/?view=listings" class="dashboard-metric-link {% if dashboard_view == 'listings' %}is-selected{% endif %}">
-            <div class="metric-card h-100 dashboard-action-metric metric-listings">
-                <div class="metric-label">Listings</div>
-                <div class="metric-value">{{ listing_stats["total"] }}</div>
-                <div class="metric-action">View all listings <span>→</span></div>
-            </div>
-        </a>
-    </div>
-    <div class="col-6 col-lg-3">
-        <a href="/?view=ready" class="dashboard-metric-link {% if dashboard_view == 'ready' %}is-selected{% endif %}">
-        <div class="metric-card h-100 dashboard-metric-ready dashboard-action-metric metric-ready">
-            <div class="metric-label">Ready to publish</div>
-            <div class="metric-value">{{ listing_stats["ready_to_publish"] }}</div>
-            <div class="metric-action">Review ready listings <span>→</span></div>
-        </div>
-        </a>
-    </div>
-    <div class="col-6 col-lg-3">
-        <a href="/?view=attention" class="dashboard-metric-link {% if dashboard_view == 'attention' %}is-selected{% endif %}">
-        <div class="metric-card h-100 dashboard-metric-attention dashboard-action-metric metric-attention">
-            <div class="metric-label">Needs attention</div>
-            <div class="metric-value">{{ listing_stats["needs_attention"] }}</div>
-            <div class="metric-action">Show missing items <span>→</span></div>
-        </div>
-        </a>
-    </div>
-</div>
-
-{% if dashboard_view == 'artworks' %}
-<section class="dashboard-filtered-workspace">
-  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Artworks</div><h2 class="h4 mb-1">Recently updated artwork</h2><p class="text-muted mb-0">Open an artwork or browse its collection.</p></div><a class="btn btn-sm btn-outline-primary" href="/collections">All collections</a></div>
-  <div class="row g-3 dashboard-recent-grid mt-1">{% for artwork in recent_artworks %}<div class="col-auto">{% set card_variant = "compact" %}{% set heading_tag = "h3" %}{% set show_collection = true %}{% include "components/artwork_card.html" %}</div>{% else %}<div class="empty-state">No active artwork yet.</div>{% endfor %}</div>
-</section>
-{% elif dashboard_view == 'listings' %}
-<section class="dashboard-filtered-workspace">
-  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Listings</div><h2 class="h4 mb-1">All listing work</h2><p class="text-muted mb-0">Open a listing to continue its publishing workflow.</p></div><a class="btn btn-sm btn-outline-primary" href="/listings">Manage listings</a></div>
-  <div class="dashboard-queue mt-3">{% for listing in dashboard_listings %}<a href="/listings/{{ listing['id'] }}" class="dashboard-queue-item"><div class="dashboard-queue-content"><span class="dashboard-listing-thumb">{% if listing['has_source_image'] %}<img src="/artworks/{{ listing['artwork_code'] }}/files/view?role=source" alt="{{ listing['public_title'] }} thumbnail" loading="lazy">{% else %}<span>No image</span>{% endif %}</span><div class="dashboard-queue-main"><strong class="text-dark d-block">{{ listing['title'] }}</strong><span class="text-muted small">{{ listing['artwork_code'] }} · {% if listing['etsy_paused_at'] %}Paused on Etsy{% elif listing['etsy_state'] == 'active' %}Live on Etsy{% else %}{{ listing['status']|title }}{% endif %}</span></div></div><div class="dashboard-queue-progress"><strong>{{ listing['readiness']['percentage'] }}%</strong><div class="listing-readiness-track"><div class="listing-readiness-fill {% if listing['readiness']['ready'] %}is-ready{% endif %}" style="width:{{ listing['readiness']['percentage'] }}%"></div></div></div></a>{% else %}<div class="empty-state">No listings yet.</div>{% endfor %}</div>
-</section>
-{% elif dashboard_view == 'attention' %}
-<section class="dashboard-filtered-workspace">
-  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Needs attention</div><h2 class="h4 mb-1">Listings with missing items</h2><p class="text-muted mb-0">Complete these checks before publishing.</p></div><a class="btn btn-sm btn-outline-primary" href="/listings?view=attention">Open focused list</a></div>
-  <div class="dashboard-queue mt-3">{% for listing in listing_work_queue %}<a href="/listings/{{ listing['id'] }}" class="dashboard-queue-item"><div class="dashboard-queue-content"><span class="dashboard-listing-thumb">{% if listing['has_source_image'] %}<img src="/artworks/{{ listing['artwork_code'] }}/files/view?role=source" alt="{{ listing['public_title'] }} thumbnail" loading="lazy">{% else %}<span>No image</span>{% endif %}</span><div class="dashboard-queue-main"><div class="fw-semibold text-dark">{{ listing['title'] }}</div><div class="text-muted small">{{ listing['artwork_code'] }} · {{ listing['public_title'] }}</div><div class="small mt-1">Missing: {{ listing['missing_labels'][:3]|join(', ') }}</div></div></div><div class="dashboard-queue-progress"><strong>{{ listing['readiness']['percentage'] }}%</strong><div class="listing-readiness-track"><div class="listing-readiness-fill" style="width:{{ listing['readiness']['percentage'] }}%"></div></div><span class="text-muted small">{{ listing['readiness']['remaining'] }} remaining</span></div></a>{% else %}<div class="empty-state">Nothing needs attention.</div>{% endfor %}</div>
-</section>
-{% elif dashboard_view == 'ready' %}
-<section class="dashboard-filtered-workspace">
-  <div class="dashboard-workspace-heading"><div><div class="eyebrow">Ready to publish</div><h2 class="h4 mb-1">Completed listings awaiting publication</h2><p class="text-muted mb-0">Review and publish these listings.</p></div><a class="btn btn-sm btn-outline-primary" href="/listings?view=ready">Open focused list</a></div>
-  <div class="dashboard-ready-list mt-3">{% for listing in ready_to_publish %}<a href="/listings/{{ listing['id'] }}" class="dashboard-ready-item"><div class="dashboard-queue-content"><span class="dashboard-listing-thumb">{% if listing['has_source_image'] %}<img src="/artworks/{{ listing['artwork_code'] }}/files/view?role=source" alt="{{ listing['public_title'] }} thumbnail" loading="lazy">{% else %}<span>No image</span>{% endif %}</span><div><div class="fw-semibold text-dark">{{ listing['title'] }}</div><div class="text-muted small">{{ listing['artwork_code'] }}</div></div></div><span class="status-pill {% if listing['etsy_paused_at'] %}marketplace-status-paused{% else %}listing-status-ready{% endif %}">{% if listing['etsy_paused_at'] %}Paused on Etsy{% else %}Ready{% endif %}</span></a>{% else %}<div class="empty-state">No complete listings are waiting.</div>{% endfor %}</div>
-</section>
-{% else %}
-<div class="row g-4 mb-5">
-    <div class="col-lg-6">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-                <h2 class="h4 mb-1">Listing work queue</h2>
-                <p class="text-muted mb-0">Open the listings that still have missing items.</p>
-            </div>
-            <a href="/listings" class="btn btn-sm btn-outline-secondary">All listings</a>
-        </div>
-
-        <div class="dashboard-queue">
-            {% for listing in listing_work_queue %}
-            <a href="/listings/{{ listing['id'] }}" class="dashboard-queue-item">
-                <div class="dashboard-queue-content">
-                    <span class="dashboard-listing-thumb">
-                        {% if listing["has_source_image"] %}<img src="/artworks/{{ listing['artwork_code'] }}/files/view?role=source" alt="{{ listing['public_title'] }} thumbnail" loading="lazy">{% else %}<span>No image</span>{% endif %}
-                    </span>
-                    <div class="dashboard-queue-main">
-                        <div class="fw-semibold text-dark">{{ listing["title"] }}</div>
-                        <div class="text-muted small">{{ listing["artwork_code"] }} · {{ listing["public_title"] }}</div>
-                        <div class="small mt-1">
-                            Missing: {{ listing["missing_labels"][:3] | join(", ") }}{% if listing["missing_labels"]|length > 3 %} +{{ listing["missing_labels"]|length - 3 }} more{% endif %}
-                        </div>
-                    </div>
-                </div>
-                <div class="dashboard-queue-progress">
-                    <strong>{{ listing["readiness"]["percentage"] }}%</strong>
-                    <div class="listing-readiness-track">
-                        <div class="listing-readiness-fill" style="width: {{ listing['readiness']['percentage'] }}%"></div>
-                    </div>
-                    <span class="text-muted small">{{ listing["readiness"]["remaining"] }} remaining</span>
-                </div>
-            </a>
-            {% else %}
-            <div class="empty-state">
-                {% if listing_stats["total"] == 0 %}
-                    No listings yet. Open an artwork to create the first listing.
-                {% else %}
-                    Nothing needs attention. Your active listings are complete.
-                {% endif %}
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <div class="col-lg-6">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-                <h2 class="h4 mb-1">Ready to publish</h2>
-                <p class="text-muted mb-0">Complete listings awaiting publication.</p>
-            </div>
-        </div>
-        <div class="dashboard-ready-list">
-            {% for listing in ready_to_publish %}
-            <a href="/listings/{{ listing['id'] }}" class="dashboard-ready-item">
-                <div>
-                    <div class="fw-semibold text-dark">{{ listing["title"] }}</div>
-                    <div class="text-muted small">{{ listing["artwork_code"] }}</div>
-                </div>
-                <span class="status-pill listing-status-ready">Ready</span>
-            </a>
-            {% else %}
-            <div class="empty-state compact-empty-state">No complete listings waiting.</div>
-            {% endfor %}
-        </div>
-        <div class="dashboard-published-count mt-3">
-            <span>Live on Etsy</span>
-            <strong>{{ listing_stats["published"] }}</strong>
-        </div>
-    </div>
-</div>
-{% endif %}
-
-{% if false %}
-<div id="collections" class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-        <h2 class="h4 mb-1">Collections</h2>
-        <p class="text-muted mb-0">Browse the ShangooliShop catalog.</p>
-    </div>
-</div>
-
-<div class="row g-4 mb-5">
-    {% for collection in collections %}
-    <div class="col-md-6 col-lg-4">
-        <a href="/collections/{{ collection['code'] }}" class="card-link">
-            <div class="card app-card collection-card h-100">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between mb-4">
-                        <span class="code-pill">{{ collection["code"] }}</span>
-                        <span class="status-pill collection-status-{{ collection['display_status_class'] }}">{{ collection["display_status"] }}</span>
-                    </div>
-                    <h3 class="h5 text-dark mb-2">{{ collection["name"] }}</h3>
-                    <p class="text-muted mb-4">Target: {{ collection["target_artwork_count"] or 0 }}</p>
-                    <div class="collection-count">
-                        {{ collection["artwork_count"] or 0 }} artwork{% if collection["artwork_count"] != 1 %}s{% endif %}
-                        {% if collection['live_etsy_count'] %}<span>· {{ collection['live_etsy_count'] }} live on Etsy</span>{% endif %}
-                    </div>
-                </div>
-            </div>
-        </a>
-    </div>
-    {% endfor %}
-</div>
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-        <h2 class="h4 mb-1">Recently updated</h2>
-        <p class="text-muted mb-0">Your latest active artwork.</p>
-    </div>
-</div>
-
-<div class="row g-3 dashboard-recent-grid">
-    {% for artwork in recent_artworks %}
-    <div class="col-sm-6 col-lg-4 col-xl-3">
-        {% set card_variant = "compact" %}
-        {% set heading_tag = "h3" %}
-        {% set show_collection = true %}
-        {% include "components/artwork_card.html" %}
-    </div>
-    {% else %}
-    <div class="col-12"><div class="empty-state">No active artwork yet.</div></div>
-    {% endfor %}
-</div>
-{% endif %}
+  <section class="global-connections-card">
+    <div><div class="eyebrow">Shared services</div><h2 class="h5 mb-1">Connections</h2><p class="text-muted mb-0">Connections used across current and future product businesses.</p></div>
+    <div><a class="btn btn-outline-secondary" href="/printify/connect">Printify</a><a class="btn btn-outline-secondary" href="/etsy/connect">Etsy</a><a class="btn btn-outline-secondary" href="https://shangooli.com" target="_blank" rel="noopener noreferrer">Shangooli.com ↗</a></div>
+  </section>
 </main>
 </div>
 <script>
-(function () {
-  const list = document.querySelector('[data-collection-order]');
-  const status = document.querySelector('[data-collection-order-status]');
-  if (!list) return;
-  let dragged = null;
-
-  list.addEventListener('dragstart', (event) => {
-    dragged = event.target.closest('[data-collection-code]');
-    if (!dragged) return;
-    dragged.classList.add('is-dragging');
-    event.dataTransfer.effectAllowed = 'move';
-  });
-
-  list.addEventListener('dragover', (event) => {
-    event.preventDefault();
-    const target = event.target.closest('[data-collection-code]');
-    if (!dragged || !target || target === dragged) return;
-    const box = target.getBoundingClientRect();
-    list.insertBefore(dragged, event.clientY < box.top + box.height / 2 ? target : target.nextSibling);
-  });
-
-  list.addEventListener('dragend', async () => {
-    if (!dragged) return;
-    dragged.classList.remove('is-dragging');
-    dragged = null;
-    status.textContent = 'Saving order…';
-    const codes = Array.from(list.querySelectorAll('[data-collection-code]')).map((item) => item.dataset.collectionCode);
-    try {
-      const response = await fetch('/collections/order', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({codes})
-      });
-      if (!response.ok) throw new Error('Save failed');
-      status.textContent = 'Order saved';
-    } catch (error) {
-      status.textContent = 'Could not save order. Reload and try again.';
-    }
-  });
+(() => {
+  const panel = document.querySelector('[data-website-traffic]');
+  if (!panel) return;
+  const status = panel.querySelector('[data-traffic-status]');
+  const formatName = (slug) => slug.split('-').map((word) => word ? word[0].toUpperCase() + word.slice(1) : '').join(' ');
+  let refreshTimer;
+  const refreshTraffic = () => {
+    status.textContent = 'Updating…';
+    status.classList.add('is-updating');
+    fetch(`https://shangooli.com/api/analytics/summary?now=${Date.now()}`, {cache: 'no-store'})
+      .then((response) => { if (!response.ok) throw new Error(); return response.json(); })
+      .then((data) => {
+        const totals = data.totals || {};
+        panel.querySelectorAll('[data-traffic-value]').forEach((node) => { node.textContent = Number(totals[node.dataset.trafficValue] || 0).toLocaleString(); });
+        const products = panel.querySelector('[data-traffic-products]');
+        if (data.topMugs && data.topMugs.length) products.innerHTML = data.topMugs.map((item, index) => `<div><span><em>${index + 1}</em>${formatName(item.product_slug)}</span><strong>${Number(item.views || 0).toLocaleString()} page visits · ${Number(item.slider_views || 0).toLocaleString()} slider views</strong></div>`).join('');
+        status.textContent = 'Live · updated just now';
+        status.classList.remove('is-updating');
+      })
+      .catch(() => { status.textContent = 'Live update temporarily unavailable'; status.classList.remove('is-updating'); });
+  };
+  refreshTraffic();
+  refreshTimer = window.setInterval(() => { if (!document.hidden) refreshTraffic(); }, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTraffic(); });
+  window.addEventListener('pagehide', () => window.clearInterval(refreshTimer), {once: true});
 })();
 </script>
 {% endblock %}

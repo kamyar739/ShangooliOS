@@ -31,6 +31,7 @@ from web.db import (
     archive_collection,
     clear_inactive_etsy_link,
     create_collection,
+    create_mug_collection,
     create_listing,
     create_mockup_scene,
     create_mockup_set,
@@ -54,6 +55,7 @@ from web.db import (
     get_listing_readiness,
     get_listing_status_counts,
     get_standalone_design,
+    get_mug_collection_profile_for_design,
     get_artwork_listings,
     get_mockup_scene,
     get_mockup_set,
@@ -64,13 +66,33 @@ from web.db import (
     remove_mockup_set_item,
     list_listings,
     list_standalone_designs,
+    list_mug_collections,
+    mug_catalog_integrity,
     list_standalone_design_products,
     list_standalone_product_summaries,
     list_mug_text_ideas,
     create_mug_text_idea,
+    create_mug_text_ideas_bulk,
+    update_mug_text_idea,
+    get_mug_collection,
+    get_mug_collection_launch,
+    get_or_create_mug_collection_launch,
+    lock_mug_collection_launch_ideas,
+    set_mug_collection_launch_artwork_mode,
+    set_mug_collection_launch_artwork_message,
+    approve_mug_collection_launch_artwork,
+    reopen_mug_collection_launch_artwork,
+    set_mug_collection_launch_printify_state,
+    set_mug_collection_launch_mockup_state,
+    approve_mug_collection_launch_listing,
+    set_mug_collection_launch_publish_state,
     delete_mug_text_idea,
     rate_mug_text_idea,
     reorder_mug_text_ideas,
+    rate_standalone_product_pinterest_ad,
+    save_pinterest_launch_state,
+    approve_all_pinterest_launch_items,
+    reorder_standalone_designs,
     prepare_standalone_product_asset,
     list_mockup_scenes,
     list_mockup_sets,
@@ -139,6 +161,7 @@ from web.etsy_sync import (
 )
 from web.file_intake import save_uploaded_file
 from web.fast_flow import import_fast_flow_collection
+from web.mug_idea_generation import generated_profession_ideas
 from web.workflow_navigation import collection_workflow_navigation
 from web.collection_production import (
     STATE_LABELS,
@@ -200,6 +223,7 @@ from web.standalone_designs import (
     publish_standalone_product,
 )
 from web.product_blueprints import (
+    ACTIVE_MUG_BLUEPRINT_KEYS,
     DEFAULT_MUG_BLUEPRINT_KEY,
     PRODUCT_BLUEPRINTS,
     get_product_blueprint,
@@ -208,16 +232,27 @@ from web.product_blueprints import (
     product_readiness,
 )
 from web.pinterest_bundle import (
+    DEFAULT_PINTEREST_STYLE,
+    normalize_pinterest_style,
     pinterest_bundle_copy,
     pinterest_download_name,
+    pinterest_style_options,
     render_pinterest_bundle,
 )
+from web.pinterest_launch import (
+    launch_csv,
+    live_pinterest_launch_items,
+    stage_approved_launch_assets,
+    verify_public_pin_urls,
+)
 from web.portfolio_refresh import (
+    apply_uploaded_portfolio_refresh,
     apply_portfolio_refresh,
     publish_portfolio_refresh,
     refresh_eligibility,
     refresh_preview,
 )
+from tools.export_storefront_inventory import export_storefront_inventory
 from web.mug_gallery import (
     approve_mug_gallery,
     gallery_items,
@@ -225,6 +260,7 @@ from web.mug_gallery import (
     prepare_mug_gallery,
     reorder_mug_gallery,
     replace_mug_gallery_item,
+    save_product_thumbnail,
     sync_mug_gallery_to_etsy,
     upload_mug_gallery,
 )
@@ -286,6 +322,8 @@ MOCKUP_SCENES_DIR = BASE_DIR.parent / "data" / "mockup_scenes"
 app = FastAPI(title="ShangooliOS")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+templates.env.globals["mug_navigation_collections"] = list_mug_collections
+templates.env.globals["poster_navigation_collections"] = get_collections
 
 
 def _price_to_cents(price: str) -> int:
@@ -774,25 +812,13 @@ def home(request: Request, dashboard_view: str = Query("artworks", alias="view")
         raise HTTPException(status_code=400, detail="Invalid dashboard view")
     context = get_dashboard()
     context["dashboard_view"] = normalized_view
-    collections_by_code = {
-        collection["code"]: collection
-        for collection in context["collections"]
-    }
-    context["continue_collection"] = None
-    for collection_code in context["recent_collection_codes"]:
-        collection = collections_by_code.get(collection_code)
-        if (
-            not collection
-            or collection["status"] == "paused"
-            or not collection["artwork_count"]
-        ):
-            continue
-        navigation = collection_workflow_navigation(
-            collection_code, active_stage=""
-        )
-        if not navigation["complete"]:
-            context["continue_collection"] = navigation
-            break
+    context["mug_collections"] = [dict(item) for item in list_mug_collections()]
+    context["mug_active_designs"] = sum(
+        item["active_design_count"] or 0 for item in context["mug_collections"]
+    )
+    context["mug_live_designs"] = sum(
+        item["live_design_count"] or 0 for item in context["mug_collections"]
+    )
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -807,6 +833,8 @@ def standalone_designs_page(
     tag: str = Query(""),
     design_status: str = Query("all", alias="status"),
     product_key: str = Query("all", alias="product"),
+    collection_code: str = Query("all", alias="collection"),
+    sort: str = Query("manual"),
     page: int = Query(1, ge=1),
 ):
     show_archived = request.query_params.get("show") == "archived"
@@ -814,11 +842,31 @@ def standalone_designs_page(
     normalized_tag = tag.strip()
     normalized_status = design_status.strip().lower() or "all"
     normalized_product = product_key.strip() or "all"
+    normalized_collection = collection_code.strip().upper() or "ALL"
+    normalized_sort = sort.strip().lower() or "manual"
+    if normalized_sort not in {"manual", "pinterest_desc", "pinterest_asc"}:
+        raise HTTPException(status_code=400, detail="Invalid design sort")
     if normalized_status not in {
         "all", "draft", "printify", "etsy", "etsy_sync", "paused"
     }:
         raise HTTPException(status_code=400, detail="Invalid design status")
-    blueprint_options = mug_blueprints()
+    blueprint_options = mug_blueprints(include_retired=False)
+    mug_collections = [dict(item) for item in list_mug_collections()]
+    valid_collections = {item["code"].upper() for item in mug_collections}
+    if normalized_collection not in {"ALL", "UNASSIGNED", *valid_collections}:
+        raise HTTPException(status_code=400, detail="Invalid mug collection")
+    selected_mug_collection = next(
+        (
+            item for item in mug_collections
+            if item["code"].upper() == normalized_collection
+        ),
+        None,
+    )
+    collection_future_ideas = (
+        [dict(item) for item in list_mug_text_ideas(normalized_collection)]
+        if selected_mug_collection and not show_archived
+        else []
+    )
     valid_products = {item["key"] for item in blueprint_options}
     if normalized_product not in {"all", "none", *valid_products}:
         raise HTTPException(status_code=400, detail="Invalid product type")
@@ -829,6 +877,8 @@ def standalone_designs_page(
     ]
     products_by_design = {}
     for row in list_standalone_product_summaries():
+        if row["product_type"] not in valid_products:
+            continue
         products_by_design.setdefault(row["design_id"], {})[
             row["product_type"]
         ] = dict(row)
@@ -905,6 +955,14 @@ def standalone_designs_page(
                 saved_tag.casefold() for saved_tag in item["tag_list"]
             }
         ]
+    if normalized_collection == "UNASSIGNED":
+        designs = [item for item in designs if not item.get("mug_collection_code")]
+    elif normalized_collection != "ALL":
+        designs = [
+            item for item in designs
+            if str(item.get("mug_collection_code") or "").upper()
+            == normalized_collection
+        ]
     if normalized_product == "none":
         designs = [item for item in designs if not item["products"]]
     elif normalized_product != "all":
@@ -980,6 +1038,12 @@ def standalone_designs_page(
             if normalized_product in valid_products
             else item["products"]
         )
+        if normalized_status == "etsy":
+            item["display_products"] = [
+                product for product in item["display_products"]
+                if str(product["etsy_state"] or "").lower() == "active"
+                and not product["etsy_paused_at"]
+            ]
         if item["status"] == "archived":
             item["catalog_state"] = "Archived"
             item["catalog_state_class"] = "listing-status-archived"
@@ -1010,7 +1074,16 @@ def standalone_designs_page(
         else:
             item["catalog_state"] = "Draft"
             item["catalog_state_class"] = "listing-status-draft"
-    page_size = 24
+    if normalized_sort != "manual":
+        reverse = normalized_sort == "pinterest_desc"
+        designs.sort(
+            key=lambda item: max(
+                (product.get("pinterest_ad_rating") or 0 for product in item["display_products"]),
+                default=0,
+            ),
+            reverse=reverse,
+        )
+    page_size = 20
     total_designs = len(designs)
     total_pages = max(1, (total_designs + page_size - 1) // page_size)
     page = min(page, total_pages)
@@ -1021,6 +1094,8 @@ def standalone_designs_page(
         "tag": normalized_tag,
         "status": normalized_status,
         "product": normalized_product,
+        "collection": normalized_collection.lower(),
+        "sort": normalized_sort,
     }
     if show_archived:
         query_values["show"] = "archived"
@@ -1035,6 +1110,13 @@ def standalone_designs_page(
         if page < total_pages
         else None
     )
+    pinterest_sort_url = f"/designs?{urlencode({
+        **query_values,
+        'sort': 'pinterest_asc'
+        if normalized_sort == 'pinterest_desc'
+        else 'pinterest_desc',
+        'page': 1,
+    })}"
     return templates.TemplateResponse(
         request=request,
         name="designs.html",
@@ -1045,45 +1127,323 @@ def standalone_designs_page(
             "active_tag": normalized_tag,
             "active_design_status": normalized_status,
             "active_product_key": normalized_product,
+            "active_collection_code": normalized_collection,
+            "active_design_sort": normalized_sort,
             "product_options": blueprint_options,
+            "mug_collections": mug_collections,
+            "selected_mug_collection": selected_mug_collection,
+            "collection_future_ideas": collection_future_ideas,
             "available_tags": available_tags,
             "total_designs": total_designs,
             "page": page,
             "total_pages": total_pages,
             "previous_url": previous_url,
             "next_url": next_url,
+            "pinterest_sort_url": pinterest_sort_url,
             "dashboard_sidebar_active": "designs",
         },
     )
 
 
+@app.get("/designs/collections")
+def mug_collections_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="design_collections.html",
+        context={
+            "mug_collections": [dict(item) for item in list_mug_collections()],
+            "audit": mug_catalog_integrity(),
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/collections")
+def create_mug_collection_post(
+    code: str = Form(...),
+    name: str = Form(...),
+    profession: str = Form(...),
+    description: str = Form(""),
+):
+    try:
+        create_mug_collection(
+            code=code,
+            name=name,
+            profession=profession,
+            description=description,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse("/designs/collections?created=1", status_code=303)
+
+
+@app.get("/designs/collections/{collection_code}")
+def mug_collection_home(collection_code: str):
+    selected = next(
+        (
+            dict(item)
+            for item in list_mug_collections()
+            if item["code"].upper() == collection_code.upper()
+        ),
+        None,
+    )
+    if selected is None:
+        raise HTTPException(status_code=404, detail="Mug collection not found")
+    destination = f"/designs?collection={selected['code'].lower()}"
+    return RedirectResponse(destination, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/designs/storefront-update")
+def prepare_storefront_update():
+    try:
+        audit = export_storefront_inventory()
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        return RedirectResponse(
+            "/designs?storefront_update=error&message=" + urlencode({"": str(exc)})[1:],
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        f"/designs?storefront_update=ready&count={audit['exported_count']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/reorder")
+async def reorder_standalone_designs_post(request: Request):
+    payload = await request.json()
+    try:
+        reorder_standalone_designs(payload.get("ids") or [])
+    except (TypeError, ValueError) as error:
+        return JSONResponse({"ok": False, "message": str(error)}, status_code=400)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/designs/pinterest-launch")
+def pinterest_launch_page(request: Request, collection: str = Query(...)):
+    selected_collection = _manual_design_collection(collection)
+    items = live_pinterest_launch_items(selected_collection["code"])
+    return templates.TemplateResponse(
+        request=request,
+        name="design_pinterest_launch.html",
+        context={
+            "items": items,
+            "approved_count": sum(1 for item in items if item["approved"]),
+            "pinterest_styles": pinterest_style_options(selected_collection["code"]),
+            "selected_collection": selected_collection,
+            "dashboard_sidebar_active": "designs",
+        },
+    )
+
+
+@app.post("/designs/pinterest-launch/item/{design_id}/{product_key}")
+def update_pinterest_launch_item(
+    design_id: int,
+    product_key: str,
+    style: str = Form(...),
+    approved: str = Form("0"),
+    collection: str = Form(...),
+):
+    selected_collection = _manual_design_collection(collection)
+    _pinterest_bundle_design(design_id, product_key)
+    try:
+        selected_style = normalize_pinterest_style(
+            style, selected_collection["code"]
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    save_pinterest_launch_state(
+        design_id,
+        product_key,
+        selected_style=selected_style,
+        approved=approved == "1",
+    )
+    return RedirectResponse(
+        f"/designs/pinterest-launch?collection={selected_collection['code']}"
+        f"#launch-{design_id}-{product_key}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/pinterest-launch/approve-all")
+def approve_all_pinterest_launch_post(collection: str = Form(...)):
+    selected_collection = _manual_design_collection(collection)
+    items = live_pinterest_launch_items(selected_collection["code"])
+    approve_all_pinterest_launch_items(
+        [(item["design_id"], item["product_key"]) for item in items]
+    )
+    return RedirectResponse(
+        f"/designs/pinterest-launch?collection={selected_collection['code']}&approved=all",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/pinterest-launch/prepare")
+def prepare_pinterest_launch(
+    start_date: str = Form(...), pins_per_day: int = Form(0), collection: str = Form(...)
+):
+    selected_collection = _manual_design_collection(collection)
+    items = live_pinterest_launch_items(selected_collection["code"])
+    if not any(item["approved"] for item in items):
+        raise HTTPException(status_code=400, detail="Approve at least one Pin first")
+    try:
+        launch_csv(items, start_date=start_date, pins_per_day=pins_per_day)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Choose a valid launch date") from error
+    stage_approved_launch_assets(items)
+    return RedirectResponse(
+        f"/designs/pinterest-launch?collection={selected_collection['code']}&prepared=1&"
+        + urlencode({"start_date": start_date, "pins_per_day": pins_per_day}),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/pinterest-launch/verify-public")
+def verify_public_pinterest_launch(
+    start_date: str = Form(...), pins_per_day: int = Form(0), collection: str = Form(...)
+):
+    selected_collection = _manual_design_collection(collection)
+    result = verify_public_pin_urls(
+        live_pinterest_launch_items(selected_collection["code"])
+    )
+    query = urlencode(
+        {
+            "start_date": start_date,
+            "pins_per_day": pins_per_day,
+            "verified_count": result["verified_count"],
+            "checked_count": result["checked_count"],
+            "public_verified": "1" if not result["failed_urls"] else "0",
+        }
+    )
+    return RedirectResponse(
+        f"/designs/pinterest-launch?collection={selected_collection['code']}"
+        f"&prepared=1&{query}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/designs/pinterest-launch/export.csv")
+def download_pinterest_launch_csv(
+    start_date: str = Query(...), pins_per_day: int = Query(0), collection: str = Query(...)
+):
+    selected_collection = _manual_design_collection(collection)
+    try:
+        content = launch_csv(
+            live_pinterest_launch_items(selected_collection["code"]),
+            start_date=start_date,
+            pins_per_day=pins_per_day,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Choose a valid launch date") from error
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": "attachment; filename=pinterest-full-launch.csv",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/designs/{design_id}/products/{product_key}/pinterest-rating")
+def rate_standalone_product_pinterest_ad_post(
+    design_id: int, product_key: str, rating: int = Form(...)
+):
+    try:
+        rate_standalone_product_pinterest_ad(design_id, product_key, rating)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse("/designs", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _manual_design_collection(collection_code):
+    normalized = (collection_code or "").strip()
+    if not normalized:
+        return None
+    collection = get_mug_collection(normalized)
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Mug collection not found")
+    return dict(collection)
+
+
+def _design_metadata_for_collection(message, collection):
+    generated = design_metadata_from_message(message)
+    profession = collection["profession"].casefold() if collection else ""
+    if profession == "general":
+        exact_message = " ".join((message or "").split())
+        generated["description"] = (
+            f'A clean typographic mug featuring “{exact_message}.” '
+            "A distinctive everyday gift for friends, coworkers, family, or anyone "
+            "who enjoys a memorable quote."
+        )
+        generated["tags"] = ", ".join((
+            "quote mug", "typography mug", "message mug", "unique gift",
+            "coworker gift", "friend gift", "coffee mug", "desk mug",
+            "funny mug", "everyday gift", "statement mug",
+        ))
+        return generated
+    if profession != "doctor":
+        return generated
+    exact_message = " ".join((message or "").split())
+    generated["description"] = (
+        f'A clean typographic mug featuring “{exact_message}.” '
+        "A thoughtful or funny gift for doctors, physicians, medical coworkers, "
+        "residents, and healthcare professionals."
+    )
+    generated["tags"] = ", ".join((
+        "doctor", "doctor gift", "physician gift", "medical mug",
+        "funny doctor mug", "resident gift", "healthcare gift",
+        "medical coworker", "doctor appreciation", "coffee mug",
+        "typography mug", "workplace humor", "medical professional",
+    ))
+    return generated
+
+
 @app.get("/designs/new")
-def new_standalone_design_page(request: Request):
+def new_standalone_design_page(
+    request: Request,
+    collection: str = Query(""),
+):
+    selected_collection = _manual_design_collection(collection)
     return templates.TemplateResponse(
         request=request,
         name="design_form.html",
         context={
             "design": None,
+            "selected_collection": selected_collection,
+            "mug_collections": [dict(item) for item in list_mug_collections()],
             "dashboard_sidebar_active": "designs",
         },
     )
 
 
 @app.get("/designs/quick-text")
-def quick_text_design_page(request: Request, message: str = Query("")):
+def quick_text_design_page(
+    request: Request,
+    message: str = Query(""),
+    collection: str = Query(""),
+):
+    selected_collection = _manual_design_collection(collection)
     return templates.TemplateResponse(
         request=request,
         name="design_quick_text.html",
         context={
             "dashboard_sidebar_active": "designs",
             "initial_message": message.strip(),
+            "selected_collection": selected_collection,
+            "mug_collections": [dict(item) for item in list_mug_collections()],
         },
     )
 
 
 @app.get("/designs/text-ideas")
-def mug_text_ideas_page(request: Request):
-    ideas = [dict(row) for row in list_mug_text_ideas()]
+def mug_text_ideas_page(
+    request: Request,
+    collection: str = Query("TEACHER"),
+):
+    selected_collection = get_mug_collection(collection)
+    if selected_collection is None:
+        raise HTTPException(status_code=404, detail="Mug collection not found")
+    ideas = [dict(row) for row in list_mug_text_ideas(collection)]
     categories = []
     for idea in ideas:
         if idea["category"] not in categories:
@@ -1095,41 +1455,738 @@ def mug_text_ideas_page(request: Request):
             "ideas": ideas,
             "categories": categories,
             "five_star_count": sum(idea["rating"] == 5 for idea in ideas),
+            "mug_collections": [dict(row) for row in list_mug_collections()],
+            "selected_collection": dict(selected_collection),
             "dashboard_sidebar_active": "text_ideas",
         },
     )
 
 
 @app.post("/designs/text-ideas")
-def add_mug_text_idea(category: str = Form(...), text: str = Form(...)):
+def add_mug_text_idea(
+    category: str = Form(...),
+    text: str = Form(...),
+    collection: str = Form("TEACHER"),
+):
     try:
-        create_mug_text_idea(category, text)
+        create_mug_text_idea(category, text, collection)
     except ValueError as error:
         return RedirectResponse(
-            f"/designs/text-ideas?error={urlencode({'message': str(error)})[8:]}",
+            f"/designs/text-ideas?collection={collection}&error="
+            f"{urlencode({'message': str(error)})[8:]}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     return RedirectResponse(
-        "/designs/text-ideas?added=1", status_code=status.HTTP_303_SEE_OTHER
+        f"/designs/text-ideas?collection={collection}&added=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/text-ideas/bulk")
+def add_mug_text_ideas_bulk_post(
+    collection: str = Form(...),
+    category: str = Form(...),
+    ideas: str = Form(...),
+):
+    lines = [line.strip(" \t-•") for line in ideas.splitlines() if line.strip()]
+    try:
+        result = create_mug_text_ideas_bulk(collection, category, lines)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/text-ideas?collection={collection}&bulk_created="
+        f"{result['created']}&duplicates={result['duplicates']}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/text-ideas/generate")
+def generate_mug_text_ideas_post(
+    collection: str = Form(...),
+    count: int = Form(50),
+):
+    selected_collection = get_mug_collection(collection)
+    if selected_collection is None:
+        raise HTTPException(status_code=404, detail="Mug collection not found")
+    try:
+        existing_texts = [
+            row["text"]
+            for row in list_mug_text_ideas(collection, include_deleted=True)
+        ]
+        candidates = generated_profession_ideas(
+            selected_collection["profession"], count, existing_texts
+        )
+        created = 0
+        duplicates = 0
+        for category, text in candidates:
+            try:
+                create_mug_text_idea(category, text, collection)
+                created += 1
+            except ValueError as error:
+                if "already" not in str(error).lower():
+                    raise
+                duplicates += 1
+    except ValueError as error:
+        return RedirectResponse(
+            f"/designs/text-ideas?collection={collection}&generate_error="
+            f"{urlencode({'message': str(error)})[8:]}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        f"/designs/text-ideas?collection={collection}&generated={created}"
+        f"&duplicates={duplicates}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/text-ideas/launch")
+def start_mug_collection_launch(
+    collection: str = Form(...),
+    target_count: int = Form(20),
+    idea_ids: list[int] = Form(default=[]),
+):
+    try:
+        lock_mug_collection_launch_ideas(collection, idea_ids, target_count)
+    except ValueError as error:
+        return RedirectResponse(
+            f"/designs/text-ideas?collection={collection}&launch_error="
+            f"{urlencode({'message': str(error)})[8:]}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        f"/designs/collections/{collection}/launch",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/designs/collections/{collection_code}/launch")
+def mug_collection_launch_page(request: Request, collection_code: str):
+    collection = get_mug_collection(collection_code)
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Mug collection not found")
+    launch, items = get_mug_collection_launch(collection_code)
+    if launch is None:
+        _, launch = get_or_create_mug_collection_launch(collection_code, 20)
+        launch, items = get_mug_collection_launch(collection_code)
+    launch_items = [dict(item) for item in items]
+    approved_count = sum(
+        item["artwork_state"] == "approved" for item in launch_items
+    )
+    active_artwork_item = next(
+        (
+            item for item in launch_items
+            if item["artwork_state"] != "approved"
+        ),
+        None,
+    )
+    artwork_variants = []
+    if active_artwork_item and active_artwork_item["artwork_mode"] != "graphic_only":
+        active_artwork_item["render_message"] = (
+            active_artwork_item.get("artwork_message")
+            or active_artwork_item["message"]
+        )
+        for style_variant in range(6):
+            image_bytes = render_quick_text_design(
+                active_artwork_item["render_message"], style_variant=style_variant
+            )
+            artwork_variants.append(
+                {
+                    "style_variant": style_variant,
+                    "image_data": "data:image/png;base64,"
+                    + base64.b64encode(image_bytes).decode("ascii"),
+                }
+            )
+    active_printify_item = None
+    if launch_items and active_artwork_item is None:
+        active_printify_item = next(
+            (
+                item for item in launch_items
+                if item["printify_state"] in {
+                    "waiting", "failed", "outcome_unknown", "draft_created"
+                }
+            ),
+            None,
+        )
+        if active_printify_item and active_printify_item.get("standalone_design_id"):
+            product = get_standalone_design(
+                active_printify_item["standalone_design_id"],
+                "mug_11oz_black_accent",
+            )
+            active_printify_item["printify_product_url"] = (
+                product["printify_product_url"] if product else None
+            )
+            active_printify_item["product_thumbnail_filename"] = (
+                product["product_thumbnail_filename"] if product else None
+            )
+    mockup_approved_count = sum(
+        item["mockup_state"] == "approved" for item in launch_items
+    )
+    active_listing_item = None
+    if launch_items and mockup_approved_count == len(launch_items):
+        active_listing_item = next(
+            (item for item in launch_items if item["listing_state"] != "approved"),
+            None,
+        )
+        if active_listing_item and active_listing_item.get("standalone_design_id"):
+            product = get_standalone_design(
+                active_listing_item["standalone_design_id"],
+                "mug_11oz_black_accent",
+            )
+            if product:
+                active_listing_item["product_title"] = product["product_title"]
+                active_listing_item["product_description"] = product["product_description"]
+                active_listing_item["tags"] = product["tags"]
+                active_listing_item["price_cents"] = product["price_cents"]
+                slug = re.sub(
+                    r"[^a-z0-9]+", "-", active_listing_item["message"].lower()
+                ).strip("-")
+                active_listing_item["storefront_url"] = (
+                    f"https://shangooli.com/mugs/{slug}"
+                )
+    listing_approved_count = sum(
+        item["listing_state"] == "approved" for item in launch_items
+    )
+    active_publish_item = None
+    verified_publish_items = []
+    if launch_items and listing_approved_count == len(launch_items):
+        for item in launch_items:
+            if item["publish_state"] != "verified":
+                continue
+            verified = dict(item)
+            product = get_standalone_design(
+                item["standalone_design_id"], "mug_11oz_black_accent"
+            )
+            if product and product["etsy_listing_url"]:
+                verified["etsy_listing_url"] = product["etsy_listing_url"]
+                verified["etsy_state"] = product["etsy_state"]
+                verified_publish_items.append(verified)
+        active_publish_item = next(
+            (item for item in launch_items if item["publish_state"] != "verified"),
+            None,
+        )
+        if active_publish_item and active_publish_item.get("standalone_design_id"):
+            product = get_standalone_design(
+                active_publish_item["standalone_design_id"],
+                "mug_11oz_black_accent",
+            )
+            if product:
+                active_publish_item["printify_product_url"] = product["printify_product_url"]
+                active_publish_item["etsy_listing_url"] = product["etsy_listing_url"]
+                active_publish_item["etsy_state"] = product["etsy_state"]
+    return templates.TemplateResponse(
+        request=request,
+        name="design_collection_launch.html",
+        context={
+            "collection": dict(collection),
+            "launch": dict(launch),
+            "launch_items": launch_items,
+            "approved_artwork_count": approved_count,
+            "active_artwork_item": active_artwork_item,
+            "artwork_variants": artwork_variants,
+            "active_printify_item": active_printify_item,
+            "mockup_approved_count": mockup_approved_count,
+            "listing_approved_count": listing_approved_count,
+            "active_listing_item": active_listing_item,
+            "publish_verified_count": sum(
+                item["publish_state"] == "verified" for item in launch_items
+            ),
+            "active_publish_item": active_publish_item,
+            "verified_publish_items": verified_publish_items,
+            "dashboard_sidebar_active": "text_ideas",
+        },
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/artwork-message")
+def mug_collection_launch_artwork_message_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    artwork_message: str = Form(...),
+):
+    try:
+        set_mug_collection_launch_artwork_message(
+            collection_code, item_id, artwork_message
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?artwork_review=1"
+        "#artwork-approval",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+def _save_launch_artwork_design(
+    collection_code, message, image_bytes, existing_design_id=None
+):
+    saved = save_design_source(image_bytes, "collection-launch-artwork.png")
+    selected_collection = _manual_design_collection(collection_code)
+    generated = _design_metadata_for_collection(message, selected_collection)
+    if existing_design_id:
+        replace_standalone_design_source(
+            existing_design_id,
+            source_filename=saved["filename"],
+            source_original_filename=saved["original_filename"],
+            image_width=saved["width"],
+            image_height=saved["height"],
+        )
+        update_standalone_design(
+            existing_design_id,
+            name=generated["name"],
+            message=" ".join(message.split()),
+            description=generated["description"],
+            tags=generated["tags"],
+        )
+        for blueprint_key in ACTIVE_MUG_BLUEPRINT_KEYS:
+            prepare_standalone_product_asset(
+                existing_design_id, blueprint_key, saved["filename"]
+            )
+            update_standalone_product_copy(
+                existing_design_id,
+                blueprint_key,
+                title=suggested_mug_title(message, blueprint_key),
+                description=suggested_mug_description(
+                    generated["description"], blueprint_key, "front"
+                ),
+            )
+        return existing_design_id, saved
+    design_id = create_standalone_design(
+        name=generated["name"],
+        message=" ".join(message.split()),
+        description=generated["description"],
+        tags=generated["tags"],
+        source_filename=saved["filename"],
+        source_original_filename=saved["original_filename"],
+        image_width=saved["width"],
+        image_height=saved["height"],
+        collection_code=collection_code,
+    )
+    for blueprint_key in ACTIVE_MUG_BLUEPRINT_KEYS:
+        profile = mug_profile(blueprint_key)
+        collection_profile = get_mug_collection_profile_for_design(design_id)
+        save_mug_setup(
+            design_id,
+            blueprint_key=blueprint_key,
+            title=suggested_mug_title(message, blueprint_key),
+            description=suggested_mug_description(
+                generated["description"], blueprint_key, "front"
+            ),
+            price_cents=(
+                collection_profile["default_price_cents"]
+                if collection_profile else profile["default_price_cents"]
+            ),
+            placement_scale=(
+                collection_profile["placement_scale"]
+                if collection_profile else profile["placement_scale"]
+            ),
+            placement_x=(
+                collection_profile["placement_x"]
+                if collection_profile else profile["placement_x"]
+            ),
+            placement_y=(
+                collection_profile["placement_y"]
+                if collection_profile else profile["placement_y"]
+            ),
+            placement_mode=(
+                collection_profile["placement_mode"]
+                if collection_profile else "front"
+            ),
+        )
+    return design_id, saved
+
+
+@app.post("/designs/collections/{collection_code}/launch/artwork-approve")
+def mug_collection_launch_artwork_approve_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    style_variant: int = Form(...),
+):
+    _, items = get_mug_collection_launch(collection_code)
+    item = next((dict(row) for row in items if row["id"] == item_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Launch artwork item not found")
+    if item["artwork_state"] == "approved":
+        raise HTTPException(status_code=400, detail="Artwork is already approved")
+    if item["artwork_mode"] == "graphic_only":
+        raise HTTPException(
+            status_code=400,
+            detail="Graphic Only artwork must be uploaded",
+        )
+    try:
+        render_message = item.get("artwork_message") or item["message"]
+        image_bytes = render_quick_text_design(
+            render_message, style_variant=style_variant
+        )
+        design_id, saved = _save_launch_artwork_design(
+            collection_code,
+            render_message,
+            image_bytes,
+            existing_design_id=item.get("standalone_design_id"),
+        )
+        approve_mug_collection_launch_artwork(
+            collection_code,
+            item_id,
+            style_variant,
+            saved["filename"],
+            design_id,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?artwork_review=1"
+        "#artwork-approval",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/artwork-reopen")
+def mug_collection_launch_artwork_reopen_post(
+    collection_code: str,
+    item_id: int = Form(...),
+):
+    try:
+        reopen_mug_collection_launch_artwork(collection_code, item_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?artwork_review=1"
+        "#artwork-approval",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/printify-draft")
+def mug_collection_launch_printify_draft_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    confirmed: bool = Form(False),
+):
+    _, items = get_mug_collection_launch(collection_code)
+    item = next((dict(row) for row in items if row["id"] == item_id), None)
+    if item is None or item["artwork_state"] != "approved":
+        raise HTTPException(status_code=400, detail="Approve the artwork first")
+    if item["printify_state"] not in {"waiting", "failed"}:
+        raise HTTPException(
+            status_code=400,
+            detail="This Printify draft has already been started",
+        )
+    try:
+        result = create_mug_draft(
+            item["standalone_design_id"],
+            confirmed=confirmed,
+            blueprint_key="mug_11oz_black_accent",
+        )
+        outcome = result.get("outcome") or "failed"
+        launch_state = (
+            "draft_created" if outcome in {"created", "existing"} else outcome
+        )
+        set_mug_collection_launch_printify_state(
+            collection_code,
+            item_id,
+            launch_state,
+            None if launch_state == "draft_created" else result.get("message"),
+        )
+    except ValueError as error:
+        set_mug_collection_launch_printify_state(
+            collection_code, item_id, "failed", str(error)
+        )
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?printify_review=1"
+        "#printify-placement",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/printify-refresh")
+def mug_collection_launch_printify_refresh_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    confirmed: bool = Form(False),
+):
+    _, items = get_mug_collection_launch(collection_code)
+    item = next((dict(row) for row in items if row["id"] == item_id), None)
+    if item is None or item["printify_state"] != "draft_created":
+        raise HTTPException(status_code=400, detail="The Printify draft is not ready")
+    if not confirmed:
+        raise HTTPException(
+            status_code=400, detail="Confirm that you saved the placement in Printify"
+        )
+    design_id = item["standalone_design_id"]
+    blueprint_key = "mug_11oz_black_accent"
+    try:
+        capture_printify_placement_default(
+            design_id, blueprint_key, confirmed=True
+        )
+        manifest = prepare_mug_gallery(design_id, blueprint_key)
+        # For this mug, Printify's first render faces away from the artwork.
+        # The second render is the handle-left, artwork-facing view we need.
+        right_side = next(
+            entry for entry in manifest if entry["slot"] == "lifestyle"
+        )
+        right_side_path = gallery_path(right_side["filename"])
+        if right_side_path is None:
+            raise ValueError("The refreshed Printify mug image was not saved")
+        save_product_thumbnail(
+            design_id,
+            blueprint_key,
+            right_side_path.read_bytes(),
+            right_side_path.name,
+        )
+        set_mug_collection_launch_mockup_state(
+            collection_code,
+            item_id,
+            placement_state="reviewed",
+            mockup_state="needs_review",
+        )
+    except (PrintifyAPIError, OSError, ValueError, StopIteration) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?mockup_review=1"
+        "#printify-placement",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/mockup-approve")
+def mug_collection_launch_mockup_approve_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="Confirm that the mug image is correct")
+    try:
+        set_mug_collection_launch_mockup_state(
+            collection_code,
+            item_id,
+            placement_state="reviewed",
+            mockup_state="approved",
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?printify_review=1"
+        "#printify-placement",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/listing-approve")
+def mug_collection_launch_listing_approve_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    title: str = Form(...),
+    description: str = Form(...),
+    tags: str = Form(...),
+    price: float = Form(...),
+):
+    try:
+        approve_mug_collection_launch_listing(
+            collection_code,
+            item_id,
+            title=title,
+            description=description,
+            tags=tags,
+            price_cents=round(price * 100),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?listing_review=1"
+        "#listing-review",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/publish-item")
+def mug_collection_launch_publish_item_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(
+            status_code=400, detail="Confirm publishing this mug to Etsy"
+        )
+    _, items = get_mug_collection_launch(collection_code)
+    item = next((dict(row) for row in items if row["id"] == item_id), None)
+    if item is None or item["listing_state"] != "approved":
+        raise HTTPException(status_code=400, detail="Approve the listing first")
+    if item["publish_state"] not in {"waiting", "failed"}:
+        raise HTTPException(status_code=400, detail="This mug was already submitted")
+    design_id = item["standalone_design_id"]
+    blueprint_key = "mug_11oz_black_accent"
+    try:
+        copy_result = update_mug_draft_copy(
+            design_id, confirmed=True, blueprint_key=blueprint_key
+        )
+        if copy_result.get("outcome") not in {"updated", "existing"}:
+            raise ValueError(copy_result.get("message") or "Printify copy update failed")
+        result = publish_standalone_product(
+            design_id, blueprint_key, confirmed=True
+        )
+        outcome = result.get("outcome")
+        if outcome == "publish_requested":
+            state = "publish_requested"
+        elif outcome == "already_published":
+            state = "waiting_for_etsy"
+        elif outcome == "publish_outcome_unknown":
+            state = "outcome_unknown"
+        else:
+            state = "failed"
+        set_mug_collection_launch_publish_state(
+            collection_code,
+            item_id,
+            state,
+            None if state in {"publish_requested", "waiting_for_etsy"}
+            else result.get("message"),
+        )
+    except (PrintifyAPIError, ValueError) as error:
+        set_mug_collection_launch_publish_state(
+            collection_code, item_id, "failed", str(error)
+        )
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?publish_review=1"
+        "#publish-verify",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/verify-item")
+def mug_collection_launch_verify_item_post(
+    collection_code: str,
+    item_id: int = Form(...),
+):
+    _, items = get_mug_collection_launch(collection_code)
+    item = next((dict(row) for row in items if row["id"] == item_id), None)
+    if item is None or item["publish_state"] not in {
+        "publish_requested", "waiting_for_etsy", "outcome_unknown"
+    }:
+        raise HTTPException(status_code=400, detail="Publish this mug first")
+    design_id = item["standalone_design_id"]
+    blueprint_key = "mug_11oz_black_accent"
+    result, error = _check_standalone_design_marketplace(
+        design_id, "", blueprint_key
+    )
+    if error:
+        set_mug_collection_launch_publish_state(
+            collection_code, item_id, "waiting_for_etsy", error
+        )
+    elif not result["linked"]:
+        set_mug_collection_launch_publish_state(
+            collection_code,
+            item_id,
+            "waiting_for_etsy",
+            "Printify has not reported the Etsy listing yet. Wait a moment and check again.",
+        )
+    else:
+        try:
+            _sync_standalone_design_product_etsy(design_id, blueprint_key)
+            set_mug_collection_launch_publish_state(
+                collection_code, item_id, "verified"
+            )
+        except (EtsyAPIError, ValueError) as sync_error:
+            set_mug_collection_launch_publish_state(
+                collection_code, item_id, "waiting_for_etsy", str(sync_error)
+            )
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?publish_review=1"
+        "#publish-verify",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/storefront-prepare")
+def mug_collection_launch_storefront_prepare_post(
+    collection_code: str,
+    confirmed: bool = Form(False),
+):
+    if not confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirm preparing the Shangooli.com inventory files",
+        )
+    _, items = get_mug_collection_launch(collection_code)
+    if not items or any(row["publish_state"] != "verified" for row in items):
+        raise HTTPException(
+            status_code=400, detail="Verify every Etsy listing first"
+        )
+    try:
+        audit = export_storefront_inventory()
+    except (OSError, sqlite3.Error, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch?storefront_ready=1"
+        f"&storefront_count={audit['exported_count']}#collection-handoff",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/collections/{collection_code}/launch/artwork-mode")
+def mug_collection_launch_artwork_mode_post(
+    collection_code: str,
+    item_id: int = Form(...),
+    artwork_mode: str = Form(...),
+):
+    try:
+        set_mug_collection_launch_artwork_mode(
+            collection_code, item_id, artwork_mode
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        f"/designs/collections/{collection_code}/launch#artwork-{item_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
 @app.post("/designs/text-ideas/{idea_id}/rating")
-def rate_mug_text_idea_post(idea_id: int, rating: int = Form(...)):
+def rate_mug_text_idea_post(
+    idea_id: int,
+    rating: int = Form(...),
+    collection: str = Form("TEACHER"),
+):
     try:
         rate_mug_text_idea(idea_id, rating)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return RedirectResponse(
-        "/designs/text-ideas", status_code=status.HTTP_303_SEE_OTHER
+        f"/designs/text-ideas?collection={collection}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.post("/designs/text-ideas/{idea_id}/edit")
+def edit_mug_text_idea_post(
+    idea_id: int,
+    category: str = Form(...),
+    text: str = Form(...),
+    collection: str = Form("TEACHER"),
+):
+    try:
+        update_mug_text_idea(idea_id, category, text, collection)
+    except ValueError as error:
+        return RedirectResponse(
+            f"/designs/text-ideas?collection={collection}&error="
+            f"{urlencode({'message': str(error)})[8:]}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        f"/designs/text-ideas?collection={collection}&updated=1",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
 @app.post("/designs/text-ideas/{idea_id}/delete")
-def remove_mug_text_idea(idea_id: int):
+def remove_mug_text_idea(
+    idea_id: int,
+    collection: str = Form("TEACHER"),
+):
     delete_mug_text_idea(idea_id)
     return RedirectResponse(
-        "/designs/text-ideas?deleted=1", status_code=status.HTTP_303_SEE_OTHER
+        f"/designs/text-ideas?collection={collection}&deleted=1",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 
@@ -1137,14 +2194,19 @@ def remove_mug_text_idea(idea_id: int):
 async def reorder_mug_text_ideas_post(request: Request):
     payload = await request.json()
     try:
-        reorder_mug_text_ideas(payload.get("ids") or [])
+        reorder_mug_text_ideas(
+            payload.get("ids") or [], payload.get("collection") or None
+        )
     except (TypeError, ValueError) as error:
         return JSONResponse({"ok": False, "message": str(error)}, status_code=400)
     return JSONResponse({"ok": True})
 
 
 @app.post("/designs/quick-text")
-def create_quick_text_design_post(message: str = Form(...)):
+def create_quick_text_design_post(
+    message: str = Form(...),
+    collection: str = Form("TEACHER"),
+):
     saved = None
     try:
         normalized_message = "\n".join(
@@ -1153,7 +2215,10 @@ def create_quick_text_design_post(message: str = Form(...)):
         ).strip()
         image = render_quick_text_design(normalized_message)
         saved = save_design_source(image, "shangooli-quick-text.png")
-        generated = design_metadata_from_message(normalized_message)
+        selected_collection = _manual_design_collection(collection)
+        generated = _design_metadata_for_collection(
+            normalized_message, selected_collection
+        )
         design_id = create_standalone_design(
             name=generated["name"],
             message=" ".join(normalized_message.split()),
@@ -1163,11 +2228,13 @@ def create_quick_text_design_post(message: str = Form(...)):
             source_original_filename=saved["original_filename"],
             image_width=saved["width"],
             image_height=saved["height"],
+            collection_code=collection,
         )
         # Quick Text is the normal zero-setup path: prepare both supported mug
         # products locally, while leaving Printify and Etsy untouched.
-        for blueprint_key in PRODUCT_BLUEPRINTS:
+        for blueprint_key in ACTIVE_MUG_BLUEPRINT_KEYS:
             profile = mug_profile(blueprint_key)
+            collection_profile = get_mug_collection_profile_for_design(design_id)
             save_mug_setup(
                 design_id,
                 blueprint_key=blueprint_key,
@@ -1175,11 +2242,26 @@ def create_quick_text_design_post(message: str = Form(...)):
                 description=suggested_mug_description(
                     generated["description"], blueprint_key, "front"
                 ),
-                price_cents=profile["default_price_cents"],
-                placement_scale=profile["placement_scale"],
-                placement_x=profile["placement_x"],
-                placement_y=profile["placement_y"],
-                placement_mode="front",
+                price_cents=(
+                    collection_profile["default_price_cents"]
+                    if collection_profile else profile["default_price_cents"]
+                ),
+                placement_scale=(
+                    collection_profile["placement_scale"]
+                    if collection_profile else profile["placement_scale"]
+                ),
+                placement_x=(
+                    collection_profile["placement_x"]
+                    if collection_profile else profile["placement_x"]
+                ),
+                placement_y=(
+                    collection_profile["placement_y"]
+                    if collection_profile else profile["placement_y"]
+                ),
+                placement_mode=(
+                    collection_profile["placement_mode"]
+                    if collection_profile else "front"
+                ),
             )
     except ValueError as error:
         if saved:
@@ -1205,8 +2287,14 @@ async def analyze_standalone_design_upload(image: UploadFile = File(...)):
 
 
 @app.post("/designs/message-metadata")
-def standalone_design_message_metadata(message: str = Form(...)):
-    return JSONResponse(design_metadata_from_message(message))
+def standalone_design_message_metadata(
+    message: str = Form(...),
+    collection: str = Form(""),
+):
+    selected_collection = _manual_design_collection(collection)
+    return JSONResponse(
+        _design_metadata_for_collection(message, selected_collection)
+    )
 
 
 @app.post("/designs")
@@ -1216,6 +2304,7 @@ async def create_standalone_design_post(
     message: str = Form(""),
     description: str = Form(""),
     tags: str = Form(""),
+    collection: str = Form("TEACHER"),
 ):
     saved = None
     try:
@@ -1229,6 +2318,7 @@ async def create_standalone_design_post(
             source_original_filename=saved["original_filename"],
             image_width=saved["width"],
             image_height=saved["height"],
+            collection_code=collection,
         )
     except ValueError as error:
         if saved:
@@ -1252,7 +2342,7 @@ def standalone_design_page(request: Request, design_id: int):
         for item in list_standalone_design_products(design_id)
     }
     product_options = []
-    for blueprint in mug_blueprints():
+    for blueprint in mug_blueprints(include_retired=False):
         product = saved_products.get(blueprint["key"])
         product_design = get_standalone_design(design_id, blueprint["key"])
         readiness = product_readiness(
@@ -1290,7 +2380,7 @@ def _quick_text_launch_context(design_id):
         for item in list_standalone_design_products(design_id)
     }
     products = []
-    for blueprint in mug_blueprints():
+    for blueprint in mug_blueprints(include_retired=False):
         product = saved.get(blueprint["key"])
         products.append({**blueprint, "product": product})
     all_created = all(
@@ -1336,7 +2426,7 @@ def quick_text_launch_create_post(
     if not confirmed:
         raise HTTPException(status_code=400, detail="Confirm creating both drafts")
     outcomes = []
-    for blueprint_key in PRODUCT_BLUEPRINTS:
+    for blueprint_key in ACTIVE_MUG_BLUEPRINT_KEYS:
         try:
             result = create_mug_draft(
                 design_id, confirmed=True, blueprint_key=blueprint_key
@@ -1362,7 +2452,7 @@ def quick_text_launch_publish_post(
     if not confirmed:
         raise HTTPException(status_code=400, detail="Confirm publishing both mugs")
     outcomes = []
-    for blueprint_key in PRODUCT_BLUEPRINTS:
+    for blueprint_key in ACTIVE_MUG_BLUEPRINT_KEYS:
         try:
             result = publish_standalone_product(
                 design_id, blueprint_key, confirmed=True
@@ -1388,7 +2478,7 @@ def quick_text_launch_finish_post(
         raise HTTPException(status_code=400, detail="Confirm checking Etsy status")
     waiting = []
     failures = []
-    for blueprint_key in PRODUCT_BLUEPRINTS:
+    for blueprint_key in ACTIVE_MUG_BLUEPRINT_KEYS:
         result, error = _check_standalone_design_marketplace(
             design_id, "", blueprint_key
         )
@@ -1436,7 +2526,8 @@ def portfolio_refresh_preview_post(
     if design is None:
         raise HTTPException(status_code=404, detail="Design not found")
     try:
-        preview = refresh_preview(message)
+        collection = get_mug_collection_profile_for_design(design_id)
+        preview = refresh_preview(message, collection=collection)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     eligibility = refresh_eligibility(design_id)
@@ -1457,9 +2548,18 @@ def portfolio_refresh_preview_post(
             }
         )
     preview["products"] = preview_products
-    preview["image_data"] = (
-        "data:image/png;base64," + base64.b64encode(preview["image"]).decode("ascii")
-    )
+    preview["variants"] = []
+    for style_variant in range(6):
+        variant = refresh_preview(
+            message, style_variant=style_variant, collection=collection
+        )
+        preview["variants"].append(
+            {
+                "style_variant": style_variant,
+                "image_data": "data:image/png;base64,"
+                + base64.b64encode(variant["image"]).decode("ascii"),
+            }
+        )
     return templates.TemplateResponse(
         request=request,
         name="design_portfolio_refresh.html",
@@ -1477,11 +2577,35 @@ def portfolio_refresh_preview_post(
 def portfolio_refresh_apply_post(
     design_id: int,
     message: str = Form(...),
+    style_variant: int = Form(0),
     confirmed: bool = Form(False),
 ):
     try:
         results = apply_portfolio_refresh(
-            design_id, message, confirmed=confirmed
+            design_id, message, confirmed=confirmed, style_variant=style_variant
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    outcome = "ready" if all(item["outcome"] == "updated" for item in results) else "attention"
+    return RedirectResponse(
+        f"/designs/{design_id}/refresh?result={outcome}", status_code=303
+    )
+
+
+@app.post("/designs/{design_id}/refresh/apply-upload")
+async def portfolio_refresh_apply_upload_post(
+    design_id: int,
+    message: str = Form(...),
+    graphic: UploadFile = File(...),
+    confirmed: bool = Form(False),
+):
+    try:
+        results = apply_uploaded_portfolio_refresh(
+            design_id,
+            message,
+            await graphic.read(),
+            graphic.filename or "replacement-design.png",
+            confirmed=confirmed,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -2283,10 +3407,19 @@ def _pinterest_bundle_design(design_id, blueprint_key):
 
 @app.get("/designs/{design_id}/products/{blueprint_key}/pinterest")
 def standalone_product_pinterest_bundle_page(
-    request: Request, design_id: int, blueprint_key: str
+    request: Request,
+    design_id: int,
+    blueprint_key: str,
+    style: str = Query(DEFAULT_PINTEREST_STYLE),
 ):
+    # Keep the scene choices in the server-rendered response so a refreshed
+    # application process always exposes all current Pinterest mockups.
     design = _pinterest_bundle_design(design_id, blueprint_key)
     _, blueprint = get_product_blueprint(blueprint_key)
+    try:
+        selected_style = normalize_pinterest_style(style)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return templates.TemplateResponse(
         request=request,
         name="design_pinterest_bundle.html",
@@ -2295,6 +3428,8 @@ def standalone_product_pinterest_bundle_page(
             "blueprint_key": blueprint_key,
             "blueprint": blueprint,
             "bundle": pinterest_bundle_copy(design, blueprint_key),
+            "pinterest_styles": pinterest_style_options(),
+            "selected_style": selected_style,
             "dashboard_sidebar_active": "designs",
         },
     )
@@ -2305,10 +3440,11 @@ def standalone_product_pinterest_bundle_image(
     design_id: int,
     blueprint_key: str,
     download: bool = Query(False),
+    style: str = Query(DEFAULT_PINTEREST_STYLE),
 ):
     design = _pinterest_bundle_design(design_id, blueprint_key)
     try:
-        content = render_pinterest_bundle(design, blueprint_key)
+        content = render_pinterest_bundle(design, blueprint_key, style=style)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     headers = {"Cache-Control": "no-store"}
@@ -2363,6 +3499,34 @@ def standalone_product_gallery_image(
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{source.name}"'
     return FileResponse(source, headers=headers)
+
+
+@app.get("/designs/{design_id}/products/{blueprint_key}/thumbnail")
+def standalone_product_thumbnail(design_id: int, blueprint_key: str):
+    product, _ = _mug_gallery_product(design_id, blueprint_key)
+    source = gallery_path(product["product_thumbnail_filename"] or "")
+    if source is None:
+        raise HTTPException(status_code=404, detail="Product thumbnail not found")
+    return FileResponse(source, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/designs/{design_id}/products/{blueprint_key}/thumbnail")
+async def standalone_product_thumbnail_upload(
+    design_id: int, blueprint_key: str, image: UploadFile = File(...)
+):
+    _mug_gallery_product(design_id, blueprint_key)
+    try:
+        save_product_thumbnail(
+            design_id,
+            blueprint_key,
+            await image.read(),
+            image.filename or "right-side-mug.jpg",
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        "/designs?status=etsy", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @app.post("/designs/{design_id}/products/{blueprint_key}/gallery/prepare")
@@ -2463,7 +3627,7 @@ def standalone_product_gallery_sync(
     refreshed_products = [
         product
         for product in products
-        if product["product_type"] in PRODUCT_BLUEPRINTS
+        if product["product_type"] in ACTIVE_MUG_BLUEPRINT_KEYS
         and product["printify_product_id"]
         and product["etsy_listing_id"]
     ]
@@ -2473,7 +3637,7 @@ def standalone_product_gallery_sync(
         set_standalone_design_refresh_state(
             design_id,
             "complete",
-            "Both mug products, Etsy copy, and Etsy galleries are synchronized.",
+            "The active mug product, Etsy copy, and Etsy gallery are synchronized.",
         )
     return RedirectResponse(
         f"/designs/{design_id}/products/{blueprint_key}/gallery?synced=1",

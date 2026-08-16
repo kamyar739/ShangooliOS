@@ -61,44 +61,25 @@ class DashboardTests(unittest.TestCase):
             )
             connection.commit()
 
-    def test_dashboard_shows_listing_work_queue(self):
+    def test_dashboard_keeps_poster_listing_work_in_poster_section(self):
         db.create_listing(
             "CEL-001", marketplace="Etsy", product="Poster",
             title="Unbound Poster", description="", tags="",
             price_cents=0, status="draft",
         )
-        response = self.client.get("/?view=attention")
+        response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Production dashboard", response.text)
-        self.assertIn("Listings with missing items", response.text)
-        self.assertIn("Needs attention", response.text)
-        self.assertIn("Unbound Poster", response.text)
-        self.assertIn("Missing: Source artwork", response.text)
-        self.assertIn('class="dashboard-listing-thumb"', response.text)
-        self.assertIn("No image", response.text)
+        self.assertIn("Business overview", response.text)
+        self.assertIn("Poster business", response.text)
+        self.assertIn("Mug business", response.text)
+        self.assertNotIn("Unbound Poster", response.text)
+        self.assertNotIn("Listing work queue", response.text)
         self.assertIn('aria-label="Dashboard navigation"', response.text)
         self.assertIn('href="/collections"', response.text)
-        self.assertNotIn("Start here", response.text)
-        self.assertIn('href="/?view=attention"', response.text)
+        self.assertIn('href="/listings"', response.text)
+        self.assertIn('href="/mockup-studio"', response.text)
         self.assertIn('data-app-wait', response.text)
         self.assertIn('app-wait-spinner', response.text)
-
-        dashboard_focus = self.client.get("/?view=attention")
-        self.assertIn("Listings with missing items", dashboard_focus.text)
-        self.assertIn("Unbound Poster", dashboard_focus.text)
-        self.assertIn('href="/?view=artworks"', dashboard_focus.text)
-
-        self._complete_artwork_files()
-        listings_dashboard = self.client.get("/?view=listings")
-        self.assertIn(
-            'src="/artworks/CEL-001/files/view?role=source"',
-            listings_dashboard.text,
-        )
-        self.assertIn('alt="Unbound thumbnail"', listings_dashboard.text)
-
-        default_dashboard = self.client.get("/")
-        self.assertIn("Recently updated artwork", default_dashboard.text)
-        self.assertIn('dashboard-metric-link is-selected', default_dashboard.text)
 
         focused = self.client.get("/listings?view=attention")
         self.assertEqual(focused.status_code, 200)
@@ -107,7 +88,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('href="/?view=attention"', focused.text)
         self.assertIn("Back to dashboard", focused.text)
 
-    def test_dashboard_continues_most_recent_incomplete_collection(self):
+    def test_dashboard_does_not_duplicate_poster_collection_workflow(self):
         with db.get_connection() as connection:
             brand_id = connection.execute(
                 "SELECT id FROM brands WHERE code='SHG'"
@@ -146,14 +127,9 @@ class DashboardTests(unittest.TestCase):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('class="dashboard-continue-card', response.text)
-        self.assertIn('id="continue-collection-title">New Journey</h2>', response.text)
-        self.assertIn("Continue collection · Produce", response.text)
-        self.assertIn("Run safe production", response.text)
-        self.assertIn(
-            'href="/collections/NEW/production#collection-workflow-action"',
-            response.text,
-        )
+        self.assertNotIn('class="dashboard-continue-card', response.text)
+        self.assertNotIn("Continue collection", response.text)
+        self.assertIn("Poster business", response.text)
 
     def test_dashboard_omits_continue_card_when_workflow_is_complete(self):
         completed_navigation = {
@@ -759,15 +735,10 @@ class DashboardTests(unittest.TestCase):
             title="Complete Unbound", description="Description", tags="one, two",
             price_cents=3995, status="ready",
         )
-        response = self.client.get("/?view=ready")
+        response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Ready to publish", response.text)
-        self.assertIn("Complete Unbound", response.text)
-        self.assertIn('href="/?view=ready"', response.text)
-
-        dashboard_focus = self.client.get("/?view=ready")
-        self.assertIn("Completed listings awaiting publication", dashboard_focus.text)
-        self.assertIn("Complete Unbound", dashboard_focus.text)
+        self.assertNotIn("Complete Unbound", response.text)
+        self.assertIn("Poster business", response.text)
 
         focused = self.client.get("/listings?view=ready")
         self.assertEqual(focused.status_code, 200)

@@ -12,18 +12,43 @@
         <h1 class="display-6 fw-bold">Pinterest Bundle</h1>
         <p class="text-muted mb-0">{{ blueprint["label"] }} · Ready to download and copy.</p>
       </div>
-      <a class="btn btn-primary" download href="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?download=true">Download Pinterest image</a>
+      <a class="btn btn-primary" download href="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?download=true&amp;style={{ selected_style }}">Download selected image</a>
     </div>
 
     {% if request.query_params.get("finished") or request.query_params.get("synced") %}
     <div class="alert alert-success">Etsy details are synchronized. Your Pinterest bundle is ready.</div>
     {% endif %}
 
+    <section class="section-card pinterest-style-picker">
+      <div class="pinterest-style-picker-heading">
+        <div><div class="eyebrow">Choose a mockup</div><h2 class="h4 mb-0">Six ready-to-use classroom scenes</h2></div>
+        <span>Every version uses the same exact saved mug photograph.</span>
+      </div>
+      <form class="pinterest-mockup-select" method="get">
+        <label for="pinterest-mockup-choice">Select a scene to preview</label>
+        <select id="pinterest-mockup-choice" name="style" onchange="this.form.submit()">
+          {% for option in pinterest_styles %}
+          <option value="{{ option['key'] }}"{% if option['key'] == selected_style %} selected{% endif %}>{{ option['label'] }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Show this mockup</button>
+      </form>
+      <div class="pinterest-style-options">
+        {% for option in pinterest_styles %}
+        <a class="pinterest-style-option{% if option['key'] == selected_style %} is-selected{% endif %}" href="?style={{ option['key'] }}" aria-label="Preview {{ option['label'] }} Pinterest mockup">
+          <img src="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?style={{ option['key'] }}" alt="{{ option['label'] }} Pinterest mockup preview" loading="lazy">
+          <span><strong>{{ option["label"] }}</strong><small>{{ option["description"] }}</small></span>
+          {% if option['key'] == selected_style %}<em>Selected</em>{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+
     <div class="pinterest-bundle-layout">
       <section class="pinterest-bundle-preview section-card">
-        <div class="eyebrow">Pin image · 1000 × 1500</div>
-        <img src="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image" alt="Pinterest image preview for {{ design['name'] }}">
-        <p class="text-muted small mb-0">Uses this product’s prepared graphic and mug variant. Nothing is changed in Printify or Etsy.</p>
+        <div class="eyebrow">Selected pin · 1000 × 1500</div>
+        <img src="/designs/{{ design['id'] }}/products/{{ blueprint_key }}/pinterest/image?style={{ selected_style }}" alt="Pinterest image preview for {{ design['name'] }}">
+        <p class="text-muted small mb-0">The saved side-view mug is locked into the composition. The ad layout changes; the product artwork does not.</p>
       </section>
 
       <section class="section-card pinterest-copy-card">

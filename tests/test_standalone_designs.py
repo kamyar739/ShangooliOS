@@ -27,15 +27,18 @@ from web.standalone_designs import (
 )
 from web.product_blueprints import normalized_placement_geometry
 from web.pinterest_bundle import (
+    normalize_pinterest_style,
     pinterest_bundle_copy,
+    pinterest_style_options,
     select_printify_context_mockup,
 )
-from web.portfolio_refresh import apply_portfolio_refresh
+from web.portfolio_refresh import apply_portfolio_refresh, apply_uploaded_portfolio_refresh
 from web.mug_gallery import (
     approve_mug_gallery,
     prepare_mug_gallery,
     sync_mug_gallery_to_etsy,
     upload_mug_gallery,
+    save_product_thumbnail,
 )
 import web.standalone_designs as standalone_designs
 import web.mug_gallery as mug_gallery
@@ -421,6 +424,28 @@ class StandaloneDesignTests(unittest.TestCase):
         finally:
             mug_gallery.GALLERY_ROOT = original_root
 
+    def test_product_thumbnail_is_saved_locally_for_catalog_reuse(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        image = Image.new("RGB", (900, 1200), "white")
+        buffer = BytesIO()
+        image.save(buffer, "JPEG")
+        original_root = mug_gallery.GALLERY_ROOT
+        mug_gallery.GALLERY_ROOT = self.root / "galleries"
+        try:
+            filename = save_product_thumbnail(
+                design_id,
+                "mug_11oz_black_accent",
+                buffer.getvalue(),
+                "right-side.jpg",
+            )
+            product = db.get_standalone_design(
+                design_id, "mug_11oz_black_accent"
+            )
+            self.assertEqual(product["product_thumbnail_filename"], filename)
+            self.assertTrue((mug_gallery.GALLERY_ROOT / filename).is_file())
+        finally:
+            mug_gallery.GALLERY_ROOT = original_root
+
     def test_connected_product_copy_can_be_corrected_without_changing_setup(self):
         design_id = self._create_design()
         db.update_standalone_design(
@@ -799,7 +824,7 @@ class StandaloneDesignTests(unittest.TestCase):
         )
         page = self.client.get(f"/designs/{design_id}")
         self.assertEqual(page.status_code, 200)
-        self.assertIn("Launch both mugs", page.text)
+        self.assertIn("Launch Black Accent mug", page.text)
         self.assertIn("Designs", self.client.get("/designs").text)
 
     def test_quick_text_design_creates_transparent_normal_design(self):
@@ -834,15 +859,15 @@ class StandaloneDesignTests(unittest.TestCase):
         products = db.list_standalone_design_products(design_id)
         self.assertEqual(
             {product["product_type"] for product in products},
-            {"mug_11oz", "mug_11oz_black_accent"},
+            {"mug_11oz_black_accent"},
         )
         self.assertTrue(
             all(product["placement_mode"] == "front" for product in products)
         )
         launch = self.client.get(response.headers["location"])
         self.assertEqual(launch.status_code, 200)
-        self.assertIn("Launch both mugs", launch.text)
-        self.assertIn("Create Both Mug Drafts", launch.text)
+        self.assertIn("Launch Black Accent mug", launch.text)
+        self.assertIn("Create Mug Draft", launch.text)
         with Image.open(self.assets_path / design["source_filename"]) as image:
             self.assertEqual(image.getchannel("A").getextrema(), (0, 255))
 
@@ -932,9 +957,14 @@ class StandaloneDesignTests(unittest.TestCase):
 
     def test_designs_page_offers_both_creation_paths(self):
         page = self.client.get("/designs")
-        self.assertIn("Upload finished design", page.text)
-        self.assertIn("Quick text design", page.text)
-        self.assertIn("Text ideas", page.text)
+        self.assertNotIn("Upload finished design", page.text)
+        self.assertNotIn("Quick text design", page.text)
+        self.assertIn("Update Shangooli.com", page.text)
+        collection_page = self.client.get("/designs?collection=teacher")
+        self.assertIn("Upload finished design", collection_page.text)
+        self.assertIn("Quick text design", collection_page.text)
+        self.assertIn("Pinterest launch", collection_page.text)
+        self.assertNotIn(">Text Ideas</a>", page.text)
 
     def test_text_idea_library_supports_rating_reorder_and_delete(self):
         page = self.client.get("/designs/text-ideas")
@@ -981,6 +1011,23 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertFalse(
             any(row["id"] == new_idea["id"] for row in db.list_mug_text_ideas())
         )
+        self.assertTrue(
+            any(
+                row["id"] == new_idea["id"]
+                for row in db.list_mug_text_ideas(include_deleted=True)
+            )
+        )
+        restored = self.client.post(
+            "/designs/text-ideas",
+            data={"category": "Restored Category", "text": "A fresh idea."},
+            follow_redirects=False,
+        )
+        self.assertEqual(restored.status_code, 303)
+        restored_idea = next(
+            row for row in db.list_mug_text_ideas() if row["text"] == "A fresh idea."
+        )
+        self.assertEqual(restored_idea["id"], new_idea["id"])
+        self.assertEqual(restored_idea["category"], "Restored Category")
 
     def test_design_catalog_search_filter_and_pagination(self):
         created_ids = []
@@ -997,12 +1044,13 @@ class StandaloneDesignTests(unittest.TestCase):
                     image_height=1000,
                 )
             )
-        self._save_setup(created_ids[0])
+        self._save_accent_setup(created_ids[0])
         db.set_standalone_product_state(
             created_ids[0],
             "created",
             printify_product_id="printify-design-1",
             printify_product_url="https://printify.example/product/1",
+            product_key="mug_11oz_black_accent",
         )
         self._save_accent_setup(created_ids[1])
         db.update_standalone_design(
@@ -1029,7 +1077,7 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertIn("Catalog Design 17", search.text)
         self.assertNotIn("Catalog Design 16", search.text)
         self.assertIn("biology", search.text)
-        self.assertIn("+3", search.text)
+        self.assertNotIn(">Tags<", search.text)
 
         biology = self.client.get("/designs?tag=Biology")
         self.assertEqual(biology.status_code, 200)
@@ -1042,29 +1090,410 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertNotIn("Catalog Design 01", printify.text)
 
         catalog = self.client.get("/designs")
-        self.assertIn("White Ceramic Mug", catalog.text)
         self.assertIn("Black Accent Mug 11 oz", catalog.text)
+        self.assertNotIn("White Ceramic Mug", catalog.text)
 
         accent = self.client.get(
             "/designs?product=mug_11oz_black_accent"
         )
         self.assertIn("Catalog Design 01", accent.text)
-        self.assertNotIn("Catalog Design 00", accent.text)
-
-        white = self.client.get("/designs?product=mug_11oz")
-        self.assertIn("Catalog Design 00", white.text)
-        self.assertNotIn("Catalog Design 01", white.text)
+        self.assertIn("Catalog Design 00", accent.text)
 
         no_product = self.client.get("/designs?product=none")
-        self.assertIn("Catalog Design 02", no_product.text)
+        self.assertIn("Catalog Design 25", no_product.text)
         self.assertNotIn("Catalog Design 00", no_product.text)
         self.assertNotIn("Catalog Design 01", no_product.text)
 
+    def test_mug_collection_foundation_assigns_teacher_and_filters_catalog(self):
+        teacher_id = self._create_design()
+        teacher = db.get_standalone_design(teacher_id)
+        collections = [dict(row) for row in db.list_mug_collections()]
+
+        self.assertEqual(collections[0]["code"], "TEACHER")
+        self.assertEqual(collections[0]["default_product_key"], "mug_11oz_black_accent")
+        self.assertEqual(teacher["mug_collection_id"], collections[0]["id"])
+
+        page = self.client.get("/designs?collection=teacher")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Every Collection Tells a Story", page.text)
+        self.assertIn("Teacher", page.text)
+
+        collections_page = self.client.get("/designs/collections")
+        self.assertEqual(collections_page.status_code, 200)
+        self.assertIn("Teacher Mugs", collections_page.text)
+        self.assertIn("Everyday Mugs", collections_page.text)
+        self.assertNotIn("Design Library", collections_page.text)
+        self.assertIn("Paused white mugs preserved", collections_page.text)
+
+    def test_creating_future_collection_does_not_publish_or_move_designs(self):
+        design_id = self._create_design()
+        response = self.client.post(
+            "/designs/collections",
+            data={
+                "code": "DOCTOR",
+                "name": "Doctor Mugs",
+                "profession": "Doctor",
+                "description": "Mugs for medical professionals.",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 303)
+        collections = {row["code"]: row for row in db.list_mug_collections()}
+        self.assertIn("DOCTOR", collections)
+        self.assertEqual(collections["DOCTOR"]["active_design_count"], 0)
+        self.assertEqual(
+            db.get_standalone_design(design_id)["mug_collection_id"],
+            collections["TEACHER"]["id"],
+        )
+
+    def test_doctor_ideas_are_separate_and_launch_is_resumable(self):
+        doctor_page = self.client.get("/designs/text-ideas?collection=DOCTOR")
+        self.assertEqual(doctor_page.status_code, 200)
+        self.assertIn("Doctor Mugs", doctor_page.text)
+        self.assertNotIn("I Had a Plan. Then the Bell Rang.", doctor_page.text)
+
+        first = db.create_mug_text_idea(
+            "Doctor Humor", "Trust Me, I Read the Chart.", "DOCTOR"
+        )
+        second = db.create_mug_text_idea(
+            "Doctor Humor", "Powered by Rounds and Coffee.", "DOCTOR"
+        )
+        response = self.client.post(
+            "/designs/text-ideas/launch",
+            data={
+                "collection": "DOCTOR",
+                "target_count": "2",
+                "idea_ids": [str(first), str(second)],
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/designs/collections/DOCTOR/launch")
+
+        launch_page = self.client.get(response.headers["location"])
+        self.assertEqual(launch_page.status_code, 200)
+        self.assertIn("Launch Doctor Mugs", launch_page.text)
+        self.assertIn("Trust Me, I Read the Chart.", launch_page.text)
+        self.assertIn("Nothing external has been created", launch_page.text)
+
+        launch, items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(launch["current_step"], "artwork")
+        self.assertEqual(len(items), 2)
+
+    def test_collection_launch_artwork_format_is_saved_per_mug(self):
+        idea_id = db.create_mug_text_idea(
+            "Doctor Humor", "Powered by Rounds and Coffee.", "DOCTOR"
+        )
+        db.lock_mug_collection_launch_ideas("DOCTOR", [idea_id], 1)
+        _, items = db.get_mug_collection_launch("DOCTOR")
+        item_id = items[0]["id"]
+        self.assertEqual(items[0]["artwork_mode"], "text_only")
+
+        for artwork_mode, label in (
+            ("text_graphics", "Text + Accent Graphics"),
+            ("graphic_only", "Graphic Only"),
+            ("text_only", "Text Only"),
+        ):
+            response = self.client.post(
+                "/designs/collections/DOCTOR/launch/artwork-mode",
+                data={"item_id": str(item_id), "artwork_mode": artwork_mode},
+                follow_redirects=False,
+            )
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(
+                response.headers["location"],
+                f"/designs/collections/DOCTOR/launch#artwork-{item_id}",
+            )
+            _, refreshed_items = db.get_mug_collection_launch("DOCTOR")
+            self.assertEqual(refreshed_items[0]["artwork_mode"], artwork_mode)
+            page = self.client.get("/designs/collections/DOCTOR/launch")
+            self.assertIn(label, page.text)
+
+        invalid = self.client.post(
+            "/designs/collections/DOCTOR/launch/artwork-mode",
+            data={"item_id": str(item_id), "artwork_mode": "anything"},
+            follow_redirects=False,
+        )
+        self.assertEqual(invalid.status_code, 400)
+        _, unchanged_items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(unchanged_items[0]["artwork_mode"], "text_only")
+
+        approval_page = self.client.get("/designs/collections/DOCTOR/launch")
+        self.assertIn("Approve choice and continue", approval_page.text)
+        self.assertEqual(approval_page.text.count("Artwork option "), 6)
+        line_breaks = self.client.post(
+            "/designs/collections/DOCTOR/launch/artwork-message",
+            data={
+                "item_id": str(item_id),
+                "artwork_message": "Powered by\nRounds and\nCoffee.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(line_breaks.status_code, 303)
+        _, relaid_items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(
+            relaid_items[0]["artwork_message"],
+            "Powered by\nRounds and\nCoffee.",
+        )
+        refreshed_choices = self.client.get("/designs/collections/DOCTOR/launch")
+        self.assertIn("Powered by\nRounds and\nCoffee.", refreshed_choices.text)
+        revised_phrase = self.client.post(
+            "/designs/collections/DOCTOR/launch/artwork-message",
+            data={
+                "item_id": str(item_id),
+                "artwork_message": "Rounds first.\nCoffee immediately after.",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(revised_phrase.status_code, 303)
+        _, revised_items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(
+            revised_items[0]["message"],
+            "Rounds first. Coffee immediately after.",
+        )
+        self.assertEqual(
+            revised_items[0]["artwork_message"],
+            "Rounds first.\nCoffee immediately after.",
+        )
+        original_idea = next(
+            row for row in db.list_mug_text_ideas("DOCTOR") if row["id"] == idea_id
+        )
+        self.assertEqual(original_idea["text"], "Powered by Rounds and Coffee.")
+        approved = self.client.post(
+            "/designs/collections/DOCTOR/launch/artwork-approve",
+            data={"item_id": str(item_id), "style_variant": "2"},
+            follow_redirects=False,
+        )
+        self.assertEqual(approved.status_code, 303)
+        launch, approved_items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(launch["current_step"], "printify")
+        self.assertEqual(approved_items[0]["artwork_state"], "approved")
+        self.assertEqual(approved_items[0]["artwork_style_variant"], 2)
+        self.assertTrue(approved_items[0]["artwork_filename"])
+        design = db.get_standalone_design(
+            approved_items[0]["standalone_design_id"],
+            "mug_11oz_black_accent",
+        )
+        self.assertEqual(
+            db.get_mug_collection_profile_for_design(design["id"])["code"],
+            "DOCTOR",
+        )
+        self.assertIsNotNone(design["product_id"])
+        completed_page = self.client.get("/designs/collections/DOCTOR/launch")
+        self.assertIn("All 1 artworks are approved.", completed_page.text)
+        self.assertIn("Printify drafts and placement", completed_page.text)
+        self.assertIn("Ready", completed_page.text)
+        self.assertIn("Reopen artwork", completed_page.text)
+
+        original_design_id = approved_items[0]["standalone_design_id"]
+        original_filename = approved_items[0]["artwork_filename"]
+        reopened = self.client.post(
+            "/designs/collections/DOCTOR/launch/artwork-reopen",
+            data={"item_id": str(item_id)},
+            follow_redirects=False,
+        )
+        self.assertEqual(reopened.status_code, 303)
+        launch, reopened_items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(launch["current_step"], "artwork")
+        self.assertEqual(reopened_items[0]["artwork_state"], "waiting")
+        self.client.post(
+            "/designs/collections/DOCTOR/launch/artwork-message",
+            data={
+                "item_id": str(item_id),
+                "artwork_message": "Revised before\nPrintify begins.",
+            },
+            follow_redirects=False,
+        )
+        reapproved = self.client.post(
+            "/designs/collections/DOCTOR/launch/artwork-approve",
+            data={"item_id": str(item_id), "style_variant": "4"},
+            follow_redirects=False,
+        )
+        self.assertEqual(reapproved.status_code, 303)
+        launch, reapproved_items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(launch["current_step"], "printify")
+        self.assertEqual(
+            reapproved_items[0]["standalone_design_id"], original_design_id
+        )
+        self.assertNotEqual(
+            reapproved_items[0]["artwork_filename"], original_filename
+        )
+        revised_design = db.get_standalone_design(
+            original_design_id, "mug_11oz_black_accent"
+        )
+        self.assertEqual(revised_design["message"], "Revised before Printify begins.")
+        self.assertEqual(
+            revised_design["production_asset_filename"],
+            reapproved_items[0]["artwork_filename"],
+        )
+
+        def create_fake_launch_draft(design_id, **kwargs):
+            db.set_standalone_product_state(
+                design_id,
+                "created",
+                "Unpublished mug draft created in Printify.",
+                product_key="mug_11oz_black_accent",
+                printify_product_id="doctor-draft-1",
+                printify_product_url="https://printify.example/doctor-draft-1",
+            )
+            return {
+                "outcome": "created",
+                "message": "Unpublished mug draft created in Printify.",
+                "product_url": "https://printify.example/doctor-draft-1",
+            }
+
+        with patch(
+            "web.app.create_mug_draft", side_effect=create_fake_launch_draft
+        ) as create_draft:
+            draft = self.client.post(
+                "/designs/collections/DOCTOR/launch/printify-draft",
+                data={"item_id": str(item_id), "confirmed": "true"},
+                follow_redirects=False,
+            )
+        self.assertEqual(draft.status_code, 303)
+        create_draft.assert_called_once()
+        _, draft_items = db.get_mug_collection_launch("DOCTOR")
+        self.assertEqual(draft_items[0]["printify_state"], "draft_created")
+        self.assertEqual(draft_items[0]["placement_state"], "needs_review")
+        printify_page = self.client.get("/designs/collections/DOCTOR/launch")
+        self.assertIn("Open draft in Printify", printify_page.text)
+        self.assertIn("https://printify.example/doctor-draft-1", printify_page.text)
+
+    def test_doctor_candidate_generator_creates_fifty_reviewable_ideas(self):
+        response = self.client.post(
+            "/designs/text-ideas/generate",
+            data={"collection": "DOCTOR", "count": "50"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("generated=50", response.headers["location"])
+        doctor_ideas = db.list_mug_text_ideas("DOCTOR")
+        self.assertEqual(len(doctor_ideas), 50)
+        self.assertTrue(all(row["mug_collection_code"] == "DOCTOR" for row in doctor_ideas))
+        normalized_texts = {" ".join(row["text"].lower().split()) for row in doctor_ideas}
+        self.assertEqual(len(normalized_texts), 50)
+        self.assertNotIn("Doctor Appreciation", {row["category"] for row in doctor_ideas})
+        self.assertNotIn("Medical Team", {row["category"] for row in doctor_ideas})
+
+        repeated = self.client.post(
+            "/designs/text-ideas/generate",
+            data={"collection": "DOCTOR", "count": "50"},
+            follow_redirects=False,
+        )
+        self.assertIn("generated=50", repeated.headers["location"])
+        doctor_ideas = db.list_mug_text_ideas("DOCTOR")
+        self.assertEqual(len(doctor_ideas), 100)
+        self.assertEqual(
+            len({" ".join(row["text"].lower().split()) for row in doctor_ideas}),
+            100,
+        )
+        self.assertTrue(
+            all(row["category"] == "Double-Take Wit" for row in doctor_ideas[50:])
+        )
+        deleted_text = doctor_ideas[0]["text"]
+        db.delete_mug_text_idea(doctor_ideas[0]["id"])
+        third_batch = self.client.post(
+            "/designs/text-ideas/generate",
+            data={"collection": "DOCTOR", "count": "50"},
+            follow_redirects=False,
+        )
+        self.assertIn("generated=50", third_batch.headers["location"])
+        visible_texts = {row["text"] for row in db.list_mug_text_ideas("DOCTOR")}
+        self.assertEqual(len(visible_texts), 149)
+        self.assertNotIn(deleted_text, visible_texts)
+
+        collection_home = self.client.get(
+            "/designs/collections/DOCTOR", follow_redirects=False
+        )
+        self.assertEqual(collection_home.status_code, 303)
+        self.assertEqual(
+            collection_home.headers["location"],
+            "/designs?collection=doctor",
+        )
+        returned_page = self.client.get(collection_home.headers["location"])
+        self.assertIn("Powered by Rounds and Coffee.", returned_page.text)
+        self.assertIn("Future potentials", returned_page.text)
+        self.assertIn("Doctor Mugs", returned_page.text)
+
+        ideas_page = self.client.get("/designs/text-ideas?collection=DOCTOR")
+        self.assertIn('id="idea-total-count">149 ideas', ideas_page.text)
+
+    def test_doctor_candidate_can_be_edited_without_moving_or_resetting_it(self):
+        idea_id = db.create_mug_text_idea(
+            "Doctor Reality", "Powered by Rounds and Coffee.", "DOCTOR"
+        )
+        db.rate_mug_text_idea(idea_id, 4)
+
+        response = self.client.post(
+            f"/designs/text-ideas/{idea_id}/edit",
+            data={
+                "collection": "DOCTOR",
+                "category": "  Doctor Humor  ",
+                "text": "  Powered by Rounds, Coffee, and Good Notes.  ",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            "/designs/text-ideas?collection=DOCTOR&updated=1",
+        )
+        edited = [row for row in db.list_mug_text_ideas("DOCTOR") if row["id"] == idea_id][0]
+        self.assertEqual(edited["category"], "Doctor Humor")
+        self.assertEqual(edited["text"], "Powered by Rounds, Coffee, and Good Notes.")
+        self.assertEqual(edited["rating"], 4)
+        self.assertFalse(any(row["id"] == idea_id for row in db.list_mug_text_ideas("TEACHER")))
+
+        page = self.client.get(response.headers["location"])
+        self.assertIn("Text idea updated.", page.text)
+        self.assertIn("Save changes", page.text)
+
+    def test_design_catalog_pinterest_rating_and_manual_order(self):
+        first_id = self._create_design()
+        self._save_accent_setup(first_id)
+        second_id = db.create_standalone_design(
+            name="Second Rated Design",
+            message="Second",
+            description="Pinterest rating test",
+            tags="teacher",
+            source_filename="second.png",
+            source_original_filename="second.png",
+            image_width=2400,
+            image_height=1000,
+        )
+        self._save_accent_setup(second_id)
+
+        rated = self.client.post(
+            f"/designs/{first_id}/products/mug_11oz_black_accent/pinterest-rating",
+            data={"rating": "3"},
+            follow_redirects=False,
+        )
+        self.assertEqual(rated.status_code, 303)
+        products = {
+            row["design_id"]: row for row in db.list_standalone_product_summaries()
+        }
+        self.assertEqual(products[first_id]["pinterest_ad_rating"], 3)
+
+        reordered = self.client.post(
+            "/designs/reorder", json={"ids": [second_id, first_id]}
+        )
+        self.assertEqual(reordered.status_code, 200)
+        ordered_ids = [row["id"] for row in db.list_standalone_designs()]
+        self.assertEqual(ordered_ids[:2], [second_id, first_id])
+
+        sorted_page = self.client.get("/designs?sort=pinterest_desc")
+        self.assertLess(
+            sorted_page.text.index("Every Collection Tells a Story"),
+            sorted_page.text.index("Second Rated Design"),
+        )
+
     def test_design_catalog_filters_products_needing_etsy_sync(self):
         needs_sync_id = self._create_design()
-        self._save_setup(needs_sync_id)
+        self._save_accent_setup(needs_sync_id)
         db.record_standalone_marketplace_status(
             needs_sync_id,
+            product_key="mug_11oz_black_accent",
             etsy_listing_id="4546000001",
             etsy_state="active",
             paused=False,
@@ -1079,14 +1508,17 @@ class StandaloneDesignTests(unittest.TestCase):
             image_width=2400,
             image_height=1000,
         )
-        self._save_setup(synced_id)
+        self._save_accent_setup(synced_id)
         db.record_standalone_marketplace_status(
             synced_id,
+            product_key="mug_11oz_black_accent",
             etsy_listing_id="4546000002",
             etsy_state="active",
             paused=False,
         )
-        db.mark_standalone_etsy_synced(synced_id)
+        db.mark_standalone_etsy_synced(
+            synced_id, product_key="mug_11oz_black_accent"
+        )
 
         page = self.client.get("/designs?status=etsy_sync")
 
@@ -1624,18 +2056,16 @@ class StandaloneDesignTests(unittest.TestCase):
         response = self.client.get(f"/designs/{design_id}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('id="product-mug_11oz"', response.text)
+        self.assertNotIn('id="product-mug_11oz"', response.text)
         self.assertIn(
             'id="product-mug_11oz_black_accent"', response.text
         )
-        self.assertIn(
-            'name="product_key" value="mug_11oz"', response.text
-        )
+        self.assertNotIn('name="product_key" value="mug_11oz"', response.text)
         self.assertIn(
             'name="product_key" value="mug_11oz_black_accent"',
             response.text,
         )
-        self.assertEqual(response.text.count("Check status"), 2)
+        self.assertEqual(response.text.count("Check status"), 1)
         self.assertEqual(response.text.count("Archive design"), 1)
 
     def test_pinterest_bundle_is_product_specific_and_read_only(self):
@@ -1671,13 +2101,146 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertEqual(accent.status_code, 200)
         self.assertIn("White Ceramic Mug", white.text)
         self.assertIn("Black Accent Mug 11 oz", accent.text)
-        self.assertIn("https://www.etsy.com/listing/1111111111", white.text)
-        self.assertIn("https://www.etsy.com/listing/2222222222", accent.text)
+        self.assertIn(
+            "https://shangooli.com/mugs/every-collection-tells-a-story",
+            white.text,
+        )
+        self.assertIn(
+            "https://shangooli.com/mugs/every-collection-tells-a-story",
+            accent.text,
+        )
         self.assertIn("Publish this Pin", accent.text)
+        self.assertIn("Six ready-to-use classroom scenes", accent.text)
+        self.assertIn("High-school classroom", accent.text)
+        self.assertIn("Kindergarten art", accent.text)
+        self.assertIn("Kindergarten reading", accent.text)
+        self.assertIn("Kindergarten learning", accent.text)
         self.assertEqual(
             before,
             [dict(row) for row in db.list_standalone_design_products(design_id)],
         )
+
+    def test_pinterest_full_launch_reviews_only_live_unpaused_products(self):
+        design_id = self._create_design()
+        self._save_setup(design_id)
+        self._save_accent_setup(design_id)
+        db.record_standalone_marketplace_status(
+            design_id,
+            product_key="mug_11oz",
+            etsy_listing_id="1111111111",
+            etsy_listing_url="https://www.etsy.com/listing/1111111111",
+            etsy_state="inactive",
+            paused=True,
+        )
+        db.record_standalone_marketplace_status(
+            design_id,
+            product_key="mug_11oz_black_accent",
+            etsy_listing_id="2222222222",
+            etsy_listing_url="https://www.etsy.com/listing/2222222222",
+            etsy_state="active",
+            paused=False,
+        )
+
+        page = self.client.get("/designs/pinterest-launch?collection=TEACHER")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Pinterest Launch", page.text)
+        self.assertIn("1 active Etsy mugs", page.text)
+        self.assertIn("Black Accent Mug 11 oz", page.text)
+        self.assertNotIn("White Ceramic Mug", page.text)
+
+    def test_doctor_pinterest_launch_uses_only_medical_office_scenes(self):
+        options = pinterest_style_options("DOCTOR")
+
+        self.assertEqual(len(options), 6)
+        self.assertTrue(all(item["key"].startswith("doctor_") for item in options))
+        self.assertEqual(
+            normalize_pinterest_style("doctor_exam_room", "DOCTOR"),
+            "doctor_exam_room",
+        )
+        with self.assertRaises(ValueError):
+            normalize_pinterest_style("classroom_story", "DOCTOR")
+
+    def test_pinterest_full_launch_saves_review_and_exports_official_columns(self):
+        design_id = self._create_design()
+        self._save_accent_setup(design_id)
+        db.record_standalone_marketplace_status(
+            design_id,
+            product_key="mug_11oz_black_accent",
+            etsy_listing_id="2222222222",
+            etsy_listing_url="https://www.etsy.com/listing/2222222222",
+            etsy_state="active",
+            paused=False,
+        )
+        saved = self.client.post(
+            f"/designs/pinterest-launch/item/{design_id}/mug_11oz_black_accent",
+            data={"style": "kindergarten_art", "approved": "1", "collection": "TEACHER"},
+            follow_redirects=False,
+        )
+        self.assertEqual(saved.status_code, 303)
+        state = db.list_pinterest_launch_states()[0]
+        self.assertEqual(state["selected_style"], "kindergarten_art")
+        self.assertEqual(state["approved"], 1)
+
+        export = self.client.get(
+            "/designs/pinterest-launch/export.csv?collection=TEACHER&start_date=2026-08-20&pins_per_day=2"
+        )
+        text = export.content.decode("utf-8-sig")
+        self.assertEqual(export.status_code, 200)
+        self.assertIn(
+            "Title,Media URL,Pinterest board,Thumbnail,Description,Link,Publish date,Keywords",
+            text,
+        )
+        self.assertIn("https://shangooli.com/images/pinterest-launch/", text)
+        self.assertIn("https://shangooli.com/mugs/every-collection-tells-a-story", text)
+        self.assertIn("2026-08-20", text)
+
+    def test_pinterest_full_launch_can_schedule_every_pin_at_once(self):
+        items = [
+            {
+                "approved": True,
+                "filename": f"pin-{number}.png",
+                "bundle": {
+                    "title": f"Pin {number}",
+                    "board": "Teacher Gift Ideas",
+                    "description": "Teacher mug",
+                    "link": f"https://shangooli.com/mugs/pin-{number}",
+                    "topics": ["Teacher gifts", "Coffee mugs"],
+                },
+            }
+            for number in range(3)
+        ]
+        from web.pinterest_launch import launch_csv
+
+        content = launch_csv(
+            items, start_date="2026-08-20", pins_per_day=0
+        ).decode("utf-8-sig")
+
+        self.assertEqual(content.count("2026-08-20"), 3)
+        self.assertNotIn("2026-08-21", content)
+
+    def test_pinterest_launch_verifies_public_images_before_download(self):
+        with patch(
+            "web.app.verify_public_pin_urls",
+            return_value={
+                "checked_count": 20,
+                "verified_count": 20,
+                "failed_urls": [],
+            },
+        ):
+            response = self.client.post(
+                "/designs/pinterest-launch/verify-public",
+                data={
+                    "collection": "DOCTOR",
+                    "start_date": "2026-08-20",
+                    "pins_per_day": "0",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("public_verified=1", response.headers["location"])
+        self.assertIn("verified_count=20", response.headers["location"])
 
     def test_pinterest_bundle_image_is_downloadable_1000_by_1500_png(self):
         design_id = self._create_design()
@@ -1702,6 +2265,28 @@ class StandaloneDesignTests(unittest.TestCase):
         with Image.open(BytesIO(response.content)) as image:
             self.assertEqual(image.size, (1000, 1500))
 
+        for style in (
+            "classroom_story",
+            "elementary_classroom",
+            "middle_school_science",
+            "kindergarten_art",
+            "kindergarten_reading",
+            "kindergarten_learning",
+        ):
+            styled = self.client.get(
+                f"/designs/{design_id}/products/mug_11oz_black_accent/"
+                f"pinterest/image?style={style}"
+            )
+            self.assertEqual(styled.status_code, 200)
+            with Image.open(BytesIO(styled.content)) as image:
+                self.assertEqual(image.size, (1000, 1500))
+
+        invalid = self.client.get(
+            f"/designs/{design_id}/products/mug_11oz_black_accent/"
+            "pinterest/image?style=unsupported"
+        )
+        self.assertEqual(invalid.status_code, 400)
+
     def test_pinterest_bundle_prefers_exact_product_context_mockup(self):
         product = {
             "images": [
@@ -1719,6 +2304,13 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertEqual(
             select_printify_context_mockup(product),
             "https://images.printify.com/context.jpg?camera_label=context",
+        )
+
+        from web.pinterest_bundle import select_printify_camera_mockup
+
+        self.assertEqual(
+            select_printify_camera_mockup(product, "front"),
+            "https://images.printify.com/front.jpg?camera_label=front",
         )
 
     def test_pinterest_bundle_requires_linked_etsy_product(self):
@@ -1756,7 +2348,10 @@ class StandaloneDesignTests(unittest.TestCase):
 
         self.assertEqual(bundle["board"], "Teacher Gift Ideas")
         self.assertEqual(bundle["topics"], ["Teacher gifts", "Biology", "Coffee mugs"])
-        self.assertEqual(bundle["link"], "https://www.etsy.com/listing/1111111111")
+        self.assertEqual(
+            bundle["link"],
+            "https://shangooli.com/mugs/i-teach-the-thinkers-of-tomorrow",
+        )
         self.assertIn("white ceramic mug", bundle["alt_text"].lower())
 
     def test_accent_marketplace_actions_do_not_change_white_mug(self):
@@ -1941,10 +2536,35 @@ class StandaloneDesignTests(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertEqual(preview.status_code, 200)
-        self.assertIn("White Ceramic Mug", preview.text)
+        self.assertNotIn("White Ceramic Mug", preview.text)
         self.assertIn("Black Accent Mug 11 oz", preview.text)
+        self.assertIn("Choose your favorite design", preview.text)
+        self.assertEqual(preview.text.count('name="style_variant"'), 6)
         self.assertEqual(before, after)
         update.assert_not_called()
+
+    def test_quick_text_style_variants_are_distinct(self):
+        variants = {
+            render_quick_text_design("Small steps shape bright futures.", style_variant=index)
+            for index in range(6)
+        }
+        self.assertEqual(len(variants), 6)
+
+    def test_three_line_quick_text_variants_render_with_room_between_lines(self):
+        rendered = render_quick_text_design(
+            "Please save your\nbest excuse\nfor Friday", style_variant=0
+        )
+        with Image.open(BytesIO(rendered)) as image:
+            self.assertEqual(image.size, (2400, 2400))
+            self.assertEqual(image.mode, "RGBA")
+
+    def test_two_line_quick_text_variants_render_with_room_between_lines(self):
+        rendered = render_quick_text_design(
+            "Variables\nBuild Character", style_variant=0
+        )
+        with Image.open(BytesIO(rendered)) as image:
+            self.assertEqual(image.size, (2400, 2400))
+            self.assertEqual(image.mode, "RGBA")
 
     def test_portfolio_refresh_requires_explicit_confirmation(self):
         design_id = self._create_refreshable_portfolio_slot()
@@ -1968,9 +2588,9 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertIn("Refresh complete", page.text)
         self.assertIn("Start another refresh", page.text)
         self.assertIn('name="message"', page.text)
-        self.assertIn("Review the Etsy listings", page.text)
+        self.assertIn("Review the Etsy listing", page.text)
 
-    def test_portfolio_refresh_updates_both_slots_without_replacing_ids_or_setup(self):
+    def test_portfolio_refresh_updates_only_active_slot_without_replacing_history(self):
         design_id = self._create_refreshable_portfolio_slot()
         before = {
             row["product_type"]: dict(row)
@@ -1993,12 +2613,8 @@ class StandaloneDesignTests(unittest.TestCase):
             for row in db.list_standalone_design_products(design_id)
         }
 
-        self.assertEqual([item["outcome"] for item in results], ["updated", "updated"])
-        self.assertEqual(
-            {item[2] for item in calls},
-            {"mug_11oz", "mug_11oz_black_accent"},
-        )
-        self.assertEqual(calls[0][3], calls[1][3])
+        self.assertEqual([item["outcome"] for item in results], ["updated"])
+        self.assertEqual({item[2] for item in calls}, {"mug_11oz_black_accent"})
         for key in before:
             self.assertEqual(
                 after[key]["printify_product_id"], before[key]["printify_product_id"]
@@ -2007,11 +2623,56 @@ class StandaloneDesignTests(unittest.TestCase):
             self.assertEqual(after[key]["placement_x"], before[key]["placement_x"])
             self.assertEqual(after[key]["placement_y"], before[key]["placement_y"])
             self.assertEqual(after[key]["placement_scale"], before[key]["placement_scale"])
-            self.assertEqual(after[key]["production_asset_filename"], calls[0][3])
+        self.assertEqual(
+            after["mug_11oz"]["production_asset_filename"],
+            before["mug_11oz"]["production_asset_filename"],
+        )
+        self.assertEqual(
+            after["mug_11oz_black_accent"]["production_asset_filename"],
+            calls[0][3],
+        )
         self.assertEqual(
             db.get_standalone_design(design_id)["refresh_state"],
             "awaiting_printify",
         )
+
+    def test_uploaded_portfolio_refresh_updates_only_active_product_slot(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        before = {
+            row["product_type"]: dict(row)
+            for row in db.list_standalone_design_products(design_id)
+        }
+        image = Image.new("RGBA", (1200, 1200), (255, 255, 255, 0))
+        buffer = BytesIO()
+        image.save(buffer, "PNG")
+        calls = []
+
+        def update(design_id, *, confirmed, blueprint_key, source_filename):
+            calls.append((blueprint_key, source_filename))
+            return {"outcome": "updated", "message": "updated"}
+
+        results = apply_uploaded_portfolio_refresh(
+            design_id,
+            "My uploaded message",
+            buffer.getvalue(),
+            "finished-graphic.png",
+            confirmed=True,
+            update_printify=update,
+        )
+        after = {
+            row["product_type"]: dict(row)
+            for row in db.list_standalone_design_products(design_id)
+        }
+
+        self.assertEqual([item["outcome"] for item in results], ["updated"])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "mug_11oz_black_accent")
+        for key in before:
+            self.assertEqual(after[key]["printify_product_id"], before[key]["printify_product_id"])
+            self.assertEqual(after[key]["price_cents"], before[key]["price_cents"])
+            self.assertEqual(after[key]["placement_x"], before[key]["placement_x"])
+            self.assertEqual(after[key]["placement_y"], before[key]["placement_y"])
+            self.assertEqual(after[key]["placement_scale"], before[key]["placement_scale"])
 
     def test_portfolio_refresh_failure_keeps_that_products_previous_asset(self):
         design_id = self._create_refreshable_portfolio_slot()
@@ -2021,9 +2682,7 @@ class StandaloneDesignTests(unittest.TestCase):
         }
 
         def update(design_id, *, confirmed, blueprint_key, source_filename):
-            if blueprint_key == "mug_11oz":
-                return {"outcome": "failed", "message": "Printify rejected update"}
-            return {"outcome": "updated", "message": "updated"}
+            return {"outcome": "failed", "message": "Printify rejected update"}
 
         results = apply_portfolio_refresh(
             design_id,
@@ -2037,12 +2696,11 @@ class StandaloneDesignTests(unittest.TestCase):
         }
 
         self.assertEqual(results[0]["outcome"], "failed")
-        self.assertEqual(results[1]["outcome"], "updated")
         self.assertEqual(
             products["mug_11oz"]["production_asset_filename"],
             old_assets["mug_11oz"],
         )
-        self.assertNotEqual(
+        self.assertEqual(
             products["mug_11oz_black_accent"]["production_asset_filename"],
             old_assets["mug_11oz_black_accent"],
         )

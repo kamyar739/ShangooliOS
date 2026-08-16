@@ -79,6 +79,10 @@ PRODUCT_BLUEPRINTS = {
 }
 
 
+# White mugs remain supported for historical records, but are retired from all
+# new catalog work. Collections inherit this active default unless explicitly
+# given a different product profile later.
+ACTIVE_MUG_BLUEPRINT_KEYS = ("mug_11oz_black_accent",)
 DEFAULT_MUG_BLUEPRINT_KEY = "mug_11oz"
 
 
@@ -90,11 +94,12 @@ def get_product_blueprint(product_key: str | None):
         raise ValueError("Choose a supported product") from error
 
 
-def mug_blueprints():
+def mug_blueprints(*, include_retired=True):
     return [
         {"key": key, **profile}
         for key, profile in PRODUCT_BLUEPRINTS.items()
         if profile["family"] == "mugs"
+        and (include_retired or key in ACTIVE_MUG_BLUEPRINT_KEYS)
     ]
 
 

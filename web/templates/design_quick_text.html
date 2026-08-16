@@ -5,10 +5,10 @@
   {% set dashboard_sidebar_active = "designs" %}
   {% include "components/dashboard_sidebar.html" %}
   <main class="workflow-stage-content">
-    <a class="workflow-back-link mb-3" href="/designs">← Back to Designs</a>
+    <a class="workflow-back-link mb-3" href="/designs{% if selected_collection %}?collection={{ selected_collection.code|lower }}{% endif %}">← Back to {% if selected_collection %}{{ selected_collection.name }}{% else %}Designs{% endif %}</a>
     <div class="page-header mb-4">
       <div>
-        <div class="eyebrow">Fast design</div>
+        <div class="eyebrow">Fast design{% if selected_collection %} · {{ selected_collection.name }}{% endif %}</div>
         <h1 class="display-6 fw-bold">Quick Text Design</h1>
         <p class="text-muted mb-0">Enter one message. ShangooliOS creates the transparent graphic and prepares its details.</p>
       </div>
@@ -16,9 +16,17 @@
 
     <form class="quick-text-workflow" method="post" action="/designs/quick-text" data-long-operation data-wait-stages="Rendering transparent graphic|Preparing design details|Saving new design">
       <section class="quick-text-entry section-card compact-section-card">
+        <div class="manual-design-collection">
+          <label class="form-label" for="quick-text-collection">Mug collection</label>
+          <select class="form-select" id="quick-text-collection" name="collection" required>
+            <option value=""{% if not selected_collection %} selected{% endif %} disabled>Choose a collection</option>
+            {% for mug_collection in mug_collections %}<option value="{{ mug_collection.code }}"{% if selected_collection and selected_collection.code == mug_collection.code %} selected{% endif %}>{{ mug_collection.name }}</option>{% endfor %}
+          </select>
+          <small>The design and its product will stay inside this collection.</small>
+        </div>
         <div class="eyebrow">Your message</div>
         <h2 class="h4">What should the mug say?</h2>
-        <textarea class="form-control" id="quick-text-message" name="message" rows="5" maxlength="180" required placeholder="Teaching is my superpower.&#10;Coffee is my sidekick.">{{ initial_message or '' }}</textarea>
+        <textarea class="form-control" id="quick-text-message" name="message" rows="5" maxlength="180" required placeholder="Enter the exact mug message here.">{{ initial_message or '' }}</textarea>
         <div class="form-text">Press Return where you want an intentional line break. ShangooliOS automatically fits up to four lines.</div>
         <div class="quick-text-benefits">
           <span>✓ Transparent PNG</span>
@@ -31,7 +39,7 @@
       <section class="quick-text-preview-card">
         <div class="eyebrow">Live preview</div>
         <div class="quick-text-preview transparency-grid">
-          <div id="quick-text-preview"><span>Teaching is my <em>superpower.</em></span><span>Coffee is my <em>sidekick.</em></span></div>
+          <div id="quick-text-preview"><span>Your mug message <em>here.</em></span></div>
         </div>
         <p class="small text-muted mb-0">Approximate browser preview. The saved PNG is rendered at 3200 × 1312 px.</p>
       </section>
@@ -45,7 +53,7 @@
   if (!input || !preview) return;
   const render = () => {
     const value = input.value.trim();
-    const lines = value ? value.split(/\n+/).map(line => line.trim()).filter(Boolean) : ['Teaching is my superpower.', 'Coffee is my sidekick.'];
+    const lines = value ? value.split(/\n+/).map(line => line.trim()).filter(Boolean) : ['Your mug message here.'];
     preview.replaceChildren(...lines.slice(0, 4).map(line => {
       const words = line.split(/\s+/);
       const row = document.createElement('span');

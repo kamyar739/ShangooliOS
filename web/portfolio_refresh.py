@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 
 from web.db import (
     get_standalone_design,
+    get_mug_collection_profile_for_design,
     list_standalone_design_products,
     replace_standalone_design_source,
     set_standalone_design_refresh_state,
@@ -15,7 +16,7 @@ from web.db import (
     update_standalone_product_copy,
 )
 from web.printify_api import PrintifyAPI, PrintifyAPIError
-from web.product_blueprints import PRODUCT_BLUEPRINTS
+from web.product_blueprints import ACTIVE_MUG_BLUEPRINT_KEYS, PRODUCT_BLUEPRINTS
 from web.etsy_api import (
     delete_etsy_listing_image,
     get_etsy_listing_images,
@@ -32,23 +33,56 @@ from web.standalone_designs import (
 )
 
 
-def refresh_preview(message):
+def _metadata_for_collection(message, collection):
+    metadata = design_metadata_from_message(message)
+    profession = collection["profession"].casefold() if collection else ""
+    if profession == "general":
+        exact_message = " ".join((message or "").split())
+        metadata["description"] = (
+            f'A clean typographic mug featuring “{exact_message}.” '
+            "A distinctive everyday gift for friends, coworkers, family, or anyone "
+            "who enjoys a memorable quote."
+        )
+        metadata["tags"] = ", ".join((
+            "quote mug", "typography mug", "message mug", "unique gift",
+            "coworker gift", "friend gift", "coffee mug", "desk mug",
+            "funny mug", "everyday gift", "statement mug",
+        ))
+        return metadata
+    if profession != "doctor":
+        return metadata
+    exact_message = " ".join((message or "").split())
+    metadata["description"] = (
+        f'A clean typographic mug featuring “{exact_message}.” '
+        "A thoughtful or funny gift for doctors, physicians, medical coworkers, "
+        "residents, and healthcare professionals."
+    )
+    metadata["tags"] = ", ".join((
+        "doctor", "doctor gift", "physician gift", "medical mug",
+        "funny doctor mug", "resident gift", "healthcare gift",
+        "medical coworker", "doctor appreciation", "coffee mug",
+        "typography mug", "workplace humor", "medical professional",
+    ))
+    return metadata
+
+
+def refresh_preview(message, style_variant=None, collection=None):
     normalized = "\n".join(
         " ".join(line.split())
         for line in str(message or "").splitlines()
         if line.strip()
     ).strip()
-    image = render_quick_text_design(normalized)
+    image = render_quick_text_design(normalized, style_variant=style_variant)
     return {
         "message": normalized,
-        "metadata": design_metadata_from_message(normalized),
+        "metadata": _metadata_for_collection(normalized, collection),
         "image": image,
     }
 
 
 def refresh_eligibility(design_id):
     products = list_standalone_design_products(design_id)
-    supported = set(PRODUCT_BLUEPRINTS)
+    supported = set(ACTIVE_MUG_BLUEPRINT_KEYS)
     eligible = [item for item in products if item["product_type"] in supported]
     blockers = []
     for product in eligible:
@@ -65,14 +99,14 @@ def refresh_eligibility(design_id):
             blockers.append(
                 f"{PRODUCT_BLUEPRINTS[product['product_type']]['label']} has an unresolved operation."
             )
-    if len(eligible) < 2:
-        blockers.append(
-            "Portfolio Refresh requires the existing white and Black Accent mug products."
-        )
+    if not eligible:
+        blockers.append("Portfolio Refresh requires the active Black Accent mug product.")
     return {"products": eligible, "blockers": blockers}
 
 
-def apply_portfolio_refresh(design_id, message, *, confirmed, update_printify=None):
+def apply_portfolio_refresh(
+    design_id, message, *, confirmed, style_variant=None, update_printify=None
+):
     """Adopt one generated design and update each existing product independently."""
     if not confirmed:
         raise ValueError("Confirm the Portfolio Refresh")
@@ -82,9 +116,58 @@ def apply_portfolio_refresh(design_id, message, *, confirmed, update_printify=No
     eligibility = refresh_eligibility(design_id)
     if eligibility["blockers"]:
         raise ValueError(" ".join(eligibility["blockers"]))
-    preview = refresh_preview(message)
+    collection = get_mug_collection_profile_for_design(design_id)
+    preview = refresh_preview(
+        message, style_variant=style_variant, collection=collection
+    )
     saved = save_design_source(preview["image"], "portfolio-refresh.png")
-    metadata = preview["metadata"]
+    return _apply_saved_portfolio_refresh(
+        design_id,
+        preview["message"],
+        preview["metadata"],
+        saved,
+        eligibility,
+        update_printify=update_printify,
+    )
+
+
+def apply_uploaded_portfolio_refresh(
+    design_id,
+    message,
+    image_contents,
+    original_filename,
+    *,
+    confirmed,
+    update_printify=None,
+):
+    """Adopt a finished uploaded graphic while preserving the active product slot."""
+    if not confirmed:
+        raise ValueError("Confirm the Portfolio Refresh")
+    design = get_standalone_design(design_id)
+    if design is None:
+        raise ValueError("Design not found")
+    normalized = " ".join(str(message or "").split()).strip()
+    if not normalized:
+        raise ValueError("Enter the exact message shown in the uploaded graphic")
+    eligibility = refresh_eligibility(design_id)
+    if eligibility["blockers"]:
+        raise ValueError(" ".join(eligibility["blockers"]))
+    saved = save_design_source(image_contents, original_filename)
+    return _apply_saved_portfolio_refresh(
+        design_id,
+        normalized,
+        _metadata_for_collection(
+            normalized, get_mug_collection_profile_for_design(design_id)
+        ),
+        saved,
+        eligibility,
+        update_printify=update_printify,
+    )
+
+
+def _apply_saved_portfolio_refresh(
+    design_id, message, metadata, saved, eligibility, *, update_printify=None
+):
     replace_standalone_design_source(
         design_id,
         source_filename=saved["filename"],
@@ -95,7 +178,7 @@ def apply_portfolio_refresh(design_id, message, *, confirmed, update_printify=No
     update_standalone_design(
         design_id,
         name=metadata["name"],
-        message=preview["message"],
+        message=message,
         description=metadata["description"],
         tags=metadata["tags"],
     )
@@ -105,7 +188,7 @@ def apply_portfolio_refresh(design_id, message, *, confirmed, update_printify=No
     for product in eligibility["products"]:
         key = product["product_type"]
         try:
-            title = suggested_mug_title(preview["message"], key)
+            title = suggested_mug_title(message, key)
             description = suggested_mug_description(
                 metadata["description"], key, product["placement_mode"] or "front"
             )
@@ -139,7 +222,7 @@ def apply_portfolio_refresh(design_id, message, *, confirmed, update_printify=No
         set_standalone_design_refresh_state(
             design_id,
             "awaiting_printify",
-            "Review and publish both updated products in Printify, then return here.",
+            "Review and publish the updated product in Printify, then return here.",
         )
     return results
 
@@ -175,7 +258,7 @@ def publish_portfolio_refresh(design_id, *, confirmed, api=None):
         set_standalone_design_refresh_state(
             design_id,
             "awaiting_etsy",
-            "Printify accepted both publication requests. Check status to finish Etsy synchronization.",
+            "Printify accepted the publication request. Check status to finish Etsy synchronization.",
         )
     return results
 

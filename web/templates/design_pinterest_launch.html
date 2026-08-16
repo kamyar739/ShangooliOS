@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Pinterest Full Launch — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content pinterest-launch-page">
+    <a class="workflow-back-link mb-3" href="/designs?collection={{ selected_collection['code'] }}&amp;status=etsy">← Back to {{ selected_collection['name'] }}</a>
+    <div class="page-header pinterest-launch-header">
+      <div>
+        <div class="eyebrow">{{ selected_collection['name'] }} campaign</div>
+        <h1 class="display-6 fw-bold">Pinterest Launch</h1>
+        <p class="text-muted mb-0">Review every live mug in this collection, choose its scene, then prepare one Pinterest upload.</p>
+      </div>
+      <div class="pinterest-launch-progress"><strong>{{ approved_count }} / {{ items|length }}</strong><span>Pins approved</span></div>
+    </div>
+
+    {% if request.query_params.get("approved") %}<div class="alert alert-success">All live mug Pins are approved. You can still change any scene below.</div>{% endif %}
+    {% if request.query_params.get("prepared") %}
+    <div class="alert alert-success pinterest-launch-ready">
+      <div>
+        <strong>Your {{ approved_count }} Pinterest images and launch CSV are prepared.</strong><br>
+        {% if request.query_params.get("public_verified") == "1" %}
+        <span>ShangooliOS verified all {{ request.query_params.get('verified_count') }} public image links. Pinterest can reach them.</span>
+        {% elif request.query_params.get("public_verified") == "0" %}
+        <span>{{ request.query_params.get('verified_count') }} of {{ request.query_params.get('checked_count') }} images are public. Publish Shangooli.com, then check again.</span>
+        {% else %}
+        <span>The images are staged for Shangooli.com. Publish the website, then let ShangooliOS verify every link.</span>
+        {% endif %}
+      </div>
+      {% if request.query_params.get("public_verified") == "1" %}
+      <a class="btn btn-success" download href="/designs/pinterest-launch/export.csv?collection={{ selected_collection['code'] }}&amp;start_date={{ request.query_params.get('start_date') }}&amp;pins_per_day={{ request.query_params.get('pins_per_day', '0') }}">Download verified Pinterest CSV</a>
+      {% else %}
+      <form method="post" action="/designs/pinterest-launch/verify-public" data-long-operation data-wait-stages="Checking public Pin images|Confirming Pinterest access">
+        <input type="hidden" name="collection" value="{{ selected_collection['code'] }}">
+        <input type="hidden" name="start_date" value="{{ request.query_params.get('start_date') }}">
+        <input type="hidden" name="pins_per_day" value="{{ request.query_params.get('pins_per_day', '0') }}">
+        <button class="btn btn-success" type="submit">Verify public images</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <section class="section-card pinterest-launch-toolbar">
+      <div><strong>{{ items|length }} active Etsy mugs</strong><span>Paused products are excluded automatically.</span></div>
+      <form method="post" action="/designs/pinterest-launch/approve-all"><input type="hidden" name="collection" value="{{ selected_collection['code'] }}"><button class="btn btn-outline-primary" type="submit">Approve all {{ items|length }}</button></form>
+      <form class="pinterest-launch-prepare" method="post" action="/designs/pinterest-launch/prepare" data-long-operation data-wait-stages="Rendering approved Pins|Preparing website images|Building Pinterest schedule">
+        <input type="hidden" name="collection" value="{{ selected_collection['code'] }}">
+        <label>First publish date<input type="date" name="start_date" value="{{ request.query_params.get('start_date', '') }}" required></label>
+        <label>Publishing pace<select name="pins_per_day"><option value="0" selected>All at once</option><option value="1">1 per day</option><option value="2">2 per day</option><option value="3">3 per day</option></select></label>
+        <button class="btn btn-primary" type="submit"{% if approved_count == 0 %} disabled{% endif %}>Prepare approved launch</button>
+      </form>
+    </section>
+
+    <div class="pinterest-launch-grid">
+      {% for item in items %}
+      <article class="pinterest-launch-card{% if item['approved'] %} is-approved{% endif %}" id="launch-{{ item['design_id'] }}-{{ item['product_key'] }}">
+        <img src="/designs/{{ item['design_id'] }}/products/{{ item['product_key'] }}/pinterest/image?style={{ item['style'] }}" alt="Pinterest preview for {{ item['design']['name'] }}" loading="lazy">
+        <form method="post" action="/designs/pinterest-launch/item/{{ item['design_id'] }}/{{ item['product_key'] }}">
+          <input type="hidden" name="collection" value="{{ selected_collection['code'] }}">
+          <div class="pinterest-launch-card-title"><span>{{ loop.index }}</span><div><strong>{{ item['bundle']['message'] }}</strong><small>{{ item['bundle']['product_label'] }}</small></div></div>
+          <label>Scene
+            <select name="style" onchange="this.form.submit()">{% for option in pinterest_styles %}<option value="{{ option['key'] }}"{% if option['key'] == item['style'] %} selected{% endif %}>{{ option['label'] }}</option>{% endfor %}</select>
+          </label>
+          <input type="hidden" name="approved" value="{% if item['approved'] %}1{% else %}0{% endif %}">
+          <div class="pinterest-launch-card-actions">
+            <a href="{{ item['bundle']['link'] }}" target="_blank" rel="noopener noreferrer">Product page ↗</a>
+            <button class="btn {% if item['approved'] %}btn-success{% else %}btn-outline-primary{% endif %}" type="submit" name="approved" value="{% if item['approved'] %}0{% else %}1{% endif %}">{% if item['approved'] %}✓ Approved{% else %}Approve Pin{% endif %}</button>
+          </div>
+        </form>
+      </article>
+      {% else %}<div class="empty-state">No active Etsy mug listings were found in {{ selected_collection['name'] }}.</div>{% endfor %}
+    </div>
+  </main>
+</div>
+{% endblock %}

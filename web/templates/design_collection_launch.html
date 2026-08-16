@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}{{ collection.name }} Launch — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+  {% set dashboard_sidebar_active = "designs" %}
+  {% include "components/dashboard_sidebar.html" %}
+  <main class="workflow-stage-content collection-launch-page">
+    <a class="workflow-back-link" href="/designs/text-ideas?collection={{ collection.code }}">← Back to {{ collection.name }} ideas</a>
+    <div class="page-header mb-4">
+      <div>
+        <div class="eyebrow">Resumable collection launch</div>
+        <h1 class="display-6 fw-bold">Launch {{ collection.name }}</h1>
+        <p class="text-muted mb-0">One guarded sequence from approved text through Printify, Etsy, Shangooli.com, and Pinterest preparation.</p>
+      </div>
+      <span class="collection-launch-state">Saved · {{ launch.current_step|title }}</span>
+    </div>
+
+    <section class="collection-launch-steps" aria-label="Collection launch progress">
+      <a href="/designs/text-ideas?collection={{ collection.code }}">1 · Ideas</a>
+      <a href="#artwork-approval"{% if launch.current_step == 'artwork' %} class="is-current" aria-current="step"{% endif %}>2 · Artwork</a>
+      <a href="#printify-placement"{% if launch.current_step == 'printify' and mockup_approved_count != launch_items|length %} class="is-current" aria-current="step"{% endif %}>3 · Printify placement</a>
+      <a href="#mockup-review">4 · Mockups</a>
+      <a href="#listing-review"{% if launch_items and mockup_approved_count == launch_items|length and listing_approved_count != launch_items|length %} class="is-current" aria-current="step"{% endif %}>5 · Listings</a>
+      <a href="#publish-verify"{% if launch_items and listing_approved_count == launch_items|length %} class="is-current" aria-current="step"{% endif %}>6 · Publish</a>
+    </section>
+
+    <details class="collection-launch-panel" open>
+      <summary><span><b>Launch profile</b><small>Shared defaults for every mug in this collection</small></span><em>Ready</em></summary>
+      <div class="collection-launch-profile">
+        <div><span>Profession</span><strong>{{ collection.profession }}</strong></div>
+        <div><span>Target</span><strong>{{ launch.target_count }} mugs</strong></div>
+        <div><span>Product</span><strong>Black Accent Mug 11 oz</strong></div>
+        <div><span>Price</span><strong>${{ '%.2f'|format(collection.default_price_cents / 100) }}</strong></div>
+        <div><span>Placement</span><strong>{{ collection.placement_x }}, {{ collection.placement_y }} · {{ collection.placement_scale }}</strong></div>
+        <div><span>Pinterest style</span><strong>{{ collection.pinterest_style|replace('_', ' ')|title }}</strong></div>
+      </div>
+    </details>
+
+    <details class="collection-launch-panel" open>
+      <summary><span><b>Selected messages</b><small>Locked snapshots protect the launch if the idea library changes</small></span><em>{{ launch_items|length }}/{{ launch.target_count }}</em></summary>
+      {% if launch_items %}
+      <ol class="collection-launch-items">
+        {% for item in launch_items %}
+        <li id="artwork-{{ item.id }}">
+          <span>{{ item.message }}</span>
+          <form class="collection-artwork-mode" method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-mode">
+            <input type="hidden" name="item_id" value="{{ item.id }}">
+            <label>Artwork format
+              <select class="form-select" name="artwork_mode" onchange="this.form.submit()"{% if item.artwork_state == 'approved' %} disabled title="Approved artwork is locked"{% endif %}>
+                <option value="text_only"{% if item.artwork_mode == 'text_only' %} selected{% endif %}>Text Only</option>
+                <option value="text_graphics"{% if item.artwork_mode == 'text_graphics' %} selected{% endif %}>Text + Accent Graphics</option>
+                <option value="graphic_only"{% if item.artwork_mode == 'graphic_only' %} selected{% endif %}>Graphic Only</option>
+              </select>
+            </label>
+          </form>
+          <div><i class="{% if item.artwork_state == 'approved' %}launch-approved{% else %}launch-waiting{% endif %}">Artwork {{ item.artwork_state }}</i><i class="launch-waiting">Printify waiting</i><i class="launch-waiting">Mockup waiting</i>{% if item.artwork_state == 'approved' and item.printify_state == 'waiting' %}<form class="collection-artwork-reopen" method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-reopen"><input type="hidden" name="item_id" value="{{ item.id }}"><button class="btn btn-link btn-sm" type="submit">Reopen artwork</button></form>{% endif %}</div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <div class="collection-launch-empty">No messages are locked yet. Return to Text Ideas and select exactly {{ launch.target_count }}.</div>
+      {% endif %}
+    </details>
+
+    <details class="collection-launch-panel" id="artwork-approval"{% if launch_items %} open{% endif %}>
+      <summary><span><b>Artwork approval</b><small>Review one mug at a time; approval automatically advances</small></span><em>{{ approved_artwork_count }}/{{ launch_items|length }}</em></summary>
+      {% if active_artwork_item %}
+        <div class="collection-artwork-review-heading">
+          <div><span>Next message</span><h3>{{ active_artwork_item.message }}</h3></div>
+          <strong>{{ active_artwork_item.artwork_mode|replace('_', ' ')|title }}</strong>
+        </div>
+        {% if active_artwork_item.artwork_mode == 'graphic_only' %}
+          <div class="collection-launch-placeholder"><strong>This item needs finished graphic artwork.</strong><p>Upload support for Graphic Only items is the next addition. Change its format above if you want to generate typography choices now.</p></div>
+        {% else %}
+          <form class="collection-artwork-line-editor" method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-message">
+            <input type="hidden" name="item_id" value="{{ active_artwork_item.id }}">
+            <label for="artwork-message-{{ active_artwork_item.id }}"><span>Edit the phrase and line breaks</span><small>Change the wording if needed, and press Enter exactly where you want each new line. This changes only this launch item—not the saved idea in your library.</small></label>
+            <textarea class="form-control" id="artwork-message-{{ active_artwork_item.id }}" name="artwork_message" rows="4" required>{{ active_artwork_item.render_message }}</textarea>
+            <button class="btn btn-outline-primary" type="submit">Save phrase and refresh choices</button>
+          </form>
+          <form method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-approve" data-long-operation data-wait-stages="Saving approved artwork|Creating the local mug design|Preparing the next six choices">
+            <input type="hidden" name="item_id" value="{{ active_artwork_item.id }}">
+            <div class="portfolio-refresh-variant-grid collection-artwork-variant-grid">
+              {% for variant in artwork_variants %}
+              <label class="portfolio-refresh-variant">
+                <input type="radio" name="style_variant" value="{{ variant.style_variant }}"{% if loop.first %} checked{% endif %} required>
+                <span class="portfolio-refresh-variant-image"><img src="{{ variant.image_data }}" alt="Artwork option {{ loop.index }}"></span>
+                <strong>Option {{ loop.index }}</strong>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="collection-artwork-approve-bar"><p><b>Nothing goes to Printify yet.</b> This saves the selected flat artwork locally and advances to the next message.</p><button class="btn btn-primary" type="submit">Approve choice and continue →</button></div>
+          </form>
+        {% endif %}
+      {% elif launch_items %}
+        <div class="collection-artwork-complete"><strong>All {{ launch_items|length }} artworks are approved.</strong><p>The local source graphics and mug design records are ready. Continue to Printify drafts and right-side placement.</p></div>
+      {% else %}
+        <div class="collection-launch-placeholder">Lock ideas before generating artwork.</div>
+      {% endif %}
+    </details>
+
+    <details class="collection-launch-panel{% if active_artwork_item %} is-locked{% endif %}" id="printify-placement"{% if not active_artwork_item and launch_items %} open{% endif %}>
+      <summary><span><b>Printify drafts and placement</b><small>Create one draft at a time, open Printify, save the right-side placement, and mark it reviewed.</small></span><em>{% if active_artwork_item %}Locked{% else %}Ready{% endif %}</em></summary>
+      {% if not active_artwork_item and active_printify_item %}
+        <div class="collection-printify-next">
+          <div><span>Current mug</span><h3>{{ active_printify_item.message }}</h3><p>Draft {{ active_printify_item.display_order }} of {{ launch_items|length }} · Black Accent Mug 11 oz</p></div>
+          {% if active_printify_item.printify_state == 'draft_created' %}
+            <div class="collection-printify-actions">
+              <a class="btn btn-success" href="{{ active_printify_item.printify_product_url }}" target="_blank" rel="noopener noreferrer">Open draft in Printify ↗</a>
+              {% if active_printify_item.mockup_state == 'needs_review' and active_printify_item.product_thumbnail_filename %}
+                <div class="collection-printify-proof">
+                  <img src="/designs/{{ active_printify_item.standalone_design_id }}/products/mug_11oz_black_accent/thumbnail" alt="Refreshed right-side Printify mug">
+                  <div><strong>Check the real Printify mug image</strong><p>Confirm the text is on the intended right side, fully visible, and centered correctly.</p></div>
+                </div>
+                <form method="post" action="/designs/collections/{{ collection.code }}/launch/mockup-approve" data-preserve-scroll>
+                  <input type="hidden" name="item_id" value="{{ active_printify_item.id }}">
+                  <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> This right-side mug image is correct.</label>
+                  <button class="btn btn-primary" type="submit">Approve image and continue to next mug →</button>
+                </form>
+                <form method="post" action="/designs/collections/{{ collection.code }}/launch/printify-refresh" data-preserve-scroll data-long-operation data-wait-stages="Refreshing Printify renders|Saving the latest right-side mug image">
+                  <input type="hidden" name="item_id" value="{{ active_printify_item.id }}"><input type="hidden" name="confirmed" value="true">
+                  <button class="btn btn-outline-primary" type="submit">Refresh image again</button>
+                </form>
+              {% else %}
+                <p>After saving the placement in Printify, use this button to retrieve the real mug image.</p>
+                <form method="post" action="/designs/collections/{{ collection.code }}/launch/printify-refresh" data-preserve-scroll data-long-operation data-wait-stages="Reading your saved placement|Refreshing Printify renders|Saving the right-side mug image">
+                  <input type="hidden" name="item_id" value="{{ active_printify_item.id }}">
+                  <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> I saved the right-side placement in Printify.</label>
+                  <button class="btn btn-primary" type="submit">Refresh and review mug image →</button>
+                </form>
+              {% endif %}
+            </div>
+          {% else %}
+            {% if active_printify_item.error_message %}<div class="alert alert-warning">{{ active_printify_item.error_message }}</div>{% endif %}
+            <form method="post" action="/designs/collections/{{ collection.code }}/launch/printify-draft" data-long-operation data-wait-stages="Uploading approved artwork|Creating one unpublished Printify draft|Saving the draft link">
+              <input type="hidden" name="item_id" value="{{ active_printify_item.id }}">
+              <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Create one unpublished Printify draft. Do not publish anything to Etsy.</label>
+              <button class="btn btn-primary" type="submit">Create first Printify draft →</button>
+            </form>
+          {% endif %}
+        </div>
+      {% elif not active_artwork_item and launch_items %}<div class="collection-launch-placeholder"><strong>All Printify drafts have moved beyond creation.</strong></div>{% endif %}
+    </details>
+
+    <details class="collection-launch-panel{% if mockup_approved_count != launch_items|length %} is-locked{% endif %}" id="mockup-review">
+      <summary><span><b>Right-side mockup approval</b><small>The real Printify mug images are saved locally for listings, Shangooli.com, and Pinterest.</small></span><em>{% if launch_items and mockup_approved_count == launch_items|length %}Complete · {{ mockup_approved_count }}/{{ launch_items|length }}{% else %}Locked{% endif %}</em></summary>
+      {% if launch_items and mockup_approved_count == launch_items|length %}<div class="collection-artwork-complete"><strong>All {{ launch_items|length }} right-side mug images are approved.</strong><p>You already completed this while reviewing each Printify draft.</p></div>{% endif %}
+    </details>
+
+    <details class="collection-launch-panel{% if mockup_approved_count != launch_items|length %} is-locked{% endif %}" id="listing-review"{% if launch_items and mockup_approved_count == launch_items|length %} open{% endif %}>
+      <summary><span><b>Listing review</b><small>Review the Etsy wording, price, and destination for each mug.</small></span><em>{% if mockup_approved_count != launch_items|length %}Locked{% else %}{{ listing_approved_count }}/{{ launch_items|length }}{% endif %}</em></summary>
+      {% if active_listing_item %}
+      <div class="collection-listing-review-heading"><div><span>Current listing</span><h3>{{ active_listing_item.message }}</h3><p>Listing {{ active_listing_item.display_order }} of {{ launch_items|length }}</p></div><img src="/designs/{{ active_listing_item.standalone_design_id }}/products/mug_11oz_black_accent/thumbnail" alt="Approved mug image"></div>
+      <form class="collection-listing-review-form" method="post" action="/designs/collections/{{ collection.code }}/launch/listing-approve" data-preserve-scroll>
+        <input type="hidden" name="item_id" value="{{ active_listing_item.id }}">
+        <label><span>Etsy title</span><input class="form-control" name="title" value="{{ active_listing_item.product_title }}" required></label>
+        <label><span>Description</span><textarea class="form-control" name="description" rows="6" required>{{ active_listing_item.product_description }}</textarea></label>
+        <label><span>Tags</span><textarea class="form-control" name="tags" rows="3" required>{{ active_listing_item.tags }}</textarea></label>
+        <div class="collection-listing-review-meta"><label><span>Price</span><input class="form-control" name="price" type="number" min="1" step="0.01" value="{{ '%.2f'|format(active_listing_item.price_cents / 100) }}" required></label><div><span>Shangooli.com destination</span><a href="{{ active_listing_item.storefront_url }}" target="_blank" rel="noopener noreferrer">{{ active_listing_item.storefront_url }} ↗</a></div></div>
+        <div class="collection-artwork-approve-bar"><p><b>Still unpublished.</b> Approval saves this listing and advances to the next mug.</p><button class="btn btn-primary" type="submit">Approve listing and continue →</button></div>
+      </form>
+      {% elif launch_items and listing_approved_count == launch_items|length %}<div class="collection-artwork-complete"><strong>All {{ launch_items|length }} listings are approved.</strong></div>
+      {% endif %}
+    </details>
+
+    <details class="collection-launch-panel{% if listing_approved_count != launch_items|length %} is-locked{% endif %}" id="publish-verify"{% if listing_approved_count == launch_items|length and launch_items %} open{% endif %}>
+      <summary><span><b>Publish and verify</b><small>Submit one approved mug at a time and verify its Etsy listing before continuing.</small></span><em>{% if listing_approved_count != launch_items|length %}Locked{% else %}{{ publish_verified_count }}/{{ launch_items|length }}{% endif %}</em></summary>
+      {% if active_publish_item %}
+      <div class="collection-printify-next">
+        <div><span>Current mug</span><h3>{{ active_publish_item.message }}</h3><p>Mug {{ active_publish_item.display_order }} of {{ launch_items|length }}</p></div>
+        <div class="collection-printify-actions">
+          {% if active_publish_item.error_message %}<div class="alert alert-warning">{{ active_publish_item.error_message }}</div>{% endif %}
+          {% if active_publish_item.publish_state in ['waiting', 'failed'] %}
+          <form method="post" action="/designs/collections/{{ collection.code }}/launch/publish-item" data-preserve-scroll data-long-operation data-wait-stages="Updating approved wording in Printify|Submitting this mug to Etsy|Saving publication status">
+            <input type="hidden" name="item_id" value="{{ active_publish_item.id }}">
+            <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Publish this one approved mug through Printify to Etsy.</label>
+            <button class="btn btn-primary" type="submit">Publish this mug to Etsy →</button>
+          </form>
+          {% else %}
+          <div class="collection-publication-waiting"><strong>Publication was submitted.</strong><p>Printify may take a short time to report the new Etsy listing. This check is read-only and will never publish twice.</p></div>
+          <form method="post" action="/designs/collections/{{ collection.code }}/launch/verify-item" data-preserve-scroll data-long-operation data-wait-stages="Checking Printify publication|Finding the Etsy listing|Synchronizing approved details">
+            <input type="hidden" name="item_id" value="{{ active_publish_item.id }}">
+            <button class="btn btn-primary" type="submit">Check Etsy and continue →</button>
+          </form>
+          {% if active_publish_item.printify_product_url %}<a class="btn btn-outline-primary" href="{{ active_publish_item.printify_product_url }}" target="_blank" rel="noopener noreferrer">Open in Printify ↗</a>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+      {% elif launch_items and publish_verified_count == launch_items|length %}<div class="collection-artwork-complete"><strong>All {{ launch_items|length }} Etsy listings are published and verified.</strong><p>The collection is ready for the Shangooli.com inventory update and Pinterest launch package.</p></div>{% endif %}
+      {% if verified_publish_items %}
+      <details class="collection-verified-listings">
+        <summary>Verified Etsy listings · {{ verified_publish_items|length }}</summary>
+        <ol>{% for item in verified_publish_items %}<li><span>{{ item.message }}</span><a href="{{ item.etsy_listing_url }}" target="_blank" rel="noopener noreferrer">Open on Etsy ↗</a></li>{% endfor %}</ol>
+      </details>
+      {% elif active_publish_item and active_publish_item.publish_state not in ['waiting', 'failed'] %}<p class="collection-etsy-link-waiting">The Etsy link will appear here as soon as Printify reports the listing ID.</p>{% endif %}
+    </details>
+
+    {% if launch_items and publish_verified_count == launch_items|length %}
+    <section class="collection-handoff" id="collection-handoff">
+      <div><div class="eyebrow">Collection handoff</div><h2>Send the verified collection to Shangooli.com</h2><p>This prepares the complete storefront inventory using the saved right-side mug images and verified Etsy links. Public deployment remains a separate confirmation.</p></div>
+      {% if request.query_params.get('storefront_ready') %}
+      <div class="alert alert-success"><strong>Storefront files are ready.</strong> {{ request.query_params.get('storefront_count') }} active mugs passed validation.</div>
+      <a class="btn btn-primary" href="/designs/pinterest-launch?collection={{ collection.code }}">Open {{ collection.name }} Pinterest launch →</a>
+      {% else %}
+      <form method="post" action="/designs/collections/{{ collection.code }}/launch/storefront-prepare" data-preserve-scroll data-long-operation data-wait-stages="Validating Etsy links|Copying approved mug images|Preparing Shangooli.com inventory">
+        <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Prepare Shangooli.com with the current verified inventory. Do not deploy publicly yet.</label>
+        <button class="btn btn-primary" type="submit">Prepare Shangooli.com update →</button>
+      </form>
+      {% endif %}
+      <div class="collection-handoff-next"><span>After the public site is verified</span><strong>Generate the Doctor Mugs Pinterest launch package</strong><p>Each Pin will use its approved mug image and direct Shangooli.com product URL.</p></div>
+    </section>
+    {% endif %}
+
+    <section class="collection-launch-dry-run">
+      <div><div class="eyebrow">Safety check</div>{% if publish_verified_count %}<h2>{{ publish_verified_count }} Etsy listing{% if publish_verified_count != 1 %}s{% endif %} verified</h2><p>Publication is proceeding one mug at a time. Pinterest and Shangooli.com have not been updated yet.</p>{% elif launch_items|selectattr('printify_state', 'ne', 'waiting')|list %}<h2>Unpublished Printify drafts exist</h2><p>Nothing has been published to Etsy, Pinterest, or Shangooli.com.</p>{% else %}<h2>Nothing external has been created</h2><p>This launch is stored locally and can be resumed safely. Printify, Etsy, Pinterest, and Shangooli.com remain untouched.</p>{% endif %}</div>
+      <button class="btn btn-primary" type="button" disabled>{% if listing_approved_count == launch_items|length %}Publication checks are active{% else %}Complete listing review first{% endif %}</button>
+    </section>
+  </main>
+</div>
+<script>
+(() => {
+  const scrollKey = `collection-launch-scroll:${window.location.pathname}`;
+  document.querySelectorAll('form[data-preserve-scroll]').forEach((form) => {
+    form.addEventListener('submit', () => {
+      window.sessionStorage.setItem(scrollKey, String(window.scrollY));
+    });
+  });
+  const savedScroll = window.sessionStorage.getItem(scrollKey);
+  if (savedScroll !== null) {
+    window.sessionStorage.removeItem(scrollKey);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({top: Number(savedScroll), behavior: 'instant'});
+    });
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const target = params.has('printify_review')
+    ? document.getElementById('printify-placement')
+    : params.has('artwork_review')
+      ? document.getElementById('artwork-approval')
+      : null;
+  if (!target) return;
+  window.requestAnimationFrame(() => {
+    target.scrollIntoView({block: 'start'});
+  });
+})();
+</script>
+{% endblock %}

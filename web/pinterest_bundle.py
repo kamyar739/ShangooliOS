@@ -6,15 +6,18 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from web import standalone_designs
+from web import mug_gallery
 from web.etsy_validation import parse_tags
 from web.printify_api import PrintifyAPI, PrintifyAPIError
 from web.product_blueprints import get_product_blueprint
 from web.mug_scene_profiles import (
     BLACK_ACCENT_PINTEREST_SCENE,
+    MugSceneProfile,
     composite_design_on_scene,
+    composite_product_render_on_scene,
 )
 
 
@@ -34,6 +37,85 @@ TEACHER_SUBJECTS = (
 )
 FONT_REGULAR = Path("/System/Library/Fonts/Supplemental/Arial.ttf")
 FONT_BOLD = Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf")
+TEACHER_PINTEREST_STYLES = (
+    {
+        "key": "classroom_story",
+        "label": "High-school classroom",
+        "description": "An energetic classroom scene with older students.",
+        "filename": "pinterest-high-school-classroom-empty-table-v1.png",
+    },
+    {
+        "key": "elementary_classroom",
+        "label": "Elementary classroom",
+        "description": "A warm collaborative classroom with grade-school students.",
+        "filename": "pinterest-elementary-collaboration-v1.png",
+    },
+    {
+        "key": "middle_school_science",
+        "label": "Middle-school science",
+        "description": "A bright science lesson with older students.",
+        "filename": "pinterest-middle-school-science-v1.png",
+    },
+    {
+        "key": "kindergarten_art",
+        "label": "Kindergarten art",
+        "description": "Younger children creating colorful classroom art.",
+        "filename": "pinterest-kindergarten-art-v1.png",
+    },
+    {
+        "key": "kindergarten_reading",
+        "label": "Kindergarten reading",
+        "description": "A cozy story-time scene with younger children.",
+        "filename": "pinterest-kindergarten-reading-v1.png",
+    },
+    {
+        "key": "kindergarten_learning",
+        "label": "Kindergarten learning",
+        "description": "Younger children learning through colorful hands-on play.",
+        "filename": "pinterest-kindergarten-learning-v1.png",
+    },
+)
+DOCTOR_PINTEREST_STYLES = (
+    {
+        "key": "doctor_consultation",
+        "label": "Doctor consultation office",
+        "description": "A warm, welcoming physician consultation room.",
+        "filename": "pinterest-doctor-consultation-office-v1.png",
+    },
+    {
+        "key": "doctor_workroom",
+        "label": "Hospital physician workroom",
+        "description": "A bright clinical workroom with a clean foreground.",
+        "filename": "pinterest-doctor-workroom-v1.png",
+    },
+    {
+        "key": "doctor_specialist",
+        "label": "Medical specialist office",
+        "description": "A refined specialist office with medical details.",
+        "filename": "pinterest-doctor-specialist-office-v1.png",
+    },
+    {
+        "key": "doctor_private_office",
+        "label": "Private doctor office",
+        "description": "A premium private physician office in deep medical blue.",
+        "filename": "pinterest-doctor-private-office-v1.png",
+    },
+    {
+        "key": "doctor_lounge",
+        "label": "Doctors' lounge",
+        "description": "A fresh hospital staff workspace and break area.",
+        "filename": "pinterest-doctor-lounge-v1.png",
+    },
+    {
+        "key": "doctor_exam_room",
+        "label": "Modern exam room",
+        "description": "A clean, calm outpatient exam room.",
+        "filename": "pinterest-doctor-exam-room-v1.png",
+    },
+)
+PINTEREST_STYLES = TEACHER_PINTEREST_STYLES + DOCTOR_PINTEREST_STYLES
+DEFAULT_PINTEREST_STYLE = "classroom_story"
+DEFAULT_DOCTOR_PINTEREST_STYLE = "doctor_consultation"
 
 
 def _font(path, size):
@@ -45,6 +127,29 @@ def _font(path, size):
 
 def _clean(value):
     return " ".join(str(value or "").split()).strip()
+
+
+def pinterest_style_options(collection_code=None):
+    if _clean(collection_code).upper() == "DOCTOR":
+        return DOCTOR_PINTEREST_STYLES
+    return TEACHER_PINTEREST_STYLES
+
+
+def normalize_pinterest_style(style, collection_code=None):
+    options = (
+        pinterest_style_options(collection_code)
+        if collection_code
+        else PINTEREST_STYLES
+    )
+    default = (
+        DEFAULT_DOCTOR_PINTEREST_STYLE
+        if _clean(collection_code).upper() == "DOCTOR"
+        else DEFAULT_PINTEREST_STYLE
+    )
+    selected = _clean(style) or default
+    if selected not in {item["key"] for item in options}:
+        raise ValueError("Choose a supported Pinterest ad style")
+    return selected
 
 
 def _placement_claim(placement_mode):
@@ -64,13 +169,30 @@ def _shorten(text, maximum):
     return f"{shortened}…"
 
 
+def _storefront_slug(message):
+    slug = re.sub(r"[^a-z0-9]+", "-", _clean(message).lower()).strip("-")
+    return slug or "teacher-mug"
+
+
 def pinterest_bundle_copy(design, product_key):
     """Build editable Pinterest copy from the selected saved product row."""
     _, blueprint = get_product_blueprint(product_key)
     message = _clean(design["message"] or design["name"])
     product_label = blueprint["label"]
     tags = parse_tags(design["tags"] or "")
-    teacher = any(
+    collection_code = _clean(
+        design["mug_collection_code"]
+        if "mug_collection_code" in design.keys()
+        else ""
+    ).upper()
+    searchable_identity = " ".join(
+        [message, *tags, _clean(design["description"])]
+    ).lower()
+    doctor = collection_code == "DOCTOR" or any(
+        term in searchable_identity
+        for term in ("doctor", "physician", "medical mug", "resident gift")
+    )
+    teacher = collection_code == "TEACHER" or any(
         word in " ".join([message, *tags]).lower()
         for word in ("teacher", "classroom", "lesson", "educator", "biology", "math")
     )
@@ -100,7 +222,9 @@ def pinterest_bundle_copy(design, product_key):
         "",
     )
     topics = []
-    if teacher:
+    if doctor:
+        topics.append("Doctor gifts")
+    elif teacher:
         topics.append("Teacher gifts")
     else:
         topics.append("Gift ideas")
@@ -108,6 +232,9 @@ def pinterest_bundle_copy(design, product_key):
         topics.append(subject.title())
     topics.append("Coffee mugs")
     audience_label = (
+        "DOCTOR GIFT"
+        if doctor
+        else
         f"{subject.upper()} TEACHER GIFT"
         if subject
         else "TEACHER GIFT"
@@ -117,9 +244,13 @@ def pinterest_bundle_copy(design, product_key):
     return {
         "title": title,
         "description": description,
-        "link": design["etsy_listing_url"] or "",
+        "link": f"https://shangooli.com/mugs/{_storefront_slug(message)}",
         "alt_text": alt_text,
-        "board": PINTEREST_BOARD_TEACHER if teacher else PINTEREST_BOARD_DEFAULT,
+        "board": (
+            "Doctor Gift Ideas"
+            if doctor
+            else PINTEREST_BOARD_TEACHER if teacher else PINTEREST_BOARD_DEFAULT
+        ),
         "topics": topics,
         "message": message,
         "product_label": product_label,
@@ -168,7 +299,17 @@ def select_printify_context_mockup(product):
     return str(images[0].get("src") or "") if images else ""
 
 
-def load_printify_product_mockup(design, api=None):
+def select_printify_camera_mockup(product, camera_label):
+    """Select one exact Printify camera angle, with the normal fallback."""
+    for image in product.get("images") or []:
+        source = str(image.get("src") or "")
+        camera = parse_qs(urlparse(source).query).get("camera_label", [""])[0]
+        if camera == camera_label:
+            return source
+    return select_printify_context_mockup(product)
+
+
+def load_printify_product_mockup(design, api=None, *, camera_label=None):
     """Read the exact connected product mockup without changing external state."""
     product_id = _clean(design["printify_product_id"])
     if not product_id:
@@ -178,7 +319,11 @@ def load_printify_product_mockup(design, api=None):
         return None
     try:
         product = printify_api.get_product(product_id)
-        source = select_printify_context_mockup(product)
+        source = (
+            select_printify_camera_mockup(product, camera_label)
+            if camera_label
+            else select_printify_context_mockup(product)
+        )
         parsed = urlparse(source)
         if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(
             ".printify.com"
@@ -193,7 +338,192 @@ def load_printify_product_mockup(design, api=None):
         return None
 
 
-def render_pinterest_bundle(design, product_key, *, product_mockup=None):
+def load_local_product_mockup(design):
+    """Load the exact locally approved side-view product image when present."""
+    try:
+        filename = design["product_thumbnail_filename"]
+    except (KeyError, TypeError, IndexError):
+        filename = ""
+    path = mug_gallery.gallery_path(filename)
+    if path is None:
+        return None
+    try:
+        with Image.open(path) as opened:
+            return opened.convert("RGB")
+    except OSError:
+        return None
+
+
+def _wrapped_lines(draw, text, font, max_width, maximum_lines=3):
+    words = _clean(text).split()
+    lines = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and draw.textbbox((0, 0), candidate, font=font)[2] > max_width:
+            lines.append(current)
+            current = word
+            if len(lines) == maximum_lines - 1:
+                break
+        else:
+            current = candidate
+    consumed = sum(len(line.split()) for line in lines)
+    remaining = words[consumed:]
+    if remaining:
+        current = " ".join(remaining)
+        while draw.textbbox((0, 0), current, font=font)[2] > max_width and " " in current:
+            current = current.rsplit(" ", 1)[0]
+        if consumed + len(current.split()) < len(words):
+            current = current.rstrip(" ,.-") + "…"
+    if current and len(lines) < maximum_lines:
+        lines.append(current)
+    return lines
+
+
+def _draw_headline(draw, message, box, *, fill, start_size=58, maximum_lines=3):
+    left, top, right, bottom = box
+    for size in range(start_size, 29, -2):
+        font = _font(FONT_BOLD, size)
+        lines = _wrapped_lines(draw, message.upper(), font, right - left, maximum_lines)
+        line_height = round(size * 1.02)
+        if len(lines) * line_height <= bottom - top:
+            break
+    y = top
+    for line in lines:
+        draw.text((left, y), line, font=font, fill=fill)
+        y += line_height
+
+
+def _draw_benefit_strip(draw, y, *, dark=True):
+    background = "#123d3d" if dark else "#f5e8d4"
+    foreground = "#ffffff" if dark else "#173f3f"
+    muted = "#cce1d9" if dark else "#8b4a2e"
+    draw.rectangle((0, y, 1000, 1500), fill=background)
+    benefits = (
+        ("01", "EXACT MUG"),
+        ("02", "READY TO GIFT"),
+        ("03", "SHOP ON ETSY"),
+    )
+    width = 1000 // len(benefits)
+    for index, (number, title) in enumerate(benefits):
+        x = index * width + 42
+        if index:
+            draw.line((index * width, y + 42, index * width, 1460), fill=muted, width=2)
+        draw.text((x, y + 28), number, font=_font(FONT_BOLD, 34), fill=muted)
+        draw.text((x, y + 84), title, font=_font(FONT_BOLD, 33), fill=foreground)
+
+
+def _pinterest_headline(message):
+    """Use a stronger curiosity hook when a proven message benefits from it."""
+    if _clean(message).casefold() == "they think i know everything":
+        return "Every Student Thinks I Know Everything"
+    return message
+
+
+def _pinterest_scene_profile(style):
+    option = next(item for item in PINTEREST_STYLES if item["key"] == style)
+    return MugSceneProfile(
+        style,
+        option["label"],
+        option["filename"],
+        BLACK_ACCENT_PINTEREST_SCENE.artwork_box,
+        BLACK_ACCENT_PINTEREST_SCENE.artwork_scale,
+        # Make the product the first read. This is about 18% larger than the
+        # prior 56%-wide treatment while preserving the visual center.
+        (0.17, 0.40, 0.83, 0.85),
+        BLACK_ACCENT_PINTEREST_SCENE.product_width_scale,
+        BLACK_ACCENT_PINTEREST_SCENE.handle_width_scale,
+        BLACK_ACCENT_PINTEREST_SCENE.handle_height_scale,
+    )
+
+
+def _approved_product_scene(
+    design, product_key, graphic, *, style, product_mockup=None
+):
+    """Build the lifestyle scene around the exact saved product photograph."""
+    if product_mockup is None:
+        product_mockup = load_local_product_mockup(design)
+    if product_mockup is None:
+        product_mockup = load_printify_product_mockup(design, camera_label="left")
+    profile = _pinterest_scene_profile(style)
+    with Image.open(profile.path) as opened:
+        # Keep the people gently in the background while the exact saved mug
+        # and typography remain crisp.
+        softened = opened.convert("RGB").filter(ImageFilter.GaussianBlur(3.0))
+        if product_mockup is not None:
+            return composite_product_render_on_scene(
+                softened, product_mockup, profile
+            )
+        return composite_design_on_scene(
+            softened, graphic, profile
+        )
+
+
+def _render_classroom_story(scene, copy):
+    canvas = _cover(scene, PINTEREST_IMAGE_SIZE)
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((0, 0, 1000, 286), fill="#f7efdf")
+    draw.rectangle((0, 280, 1000, 288), fill="#dc9d16")
+    _draw_headline(
+        draw,
+        _pinterest_headline(copy["message"]),
+        (54, 38, 720, 258),
+        fill="#123d3d",
+        start_size=64,
+    )
+    # A large, high-contrast audience badge remains legible during a fast
+    # Pinterest scroll without competing with the product itself.
+    draw.ellipse((748, 36, 958, 246), fill="#e85d24", outline="#ffd166", width=8)
+    badge_lines = copy["audience_label"].replace(" GIFT", "\nGIFT")
+    draw.multiline_text(
+        (853, 90), badge_lines,
+        font=_font(FONT_BOLD, 41), fill="#ffffff", anchor="ma", align="center", spacing=2,
+    )
+    draw.rounded_rectangle(
+        (630, 1184, 950, 1288), 48, fill="#e85d24", outline="#ffd166", width=5
+    )
+    draw.text(
+        (790, 1207), "SHOP ON ETSY", font=_font(FONT_BOLD, 38),
+        fill="#ffffff", anchor="ma",
+    )
+    _draw_benefit_strip(draw, 1320, dark=True)
+    return canvas
+
+
+def _render_gift_guide(scene, copy):
+    canvas = Image.new("RGB", PINTEREST_IMAGE_SIZE, "#f6ead7")
+    draw = ImageDraw.Draw(canvas)
+    photo = _cover(scene, (910, 925))
+    canvas.paste(photo, (45, 350))
+    draw.rounded_rectangle((45, 40, 955, 310), 28, fill="#fffaf0", outline="#d8b98c", width=3)
+    draw.text((78, 70), "THE GIFT THEY'LL ACTUALLY USE", font=_font(FONT_BOLD, 25), fill="#b9502e")
+    _draw_headline(draw, copy["message"], (78, 112, 915, 286), fill="#173f3f", start_size=48)
+    draw.rounded_rectangle((84, 1095, 540, 1295), 24, fill="#fffaf0", outline="#d8b98c", width=2)
+    for index, text in enumerate(("Classroom-ready humor", "Black handle + interior", "Ships from Etsy")):
+        y = 1130 + index * 48
+        draw.ellipse((112, y + 3, 130, y + 21), fill="#d99a18")
+        draw.text((148, y), text, font=_font(FONT_BOLD, 22), fill="#263c3c")
+    _draw_benefit_strip(draw, 1320, dark=False)
+    return canvas
+
+
+def _render_bold_product(scene, copy):
+    canvas = Image.new("RGB", PINTEREST_IMAGE_SIZE, "#143f3d")
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle((42, 365, 958, 1245), 32, fill="#f7efdf")
+    photo = _cover(scene, (880, 840))
+    canvas.paste(photo, (60, 385))
+    draw.text((56, 48), "A LITTLE CLASSROOM HUMOR", font=_font(FONT_BOLD, 24), fill="#efaa27")
+    _draw_headline(draw, copy["message"], (56, 98, 930, 325), fill="#ffffff", start_size=58)
+    draw.rounded_rectangle((690, 1160, 930, 1218), 29, fill="#b94d2c")
+    draw.text((810, 1176), "SHOP ON ETSY", font=_font(FONT_BOLD, 19), fill="#ffffff", anchor="ma")
+    _draw_benefit_strip(draw, 1280, dark=True)
+    return canvas
+
+
+def render_pinterest_bundle(
+    design, product_key, *, product_mockup=None, style=DEFAULT_PINTEREST_STYLE
+):
     """Render one deterministic product-specific 2:3 Pinterest image."""
     copy = pinterest_bundle_copy(design, product_key)
     source = standalone_designs.product_asset_path(design)
@@ -201,12 +531,23 @@ def render_pinterest_bundle(design, product_key, *, product_mockup=None):
         raise ValueError("The prepared product graphic is missing")
     with Image.open(source) as opened:
         graphic = opened.convert("RGBA")
-    if product_key == "mug_11oz_black_accent" and BLACK_ACCENT_PINTEREST_SCENE.path.is_file():
-        with Image.open(BLACK_ACCENT_PINTEREST_SCENE.path) as opened:
-            approved_scene = composite_design_on_scene(
-                opened, graphic, BLACK_ACCENT_PINTEREST_SCENE
-            )
-        product_mockup = approved_scene
+    selected_style = normalize_pinterest_style(style)
+    selected_profile = _pinterest_scene_profile(selected_style)
+    if selected_profile.path.is_file() and (
+        product_key == "mug_11oz_black_accent"
+        or load_local_product_mockup(design) is not None
+    ):
+        approved_scene = _approved_product_scene(
+            design,
+            product_key,
+            graphic,
+            style=selected_style,
+            product_mockup=product_mockup,
+        )
+        canvas = _render_classroom_story(approved_scene, copy)
+        output = BytesIO()
+        canvas.save(output, "PNG", optimize=True)
+        return output.getvalue()
     elif product_mockup is None:
         product_mockup = load_printify_product_mockup(design)
 

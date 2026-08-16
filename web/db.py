@@ -429,8 +429,31 @@ def ensure_production_schema():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS mug_collections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                name TEXT NOT NULL,
+                profession TEXT NOT NULL,
+                description TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                default_product_key TEXT NOT NULL DEFAULT 'mug_11oz_black_accent',
+                default_price_cents INTEGER NOT NULL DEFAULT 2200,
+                placement_x REAL NOT NULL DEFAULT 0.5,
+                placement_y REAL NOT NULL DEFAULT 0.25,
+                placement_scale REAL NOT NULL DEFAULT 0.45,
+                placement_mode TEXT NOT NULL DEFAULT 'front',
+                pinterest_style TEXT NOT NULL DEFAULT 'classroom_story',
+                display_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS standalone_designs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mug_collection_id INTEGER,
                 name TEXT NOT NULL,
                 message TEXT,
                 description TEXT,
@@ -440,14 +463,31 @@ def ensure_production_schema():
                 image_width INTEGER,
                 image_height INTEGER,
                 status TEXT NOT NULL DEFAULT 'draft',
+                display_order INTEGER NOT NULL DEFAULT 0,
                 refresh_state TEXT,
                 refresh_message TEXT,
                 refresh_updated_at TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (mug_collection_id) REFERENCES mug_collections(id)
             )
             """
         )
+        collection_profile_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(mug_collections)")
+        }
+        for column_name, definition in (
+            ("default_price_cents", "INTEGER NOT NULL DEFAULT 2200"),
+            ("placement_x", "REAL NOT NULL DEFAULT 0.5"),
+            ("placement_y", "REAL NOT NULL DEFAULT 0.25"),
+            ("placement_scale", "REAL NOT NULL DEFAULT 0.45"),
+            ("placement_mode", "TEXT NOT NULL DEFAULT 'front'"),
+            ("pinterest_style", "TEXT NOT NULL DEFAULT 'classroom_story'"),
+        ):
+            if column_name not in collection_profile_columns:
+                conn.execute(
+                    f"ALTER TABLE mug_collections ADD COLUMN {column_name} {definition}"
+                )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS standalone_design_products (
@@ -485,6 +525,8 @@ def ensure_production_schema():
                 gallery_approved_at TEXT,
                 gallery_synced_at TEXT,
                 gallery_message TEXT,
+                product_thumbnail_filename TEXT,
+                pinterest_ad_rating INTEGER NOT NULL DEFAULT 0 CHECK (pinterest_ad_rating BETWEEN 0 AND 3),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (design_id) REFERENCES standalone_designs(id)
@@ -496,6 +538,20 @@ def ensure_production_schema():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_standalone_design_products_design "
             "ON standalone_design_products(design_id)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pinterest_launch_items (
+                design_id INTEGER NOT NULL,
+                product_type TEXT NOT NULL,
+                selected_style TEXT NOT NULL DEFAULT 'classroom_story',
+                approved INTEGER NOT NULL DEFAULT 0 CHECK (approved IN (0, 1)),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (design_id, product_type),
+                FOREIGN KEY (design_id) REFERENCES standalone_designs(id)
+                    ON DELETE CASCADE
+            )
+            """
         )
         conn.execute(
             """
@@ -534,6 +590,12 @@ def ensure_production_schema():
             conn.execute(
                 "UPDATE mug_text_ideas SET rating = 5 WHERE is_favorite = 1"
             )
+        if "mug_collection_id" not in idea_columns:
+            conn.execute(
+                "ALTER TABLE mug_text_ideas ADD COLUMN mug_collection_id INTEGER"
+            )
+        if "deleted_at" not in idea_columns:
+            conn.execute("ALTER TABLE mug_text_ideas ADD COLUMN deleted_at TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mug_text_ideas_order "
             "ON mug_text_ideas(display_order, id)"
@@ -649,6 +711,148 @@ def ensure_production_schema():
             row["name"]
             for row in conn.execute("PRAGMA table_info(standalone_designs)")
         }
+        if "mug_collection_id" not in design_columns:
+            conn.execute(
+                "ALTER TABLE standalone_designs ADD COLUMN mug_collection_id INTEGER"
+            )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO mug_collections (
+                code, name, profession, description, status,
+                default_product_key, display_order
+            ) VALUES (
+                'TEACHER', 'Teacher Mugs', 'Teacher',
+                'Humorous and thoughtful mugs for teachers and educators.',
+                'active', 'mug_11oz_black_accent', 10
+            )
+            """
+        )
+        conn.execute(
+            """
+            UPDATE mug_collections
+            SET code = 'EVERYDAY', name = 'Everyday Mugs',
+                profession = 'General',
+                description = 'Everyday humor, quotes, and giftable mug ideas outside profession collections.'
+            WHERE code IN ('ONE_OFF', 'ORIGINALS')
+              AND NOT EXISTS (
+                  SELECT 1 FROM mug_collections WHERE code = 'EVERYDAY'
+              )
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO mug_collections (
+                code, name, profession, description, status,
+                default_product_key, default_price_cents,
+                placement_x, placement_y, placement_scale, placement_mode,
+                pinterest_style, display_order
+            ) VALUES (
+                'EVERYDAY', 'Everyday Mugs', 'General',
+                'Everyday humor, quotes, and giftable mug ideas outside profession collections.',
+                'active', 'mug_11oz_black_accent', 2200,
+                0.5, 0.25, 0.45, 'front', 'classroom_story', 30
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO mug_collections (
+                code, name, profession, description, status,
+                default_product_key, default_price_cents,
+                placement_x, placement_y, placement_scale, placement_mode,
+                pinterest_style, display_order
+            ) VALUES (
+                'DOCTOR', 'Doctor Mugs', 'Doctor',
+                'Humorous, appreciative, and profession-focused mugs for doctors.',
+                'planning', 'mug_11oz_black_accent', 2200,
+                0.5, 0.25, 0.45, 'front', 'medical_story', 20
+            )
+            """
+        )
+        conn.execute(
+            """
+            UPDATE mug_text_ideas
+            SET mug_collection_id = (
+                SELECT id FROM mug_collections WHERE code = 'TEACHER'
+            )
+            WHERE mug_collection_id IS NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mug_collection_launches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mug_collection_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ideas',
+                target_count INTEGER NOT NULL DEFAULT 20,
+                current_step TEXT NOT NULL DEFAULT 'ideas',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (mug_collection_id) REFERENCES mug_collections(id),
+                UNIQUE (mug_collection_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mug_collection_launch_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                launch_id INTEGER NOT NULL,
+                text_idea_id INTEGER,
+                message TEXT NOT NULL,
+                display_order INTEGER NOT NULL,
+                artwork_mode TEXT NOT NULL DEFAULT 'text_only',
+                artwork_message TEXT,
+                artwork_state TEXT NOT NULL DEFAULT 'waiting',
+                artwork_style_variant INTEGER,
+                artwork_filename TEXT,
+                standalone_design_id INTEGER,
+                artwork_approved_at TEXT,
+                printify_state TEXT NOT NULL DEFAULT 'waiting',
+                placement_state TEXT NOT NULL DEFAULT 'waiting',
+                mockup_state TEXT NOT NULL DEFAULT 'waiting',
+                listing_state TEXT NOT NULL DEFAULT 'waiting',
+                publish_state TEXT NOT NULL DEFAULT 'waiting',
+                error_message TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (launch_id) REFERENCES mug_collection_launches(id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (text_idea_id) REFERENCES mug_text_ideas(id),
+                UNIQUE (launch_id, text_idea_id)
+            )
+            """
+        )
+        launch_item_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(mug_collection_launch_items)")
+        }
+        if "artwork_mode" not in launch_item_columns:
+            conn.execute(
+                "ALTER TABLE mug_collection_launch_items "
+                "ADD COLUMN artwork_mode TEXT NOT NULL DEFAULT 'text_only'"
+            )
+        for column_name, column_type in (
+            ("artwork_message", "TEXT"),
+            ("artwork_style_variant", "INTEGER"),
+            ("artwork_filename", "TEXT"),
+            ("standalone_design_id", "INTEGER"),
+            ("artwork_approved_at", "TEXT"),
+        ):
+            if column_name not in launch_item_columns:
+                conn.execute(
+                    f"ALTER TABLE mug_collection_launch_items "
+                    f"ADD COLUMN {column_name} {column_type}"
+                )
+        conn.execute(
+            """
+            UPDATE standalone_designs
+            SET mug_collection_id = (
+                SELECT id FROM mug_collections WHERE code = 'TEACHER'
+            )
+            WHERE mug_collection_id IS NULL AND status != 'archived'
+            """
+        )
         for column_name in (
             "refresh_state",
             "refresh_message",
@@ -658,6 +862,13 @@ def ensure_production_schema():
                 conn.execute(
                     f"ALTER TABLE standalone_designs ADD COLUMN {column_name} TEXT"
                 )
+        if "display_order" not in design_columns:
+            conn.execute(
+                "ALTER TABLE standalone_designs ADD COLUMN display_order INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute(
+                "UPDATE standalone_designs SET display_order = id WHERE display_order = 0"
+            )
         design_product_columns = {
             row["name"]
             for row in conn.execute(
@@ -683,6 +894,16 @@ def ensure_production_schema():
             conn.execute(
                 "ALTER TABLE standalone_design_products "
                 "ADD COLUMN production_asset_filename TEXT"
+            )
+        if "pinterest_ad_rating" not in design_product_columns:
+            conn.execute(
+                "ALTER TABLE standalone_design_products "
+                "ADD COLUMN pinterest_ad_rating INTEGER NOT NULL DEFAULT 0"
+            )
+        if "product_thumbnail_filename" not in design_product_columns:
+            conn.execute(
+                "ALTER TABLE standalone_design_products "
+                "ADD COLUMN product_thumbnail_filename TEXT"
             )
         for column_name in (
             "etsy_listing_id",
@@ -3691,19 +3912,27 @@ def create_standalone_design(
     source_original_filename,
     image_width,
     image_height,
+    collection_code="TEACHER",
 ):
     normalized_name = (name or "").strip()
     if not normalized_name:
         raise ValueError("Enter a design name")
     with get_connection() as conn:
+        collection = conn.execute(
+            "SELECT id FROM mug_collections WHERE UPPER(code) = UPPER(?)",
+            ((collection_code or "").strip(),),
+        ).fetchone()
+        if collection is None:
+            raise ValueError("Choose a valid mug collection")
         cursor = conn.execute(
             """
             INSERT INTO standalone_designs (
-                name, message, description, tags, source_filename,
+                mug_collection_id, name, message, description, tags, source_filename,
                 source_original_filename, image_width, image_height
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                collection["id"],
                 normalized_name,
                 (message or "").strip(),
                 (description or "").strip(),
@@ -3741,7 +3970,7 @@ def get_standalone_design(design_id, product_key="mug_11oz"):
                    p.marketplace_checked_at, p.etsy_last_synced_at
                    , p.gallery_manifest, p.gallery_state,
                    p.gallery_approved_at, p.gallery_synced_at,
-                   p.gallery_message
+                   p.gallery_message, p.product_thumbnail_filename
             FROM standalone_designs AS d
             LEFT JOIN standalone_design_products AS p
               ON p.design_id = d.id AND p.product_type = ?
@@ -3819,29 +4048,292 @@ def list_standalone_product_summaries():
             SELECT design_id, product_type, title, description,
                    printify_product_id, external_state, etsy_listing_id,
                    etsy_listing_url, etsy_state, etsy_paused_at,
-                   etsy_last_synced_at
+                   etsy_last_synced_at, pinterest_ad_rating,
+                   product_thumbnail_filename
             FROM standalone_design_products
             ORDER BY design_id, created_at, id
             """
         ).fetchall()
 
 
+def save_standalone_product_thumbnail(design_id, product_key, filename):
+    """Save one local, product-specific catalog and website reference image."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET product_thumbnail_filename = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (filename, design_id, product_key),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Product setup not found")
+        conn.commit()
+
+
 def list_standalone_designs():
     with get_connection() as conn:
         return conn.execute(
             """
-            SELECT d.*, p.product_type, p.title AS product_title,
+            SELECT d.*, c.code AS mug_collection_code,
+                   c.name AS mug_collection_name,
+                   c.profession AS mug_collection_profession,
+                   p.product_type, p.title AS product_title,
                    p.description AS product_description,
                    p.printify_product_id, p.printify_product_url,
                    p.external_state, p.external_message, p.price_cents,
                    p.etsy_listing_id, p.etsy_listing_url, p.etsy_state,
                    p.etsy_paused_at, p.marketplace_checked_at
             FROM standalone_designs AS d
+            LEFT JOIN mug_collections AS c ON c.id = d.mug_collection_id
             LEFT JOIN standalone_design_products AS p
               ON p.design_id = d.id AND p.product_type = 'mug_11oz'
-            ORDER BY d.updated_at DESC, d.id DESC
+            ORDER BY CASE WHEN d.display_order = 0 THEN 1 ELSE 0 END,
+                     d.display_order, d.id DESC
             """
         ).fetchall()
+
+
+def list_mug_collections():
+    """List mug catalog collections separately from poster collections."""
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT c.*,
+                   COUNT(d.id) AS design_count,
+                   SUM(CASE WHEN d.status != 'archived' THEN 1 ELSE 0 END)
+                       AS active_design_count,
+                   SUM(CASE WHEN EXISTS (
+                       SELECT 1 FROM standalone_design_products p
+                       WHERE p.design_id = d.id
+                         AND LOWER(COALESCE(p.etsy_state, '')) = 'active'
+                         AND p.etsy_paused_at IS NULL
+                   ) THEN 1 ELSE 0 END) AS live_design_count
+            FROM mug_collections c
+            LEFT JOIN standalone_designs d ON d.mug_collection_id = c.id
+            GROUP BY c.id
+            ORDER BY c.display_order, c.name COLLATE NOCASE
+            """
+        ).fetchall()
+
+
+def create_mug_collection(*, code, name, profession, description=""):
+    normalized_code = "".join(
+        character for character in (code or "").strip().upper()
+        if character.isalnum() or character in {"_", "-"}
+    )
+    normalized_name = (name or "").strip()
+    normalized_profession = (profession or "").strip()
+    if not normalized_code or not normalized_name or not normalized_profession:
+        raise ValueError("Enter a code, collection name, and profession")
+    with get_connection() as conn:
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO mug_collections (
+                    code, name, profession, description, default_product_key,
+                    display_order
+                ) VALUES (?, ?, ?, ?, 'mug_11oz_black_accent',
+                    COALESCE((SELECT MAX(display_order) + 10 FROM mug_collections), 10))
+                """,
+                (
+                    normalized_code,
+                    normalized_name,
+                    normalized_profession,
+                    (description or "").strip(),
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            existing = conn.execute(
+                "SELECT id, status FROM mug_collections WHERE code = ?",
+                (normalized_code,),
+            ).fetchone()
+            if existing is None or existing["status"] != "planning":
+                raise ValueError("That mug collection code already exists") from error
+            conn.execute(
+                """
+                UPDATE mug_collections
+                SET name = ?, profession = ?, description = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    normalized_name,
+                    normalized_profession,
+                    (description or "").strip(),
+                    existing["id"],
+                ),
+            )
+            conn.commit()
+            return existing["id"]
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_mug_collection_profile_for_design(design_id):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT c.* FROM mug_collections c
+            JOIN standalone_designs d ON d.mug_collection_id = c.id
+            WHERE d.id = ?
+            """,
+            (design_id,),
+        ).fetchone()
+
+
+def mug_catalog_integrity():
+    """Return non-destructive catalog checks used before adding professions."""
+    with get_connection() as conn:
+        return {
+            "unassigned_active": conn.execute(
+                "SELECT COUNT(*) FROM standalone_designs "
+                "WHERE status != 'archived' AND mug_collection_id IS NULL"
+            ).fetchone()[0],
+            "active_white_products": conn.execute(
+                """
+                SELECT COUNT(*) FROM standalone_design_products
+                WHERE product_type = 'mug_11oz'
+                  AND LOWER(COALESCE(etsy_state, '')) = 'active'
+                  AND etsy_paused_at IS NULL
+                """
+            ).fetchone()[0],
+            "paused_white_products": conn.execute(
+                """
+                SELECT COUNT(*) FROM standalone_design_products
+                WHERE product_type = 'mug_11oz' AND etsy_paused_at IS NOT NULL
+                """
+            ).fetchone()[0],
+            "active_black_products": conn.execute(
+                """
+                SELECT COUNT(*) FROM standalone_design_products
+                WHERE product_type = 'mug_11oz_black_accent'
+                  AND LOWER(COALESCE(etsy_state, '')) = 'active'
+                  AND etsy_paused_at IS NULL
+                """
+            ).fetchone()[0],
+            "missing_black_thumbnails": conn.execute(
+                """
+                SELECT COUNT(*) FROM standalone_design_products
+                WHERE product_type = 'mug_11oz_black_accent'
+                  AND product_thumbnail_filename IS NULL
+                """
+            ).fetchone()[0],
+            "black_product_overrides": conn.execute(
+                """
+                SELECT COUNT(*) FROM standalone_design_products p
+                JOIN standalone_designs d ON d.id = p.design_id
+                JOIN mug_collections c ON c.id = d.mug_collection_id
+                WHERE p.product_type = c.default_product_key
+                  AND (
+                    p.price_cents != c.default_price_cents OR
+                    p.placement_x != c.placement_x OR
+                    p.placement_y != c.placement_y OR
+                    p.placement_scale != c.placement_scale OR
+                    p.placement_mode != c.placement_mode
+                  )
+                """
+            ).fetchone()[0],
+        }
+
+
+def rate_standalone_product_pinterest_ad(design_id, product_key, rating):
+    normalized_rating = int(rating)
+    if normalized_rating < 0 or normalized_rating > 3:
+        raise ValueError("Pinterest ad rating must be between zero and three stars")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET pinterest_ad_rating = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = ?
+            """,
+            (normalized_rating, design_id, product_key),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Product setup not found")
+        conn.commit()
+
+
+def list_pinterest_launch_states():
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT design_id, product_type, selected_style, approved, updated_at
+            FROM pinterest_launch_items
+            ORDER BY design_id, product_type
+            """
+        ).fetchall()
+
+
+def save_pinterest_launch_state(
+    design_id, product_key, *, selected_style=None, approved=None
+):
+    """Persist review choices without changing the underlying product record."""
+    current = {
+        (row["design_id"], row["product_type"]): row
+        for row in list_pinterest_launch_states()
+    }.get((int(design_id), product_key))
+    style = selected_style or (
+        current["selected_style"] if current else "classroom_story"
+    )
+    approval = (
+        int(bool(approved))
+        if approved is not None
+        else int(current["approved"] if current else 0)
+    )
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO pinterest_launch_items (
+                design_id, product_type, selected_style, approved
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(design_id, product_type) DO UPDATE SET
+                selected_style = excluded.selected_style,
+                approved = excluded.approved,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (int(design_id), product_key, style, approval),
+        )
+        conn.commit()
+
+
+def approve_all_pinterest_launch_items(items, approved=True):
+    for design_id, product_key in items:
+        save_pinterest_launch_state(
+            design_id, product_key, approved=approved
+        )
+
+
+def reorder_standalone_designs(design_ids):
+    """Reorder the supplied visible designs while preserving all other positions."""
+    normalized_ids = [int(design_id) for design_id in design_ids]
+    if len(normalized_ids) != len(set(normalized_ids)):
+        raise ValueError("Each design can appear only once")
+    with get_connection() as conn:
+        existing = {
+            row["id"]: row["display_order"]
+            for row in conn.execute(
+                "SELECT id, display_order FROM standalone_designs WHERE id IN (%s)"
+                % ",".join("?" for _ in normalized_ids),
+                normalized_ids,
+            )
+        } if normalized_ids else {}
+        if set(normalized_ids) != set(existing):
+            raise ValueError("The design list changed. Reload and try again")
+        occupied_orders = sorted(
+            order or design_id for design_id, order in existing.items()
+        )
+        conn.executemany(
+            """
+            UPDATE standalone_designs
+            SET display_order = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            zip(occupied_orders, normalized_ids),
+        )
+        conn.commit()
 
 
 def update_standalone_design(
@@ -4269,14 +4761,35 @@ def set_standalone_product_state(
         conn.commit()
 
 
-def list_mug_text_ideas():
+def get_mug_collection(code):
     with get_connection() as conn:
         return conn.execute(
-            """
-            SELECT id, category, text, rating, display_order
-            FROM mug_text_ideas
-            ORDER BY display_order, id
-            """
+            "SELECT * FROM mug_collections WHERE UPPER(code) = UPPER(?)",
+            ((code or "").strip(),),
+        ).fetchone()
+
+
+def list_mug_text_ideas(collection_code=None, include_deleted=False):
+    with get_connection() as conn:
+        clauses = []
+        params = []
+        if collection_code:
+            clauses.append("UPPER(c.code) = UPPER(?)")
+            params.append((collection_code or "").strip())
+        if not include_deleted:
+            clauses.append("i.deleted_at IS NULL")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return conn.execute(
+            f"""
+            SELECT i.id, i.category, i.text, i.rating, i.display_order,
+                   c.code AS mug_collection_code,
+                   c.name AS mug_collection_name
+            FROM mug_text_ideas i
+            LEFT JOIN mug_collections c ON c.id = i.mug_collection_id
+            {where}
+            ORDER BY i.display_order, i.id
+            """,
+            tuple(params),
         ).fetchall()
 
 
@@ -4332,22 +4845,56 @@ def save_standalone_product_placement_default(
         conn.commit()
 
 
-def create_mug_text_idea(category, text):
+def create_mug_text_idea(category, text, collection_code="TEACHER"):
     normalized_category = " ".join((category or "").split())
     normalized_text = " ".join((text or "").split())
     if not normalized_category or not normalized_text:
         raise ValueError("Add both a category and an idea")
     with get_connection() as conn:
+        collection = conn.execute(
+            "SELECT id FROM mug_collections WHERE UPPER(code) = UPPER(?)",
+            ((collection_code or "TEACHER").strip(),),
+        ).fetchone()
+        if collection is None:
+            raise ValueError("Choose a valid mug collection")
         next_order = conn.execute(
-            "SELECT COALESCE(MAX(display_order), 0) + 1 FROM mug_text_ideas"
+            "SELECT COALESCE(MAX(display_order), 0) + 1 FROM mug_text_ideas "
+            "WHERE mug_collection_id = ?",
+            (collection["id"],),
         ).fetchone()[0]
+        deleted_match = conn.execute(
+            """
+            SELECT id FROM mug_text_ideas
+            WHERE text = ? COLLATE NOCASE AND mug_collection_id = ?
+              AND deleted_at IS NOT NULL
+            """,
+            (normalized_text, collection["id"]),
+        ).fetchone()
+        if deleted_match is not None:
+            conn.execute(
+                """
+                UPDATE mug_text_ideas
+                SET category = ?, text = ?, display_order = ?, deleted_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    normalized_category,
+                    normalized_text,
+                    next_order,
+                    deleted_match["id"],
+                ),
+            )
+            conn.commit()
+            return deleted_match["id"]
         try:
             cursor = conn.execute(
                 """
-                INSERT INTO mug_text_ideas (category, text, display_order)
-                VALUES (?, ?, ?)
+                INSERT INTO mug_text_ideas (
+                    category, text, display_order, mug_collection_id
+                ) VALUES (?, ?, ?, ?)
                 """,
-                (normalized_category, normalized_text, next_order),
+                (normalized_category, normalized_text, next_order, collection["id"]),
             )
         except sqlite3.IntegrityError as error:
             raise ValueError("That idea is already in the list") from error
@@ -4355,9 +4902,568 @@ def create_mug_text_idea(category, text):
         return cursor.lastrowid
 
 
+def create_mug_text_ideas_bulk(collection_code, category, texts):
+    created = 0
+    duplicates = 0
+    for text in texts:
+        if not " ".join((text or "").split()):
+            continue
+        try:
+            create_mug_text_idea(category, text, collection_code)
+            created += 1
+        except ValueError as error:
+            if "already" not in str(error).lower():
+                raise
+            duplicates += 1
+    return {"created": created, "duplicates": duplicates}
+
+
+def update_mug_text_idea(idea_id, category, text, collection_code):
+    normalized_category = " ".join((category or "").split())
+    normalized_text = " ".join((text or "").split())
+    if not normalized_category or not normalized_text:
+        raise ValueError("Add both a category and an idea")
+    with get_connection() as conn:
+        try:
+            cursor = conn.execute(
+                """
+                UPDATE mug_text_ideas
+                SET category = ?, text = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND deleted_at IS NULL AND mug_collection_id = (
+                    SELECT id FROM mug_collections WHERE UPPER(code) = UPPER(?)
+                )
+                """,
+                (
+                    normalized_category,
+                    normalized_text,
+                    int(idea_id),
+                    (collection_code or "").strip(),
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            raise ValueError("That idea is already in the list") from error
+        if cursor.rowcount == 0:
+            raise ValueError("Text idea not found in this collection")
+        conn.commit()
+
+
+def get_or_create_mug_collection_launch(collection_code, target_count=20):
+    normalized_target = int(target_count)
+    if normalized_target < 1 or normalized_target > 100:
+        raise ValueError("Target count must be between 1 and 100")
+    with get_connection() as conn:
+        collection = conn.execute(
+            "SELECT * FROM mug_collections WHERE UPPER(code) = UPPER(?)",
+            ((collection_code or "").strip(),),
+        ).fetchone()
+        if collection is None:
+            raise ValueError("Mug collection not found")
+        conn.execute(
+            """
+            INSERT INTO mug_collection_launches (mug_collection_id, target_count)
+            VALUES (?, ?)
+            ON CONFLICT(mug_collection_id) DO UPDATE SET
+                target_count = excluded.target_count,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (collection["id"], normalized_target),
+        )
+        conn.commit()
+        launch = conn.execute(
+            "SELECT * FROM mug_collection_launches WHERE mug_collection_id = ?",
+            (collection["id"],),
+        ).fetchone()
+        return collection, launch
+
+
+def get_mug_collection_launch(collection_code):
+    with get_connection() as conn:
+        launch = conn.execute(
+            """
+            SELECT l.*, c.code AS collection_code, c.name AS collection_name,
+                   c.profession, c.default_product_key, c.default_price_cents,
+                   c.placement_x, c.placement_y, c.placement_scale,
+                   c.placement_mode, c.pinterest_style
+            FROM mug_collection_launches l
+            JOIN mug_collections c ON c.id = l.mug_collection_id
+            WHERE UPPER(c.code) = UPPER(?)
+            """,
+            ((collection_code or "").strip(),),
+        ).fetchone()
+        if launch is None:
+            return None, []
+        items = conn.execute(
+            """
+            SELECT * FROM mug_collection_launch_items
+            WHERE launch_id = ? ORDER BY display_order, id
+            """,
+            (launch["id"],),
+        ).fetchall()
+        return launch, items
+
+
+def lock_mug_collection_launch_ideas(collection_code, idea_ids, target_count=20):
+    normalized_ids = list(dict.fromkeys(int(idea_id) for idea_id in idea_ids))
+    normalized_target = int(target_count)
+    if len(normalized_ids) != normalized_target:
+        raise ValueError(f"Select exactly {normalized_target} ideas")
+    collection, launch = get_or_create_mug_collection_launch(
+        collection_code, normalized_target
+    )
+    with get_connection() as conn:
+        placeholders = ",".join("?" for _ in normalized_ids)
+        ideas = conn.execute(
+            f"""
+            SELECT i.id, i.text FROM mug_text_ideas i
+            WHERE i.mug_collection_id = ? AND i.deleted_at IS NULL
+              AND i.id IN ({placeholders})
+            """,
+            (collection["id"], *normalized_ids),
+        ).fetchall()
+        ideas_by_id = {row["id"]: row for row in ideas}
+        if len(ideas_by_id) != len(normalized_ids):
+            raise ValueError("One or more ideas do not belong to this collection")
+        conn.execute(
+            "DELETE FROM mug_collection_launch_items WHERE launch_id = ?",
+            (launch["id"],),
+        )
+        conn.executemany(
+            """
+            INSERT INTO mug_collection_launch_items (
+                launch_id, text_idea_id, message, display_order
+            ) VALUES (?, ?, ?, ?)
+            """,
+            [
+                (launch["id"], idea_id, ideas_by_id[idea_id]["text"], order)
+                for order, idea_id in enumerate(normalized_ids, start=1)
+            ],
+        )
+        conn.execute(
+            """
+            UPDATE mug_collection_launches
+            SET status = 'draft', current_step = 'artwork',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (launch["id"],),
+        )
+        conn.commit()
+    return launch["id"]
+
+
+def set_mug_collection_launch_artwork_mode(collection_code, item_id, artwork_mode):
+    normalized_mode = (artwork_mode or "").strip().lower()
+    if normalized_mode not in {"text_only", "text_graphics", "graphic_only"}:
+        raise ValueError(
+            "Choose Text Only, Text + Accent Graphics, or Graphic Only"
+        )
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET artwork_mode = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            )
+            """,
+            (normalized_mode, int(item_id), (collection_code or "").strip()),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Launch artwork item not found")
+        conn.commit()
+
+
+def set_mug_collection_launch_artwork_message(
+    collection_code, item_id, artwork_message
+):
+    normalized_lines = [
+        " ".join(line.split())
+        for line in str(artwork_message or "").splitlines()
+        if line.strip()
+    ]
+    formatted_message = "\n".join(normalized_lines)
+    if not formatted_message:
+        raise ValueError("Enter the wording for the mug artwork")
+    if len(formatted_message) > 180:
+        raise ValueError("Keep the mug artwork wording under 180 characters")
+    with get_connection() as conn:
+        item = conn.execute(
+            """
+            SELECT i.message FROM mug_collection_launch_items i
+            JOIN mug_collection_launches l ON l.id = i.launch_id
+            JOIN mug_collections c ON c.id = l.mug_collection_id
+            WHERE i.id = ? AND i.artwork_state != 'approved'
+              AND UPPER(c.code) = UPPER(?)
+            """,
+            (int(item_id), (collection_code or "").strip()),
+        ).fetchone()
+        if item is None:
+            raise ValueError("Launch artwork item not found or already approved")
+        conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET message = ?, artwork_message = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (" ".join(formatted_message.split()), formatted_message, int(item_id)),
+        )
+        conn.commit()
+
+
+def approve_mug_collection_launch_artwork(
+    collection_code, item_id, style_variant, artwork_filename, design_id
+):
+    normalized_variant = int(style_variant)
+    if normalized_variant < 0 or normalized_variant > 5:
+        raise ValueError("Choose one of the six artwork options")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET artwork_state = 'approved', artwork_style_variant = ?,
+                artwork_filename = ?, standalone_design_id = ?,
+                artwork_approved_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND artwork_state != 'approved' AND launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            )
+            """,
+            (
+                normalized_variant,
+                artwork_filename,
+                int(design_id),
+                int(item_id),
+                (collection_code or "").strip(),
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Launch artwork item is missing or already approved")
+        remaining = conn.execute(
+            """
+            SELECT COUNT(*) FROM mug_collection_launch_items
+            WHERE launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            ) AND artwork_state != 'approved'
+            """,
+            ((collection_code or "").strip(),),
+        ).fetchone()[0]
+        if remaining == 0:
+            conn.execute(
+                """
+                UPDATE mug_collection_launches
+                SET current_step = 'printify', updated_at = CURRENT_TIMESTAMP
+                WHERE mug_collection_id = (
+                    SELECT id FROM mug_collections WHERE UPPER(code) = UPPER(?)
+                )
+                """,
+                ((collection_code or "").strip(),),
+            )
+        conn.commit()
+
+
+def reopen_mug_collection_launch_artwork(collection_code, item_id):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET artwork_state = 'waiting', artwork_style_variant = NULL,
+                artwork_approved_at = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND artwork_state = 'approved'
+              AND printify_state = 'waiting' AND launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            )
+            """,
+            (int(item_id), (collection_code or "").strip()),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(
+                "Artwork can only be reopened before its Printify draft begins"
+            )
+        conn.execute(
+            """
+            UPDATE mug_collection_launches
+            SET current_step = 'artwork', updated_at = CURRENT_TIMESTAMP
+            WHERE mug_collection_id = (
+                SELECT id FROM mug_collections WHERE UPPER(code) = UPPER(?)
+            )
+            """,
+            ((collection_code or "").strip(),),
+        )
+        conn.commit()
+
+
+def set_mug_collection_launch_printify_state(
+    collection_code, item_id, printify_state, error_message=None
+):
+    allowed = {
+        "waiting", "draft_created", "placement_reviewed", "failed",
+        "outcome_unknown",
+    }
+    normalized_state = (printify_state or "").strip().lower()
+    if normalized_state not in allowed:
+        raise ValueError("Choose a valid Printify launch state")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET printify_state = ?,
+                placement_state = CASE
+                    WHEN ? = 'draft_created' THEN 'needs_review'
+                    ELSE placement_state
+                END,
+                error_message = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND artwork_state = 'approved' AND launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            )
+            """,
+            (
+                normalized_state,
+                normalized_state,
+                (error_message or "").strip() or None,
+                int(item_id),
+                (collection_code or "").strip(),
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Approved launch artwork not found")
+        conn.commit()
+
+
+def set_mug_collection_launch_mockup_state(
+    collection_code, item_id, *, placement_state=None, mockup_state=None,
+    error_message=None
+):
+    allowed_placement = {"needs_review", "reviewed"}
+    allowed_mockup = {"waiting", "needs_review", "approved"}
+    if placement_state not in allowed_placement:
+        raise ValueError("Choose a valid placement state")
+    if mockup_state not in allowed_mockup:
+        raise ValueError("Choose a valid mockup state")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET placement_state = ?, mockup_state = ?, error_message = ?,
+                printify_state = CASE
+                    WHEN ? = 'approved' THEN 'placement_reviewed'
+                    ELSE printify_state
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND printify_state = 'draft_created' AND launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            )
+            """,
+            (
+                placement_state, mockup_state,
+                (error_message or "").strip() or None,
+                mockup_state, int(item_id), (collection_code or "").strip(),
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("The active Printify draft was not found")
+        if mockup_state == "approved":
+            remaining = conn.execute(
+                """
+                SELECT COUNT(*) FROM mug_collection_launch_items
+                WHERE launch_id = (
+                    SELECT l.id FROM mug_collection_launches l
+                    JOIN mug_collections c ON c.id = l.mug_collection_id
+                    WHERE UPPER(c.code) = UPPER(?)
+                ) AND mockup_state != 'approved'
+                """,
+                ((collection_code or "").strip(),),
+            ).fetchone()[0]
+            if remaining == 0:
+                conn.execute(
+                    """
+                    UPDATE mug_collection_launches
+                    SET current_step = 'listings', updated_at = CURRENT_TIMESTAMP
+                    WHERE mug_collection_id = (
+                        SELECT id FROM mug_collections
+                        WHERE UPPER(code) = UPPER(?)
+                    )
+                    """,
+                    ((collection_code or "").strip(),),
+                )
+        conn.commit()
+
+
+def approve_mug_collection_launch_listing(
+    collection_code, item_id, *, title, description, tags, price_cents
+):
+    normalized_title = (title or "").strip()
+    normalized_description = (description or "").strip()
+    normalized_tags = (tags or "").strip()
+    normalized_price = int(price_cents)
+    if not normalized_title:
+        raise ValueError("Enter the Etsy title")
+    if not normalized_description:
+        raise ValueError("Enter the Etsy description")
+    if normalized_price < 100:
+        raise ValueError("Enter a valid mug price")
+    with get_connection() as conn:
+        item = conn.execute(
+            """
+            SELECT i.standalone_design_id
+            FROM mug_collection_launch_items i
+            JOIN mug_collection_launches l ON l.id = i.launch_id
+            JOIN mug_collections c ON c.id = l.mug_collection_id
+            WHERE i.id = ? AND UPPER(c.code) = UPPER(?)
+              AND i.mockup_state = 'approved'
+            """,
+            (int(item_id), (collection_code or "").strip()),
+        ).fetchone()
+        if item is None or not item["standalone_design_id"]:
+            raise ValueError("Approve the Printify mug image first")
+        design_id = int(item["standalone_design_id"])
+        conn.execute(
+            """
+            UPDATE standalone_design_products
+            SET title = ?, description = ?, price_cents = ?,
+                external_state = CASE
+                    WHEN printify_product_id IS NOT NULL THEN 'needs_update'
+                    ELSE external_state
+                END,
+                external_message = CASE
+                    WHEN printify_product_id IS NOT NULL
+                    THEN 'Approved listing copy is ready to update in Printify.'
+                    ELSE external_message
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE design_id = ? AND product_type = 'mug_11oz_black_accent'
+            """,
+            (
+                normalized_title, normalized_description, normalized_price,
+                design_id,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE standalone_designs
+            SET tags = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+            """,
+            (normalized_tags, design_id),
+        )
+        conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET listing_state = 'approved', error_message = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (int(item_id),),
+        )
+        remaining = conn.execute(
+            """
+            SELECT COUNT(*) FROM mug_collection_launch_items
+            WHERE launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            ) AND listing_state != 'approved'
+            """,
+            ((collection_code or "").strip(),),
+        ).fetchone()[0]
+        if remaining == 0:
+            conn.execute(
+                """
+                UPDATE mug_collection_launches
+                SET current_step = 'publish', updated_at = CURRENT_TIMESTAMP
+                WHERE mug_collection_id = (
+                    SELECT id FROM mug_collections WHERE UPPER(code) = UPPER(?)
+                )
+                """,
+                ((collection_code or "").strip(),),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE mug_collection_launches
+                SET current_step = 'listings', updated_at = CURRENT_TIMESTAMP
+                WHERE mug_collection_id = (
+                    SELECT id FROM mug_collections WHERE UPPER(code) = UPPER(?)
+                )
+                """,
+                ((collection_code or "").strip(),),
+            )
+        conn.commit()
+
+
+def set_mug_collection_launch_publish_state(
+    collection_code, item_id, publish_state, error_message=None
+):
+    allowed = {
+        "waiting", "publish_requested", "waiting_for_etsy", "verified",
+        "failed", "outcome_unknown",
+    }
+    normalized_state = (publish_state or "").strip().lower()
+    if normalized_state not in allowed:
+        raise ValueError("Choose a valid publication state")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mug_collection_launch_items
+            SET publish_state = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND listing_state = 'approved' AND launch_id = (
+                SELECT l.id FROM mug_collection_launches l
+                JOIN mug_collections c ON c.id = l.mug_collection_id
+                WHERE UPPER(c.code) = UPPER(?)
+            )
+            """,
+            (
+                normalized_state, (error_message or "").strip() or None,
+                int(item_id), (collection_code or "").strip(),
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Approved launch listing not found")
+        if normalized_state == "verified":
+            remaining = conn.execute(
+                """
+                SELECT COUNT(*) FROM mug_collection_launch_items
+                WHERE launch_id = (
+                    SELECT l.id FROM mug_collection_launches l
+                    JOIN mug_collections c ON c.id = l.mug_collection_id
+                    WHERE UPPER(c.code) = UPPER(?)
+                ) AND publish_state != 'verified'
+                """,
+                ((collection_code or "").strip(),),
+            ).fetchone()[0]
+            if remaining == 0:
+                conn.execute(
+                    """
+                    UPDATE mug_collection_launches
+                    SET status = 'published', current_step = 'complete',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE mug_collection_id = (
+                        SELECT id FROM mug_collections
+                        WHERE UPPER(code) = UPPER(?)
+                    )
+                    """,
+                    ((collection_code or "").strip(),),
+                )
+        conn.commit()
+
+
 def delete_mug_text_idea(idea_id):
     with get_connection() as conn:
-        conn.execute("DELETE FROM mug_text_ideas WHERE id = ?", (idea_id,))
+        conn.execute(
+            "UPDATE mug_text_ideas SET deleted_at = CURRENT_TIMESTAMP, "
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (idea_id,),
+        )
         conn.commit()
 
 
@@ -4370,7 +5476,7 @@ def rate_mug_text_idea(idea_id, rating):
             """
             UPDATE mug_text_ideas
             SET rating = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
+            WHERE id = ? AND deleted_at IS NULL
             """,
             (normalized_rating, idea_id),
         )
@@ -4379,12 +5485,26 @@ def rate_mug_text_idea(idea_id, rating):
         conn.commit()
 
 
-def reorder_mug_text_ideas(idea_ids):
+def reorder_mug_text_ideas(idea_ids, collection_code=None):
     normalized_ids = [int(idea_id) for idea_id in idea_ids]
     with get_connection() as conn:
-        existing_ids = {
-            row[0] for row in conn.execute("SELECT id FROM mug_text_ideas")
-        }
+        if collection_code:
+            existing_ids = {
+                row[0] for row in conn.execute(
+                    """
+                    SELECT i.id FROM mug_text_ideas i
+                    JOIN mug_collections c ON c.id = i.mug_collection_id
+                    WHERE UPPER(c.code) = UPPER(?) AND i.deleted_at IS NULL
+                    """,
+                    ((collection_code or "").strip(),),
+                )
+            }
+        else:
+            existing_ids = {
+                row[0] for row in conn.execute(
+                    "SELECT id FROM mug_text_ideas WHERE deleted_at IS NULL"
+                )
+            }
         if len(normalized_ids) != len(existing_ids) or set(normalized_ids) != existing_ids:
             raise ValueError("The text idea list changed. Reload and try again")
         conn.executemany(

@@ -1,16 +1,43 @@
 <nav class="primary-navigation" aria-label="Primary navigation">
   <a href="/" class="{% if primary_nav_active == 'dashboard' %}is-active{% endif %}"><span>⌂</span>Dashboard</a>
-  <div class="primary-navigation-label">Posters</div>
+
   {% set collection_context_code = collection['code'] if collection is defined and collection else artwork['collection_code'] if artwork is defined and artwork else '' %}
-  <a href="/collections{% if collection_context_code %}?collection={{ collection_context_code }}{% endif %}" class="{% if primary_nav_active == 'collections' %}is-active{% endif %}"><span>▦</span>Collections</a>
-  <a href="/fast-flow" class="{% if primary_nav_active == 'fast_flow' %}is-active{% endif %}"><span>⇥</span>Fast Flow</a>
-  <a href="/recent" class="{% if primary_nav_active == 'recent' %}is-active{% endif %}"><span>◷</span>Recently updated</a>
-  <div class="primary-navigation-label">Mugs</div>
-  <a href="/designs" class="{% if primary_nav_active == 'designs' %}is-active{% endif %}"><span>✦</span>Design Library</a>
-  <a href="/designs/text-ideas" class="{% if primary_nav_active == 'text_ideas' %}is-active{% endif %}"><span>☆</span>Text Ideas</a>
-  <div class="primary-navigation-label">Marketplace</div>
-  <a href="/listings" class="{% if primary_nav_active == 'listings' %}is-active{% endif %}"><span>☷</span>Listings</a>
-  <a href="/mockup-studio" class="{% if primary_nav_active == 'mockup_studio' %}is-active{% endif %}"><span>▣</span>Mockup Studio</a>
+  {% set poster_nav_items = poster_navigation_collections() %}
+  {% set poster_active = primary_nav_active in ['collections', 'fast_flow', 'recent', 'listings', 'mockup_studio'] %}
+  <details class="primary-navigation-section" {% if poster_active %}open{% endif %}>
+    <summary class="{% if poster_active %}is-active{% endif %}"><span>▤</span><strong>Posters</strong><i aria-hidden="true">⌄</i></summary>
+    <div class="primary-navigation-section-items">
+      <a href="/collections" class="{% if primary_nav_active == 'collections' and not collection_context_code %}is-active{% endif %}"><span>⌂</span>Overview</a>
+      <details class="primary-navigation-folder" {% if poster_nav_items %}open{% endif %}>
+        <summary class="{% if primary_nav_active == 'collections' %}is-active{% endif %}"><span>▦</span><strong>Collections</strong><i aria-hidden="true">⌄</i></summary>
+        <div class="primary-navigation-folder-items">
+          {% for poster_collection in poster_nav_items %}<a href="/collections?collection={{ poster_collection['code'] }}" class="is-collection{% if collection_context_code == poster_collection['code'] %} is-active{% endif %}"><span>•</span>{{ poster_collection['name'] }}</a>{% endfor %}
+        </div>
+      </details>
+      <a href="/fast-flow" class="{% if primary_nav_active == 'fast_flow' %}is-active{% endif %}"><span>⇥</span>Fast Flow</a>
+      <a href="/recent" class="{% if primary_nav_active == 'recent' %}is-active{% endif %}"><span>◷</span>Recently updated</a>
+      <a href="/listings" class="{% if primary_nav_active == 'listings' %}is-active{% endif %}"><span>☷</span>Listings</a>
+      <a href="/mockup-studio" class="{% if primary_nav_active == 'mockup_studio' %}is-active{% endif %}"><span>▣</span>Mockup Studio</a>
+    </div>
+  </details>
+
+  {% set mug_nav_items = mug_navigation_collections() %}
+  {% set selected_mug_collection = active_collection_code|default(request.query_params.get('collection', ''))|upper %}
+  {% set mugs_active = primary_nav_active in ['designs', 'text_ideas'] %}
+  <details class="primary-navigation-section" {% if mugs_active %}open{% endif %}>
+    <summary class="{% if mugs_active %}is-active{% endif %}"><span>☕</span><strong>Mugs</strong><i aria-hidden="true">⌄</i></summary>
+    <div class="primary-navigation-section-items">
+      <a href="/designs/collections" class="{% if request.url.path == '/designs/collections' %}is-active{% endif %}"><span>⌂</span>Overview</a>
+      <details class="primary-navigation-folder" {% if mug_nav_items %}open{% endif %}>
+        <summary class="{% if primary_nav_active == 'designs' %}is-active{% endif %}"><span>▦</span><strong>Collections</strong><i aria-hidden="true">⌄</i></summary>
+        <div class="primary-navigation-folder-items">
+          <a href="/designs" class="{% if primary_nav_active == 'designs' and selected_mug_collection in ['', 'ALL'] and request.url.path != '/designs/collections' %}is-active{% endif %}"><span>•</span>All mugs</a>
+          {% for mug_collection in mug_nav_items %}<a href="/designs/collections/{{ mug_collection['code'] }}" class="is-collection{% if selected_mug_collection == mug_collection['code']|upper %} is-active{% endif %}"><span>•</span>{{ mug_collection['name'] }}</a>{% endfor %}
+        </div>
+      </details>
+    </div>
+  </details>
+
   <div class="primary-navigation-label">Connections</div>
   <a href="/printify/connect" class="{% if primary_nav_active == 'printify' %}is-active{% endif %}"><span>◆</span>Printify connection</a>
   <a href="/etsy/connect" class="{% if primary_nav_active == 'etsy' %}is-active{% endif %}"><span>↗</span>Etsy connection</a>

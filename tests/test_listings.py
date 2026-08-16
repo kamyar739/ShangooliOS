@@ -562,10 +562,11 @@ class ListingTests(unittest.TestCase):
         response = self.client.get("/listings")
         self.assertIn("Paused on Etsy ↗", response.text)
         self.assertIn("Reactivate on Etsy", response.text)
-        for page in ("/?view=listings", "/collections/CEL"):
+        for page in ("/listings", "/collections/CEL"):
             page_response = self.client.get(page)
             self.assertEqual(page_response.status_code, 200)
             self.assertIn("Paused on Etsy", page_response.text)
+        self.assertNotIn("Paused on Etsy", self.client.get("/").text)
         artwork_response = self.client.get("/artworks/CEL-001")
         self.assertEqual(artwork_response.status_code, 200)
         self.assertIn("Paused on Etsy ↗", artwork_response.text)

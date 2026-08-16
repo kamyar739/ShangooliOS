@@ -47,7 +47,7 @@ QUICK_TEXT_BLUE = (41, 36, 190, 255)
 TEMPLATE_CANVAS = (2400, 2400)
 TEMPLATE_INK = (39, 38, 38, 255)
 TEMPLATE_TEAL = (28, 112, 104, 255)
-TEMPLATE_ORANGE = (192, 75, 42, 255)
+TEMPLATE_MEDICAL_BLUE = (53, 109, 154, 255)
 TEMPLATE_GOLD = (232, 171, 42, 255)
 TEMPLATE_SERIF_FONT = Path("/System/Library/Fonts/Supplemental/Didot.ttc")
 TEMPLATE_SCRIPT_FONT = Path("/System/Library/Fonts/Supplemental/SignPainter.ttc")
@@ -474,7 +474,7 @@ def _wrap_quick_text(draw, message, font, max_width):
     return lines
 
 
-def render_quick_text_design(message: str):
+def render_quick_text_design(message: str, style_variant: int | None = None):
     """Render the approved Shangooli mixed-typography template as a transparent PNG."""
     normalized = "\n".join(
         " ".join(line.split()) for line in str(message or "").splitlines()
@@ -484,7 +484,7 @@ def render_quick_text_design(message: str):
         raise ValueError("Enter the message for the design")
     if len(normalized) > 180:
         raise ValueError("Keep the quick design message under 180 characters")
-    return render_mixed_typography_design(normalized)
+    return render_mixed_typography_design(normalized, style_variant=style_variant)
 
 
 def _balanced_template_lines(message, target_lines=4):
@@ -541,7 +541,7 @@ def _draw_centered_segments(draw, y, segments, font):
         x += width
 
 
-def render_mixed_typography_design(message: str):
+def render_mixed_typography_design(message: str, style_variant: int | None = None):
     """Render editable phrases with the approved colorful teacher-mug recipe."""
     normalized = "\n".join(
         " ".join(line.split()) for line in str(message or "").splitlines()
@@ -560,53 +560,68 @@ def render_mixed_typography_design(message: str):
         [
             (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 285, True),
             (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 390, False),
-            (TEMPLATE_BLOCK_FONT, TEMPLATE_ORANGE, 390, True),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_MEDICAL_BLUE, 390, True),
             (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 300, False),
             (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 270, True),
         ],
         [
             (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 330, True),
             (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 300, False),
-            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 380, False),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_MEDICAL_BLUE, 380, False),
             (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 310, True),
             (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 310, False),
         ],
         [
-            (TEMPLATE_SERIF_FONT, TEMPLATE_ORANGE, 300, True),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_MEDICAL_BLUE, 300, True),
             (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 380, False),
             (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 375, True),
             (TEMPLATE_SERIF_FONT, TEMPLATE_INK, 285, False),
-            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 300, False),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_MEDICAL_BLUE, 300, False),
         ],
         [
             (TEMPLATE_SCRIPT_FONT, TEMPLATE_TEAL, 360, False),
             (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 350, True),
-            (TEMPLATE_SERIF_FONT, TEMPLATE_ORANGE, 310, True),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_MEDICAL_BLUE, 310, True),
             (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 320, False),
             (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 285, True),
         ],
         [
             (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 345, True),
-            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 390, False),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_MEDICAL_BLUE, 390, False),
             (TEMPLATE_SERIF_FONT, TEMPLATE_TEAL, 315, True),
             (TEMPLATE_BLOCK_FONT, TEMPLATE_INK, 300, False),
-            (TEMPLATE_SCRIPT_FONT, TEMPLATE_ORANGE, 300, False),
+            (TEMPLATE_SCRIPT_FONT, TEMPLATE_MEDICAL_BLUE, 300, False),
         ],
         [
             (TEMPLATE_SERIF_FONT, TEMPLATE_TEAL, 300, True),
-            (TEMPLATE_BLOCK_FONT, TEMPLATE_ORANGE, 365, True),
+            (TEMPLATE_BLOCK_FONT, TEMPLATE_MEDICAL_BLUE, 365, True),
             (TEMPLATE_SCRIPT_FONT, TEMPLATE_INK, 390, False),
-            (TEMPLATE_SERIF_FONT, TEMPLATE_ORANGE, 285, False),
+            (TEMPLATE_SERIF_FONT, TEMPLATE_MEDICAL_BLUE, 285, False),
             (TEMPLATE_BLOCK_FONT, TEMPLATE_TEAL, 285, True),
         ],
     ]
-    recipes = style_recipes[digest[0] % len(style_recipes)]
-    accents = [TEMPLATE_TEAL, TEMPLATE_ORANGE, TEMPLATE_GOLD, TEMPLATE_INK]
+    recipe_index = (
+        digest[0] % len(style_recipes)
+        if style_variant is None
+        else int(style_variant) % len(style_recipes)
+    )
+    recipes = style_recipes[recipe_index]
+    accents = [TEMPLATE_TEAL, TEMPLATE_MEDICAL_BLUE, TEMPLATE_GOLD, TEMPLATE_INK]
     mixed_line = digest[1] % len(lines) if digest[2] % 3 else -1
     rendered = []
     max_width = 1980
     for index, line in enumerate(lines):
         font_path, color, preferred, uppercase = recipes[index % len(recipes)]
+        if len(lines) == 3 and index == 1:
+            # The middle line normally acts as the connector between the setup
+            # and payoff, so keep it visibly quieter in every style option.
+            preferred = max(220, round(preferred * 0.74))
+        elif len(lines) == 3 and index == 2:
+            # Give the punchline a reliable bold finish while retaining each
+            # recipe's color variation.
+            font_path = TEMPLATE_BLOCK_FONT
+            preferred = max(390, preferred)
+            uppercase = True
         display = line.upper() if uppercase else line
         font = _fit_template_font(draw, display, font_path, max_width, preferred)
         box = draw.textbbox((0, 0), display, font=font)
@@ -616,13 +631,29 @@ def render_mixed_typography_design(message: str):
             if accent == color:
                 accent = accents[(digest[3] + 1) % len(accents)]
             segments = _mixed_word_segments(display, color, accent, digest[4])
-        rendered.append((display, font, color, segments, box[2] - box[0], box[3] - box[1]))
-    gap = 24
+        rendered.append(
+            (
+                display,
+                font,
+                color,
+                segments,
+                box[2] - box[0],
+                box[3] - box[1],
+                box[1],
+            )
+        )
+    # Mixed script, serif, and condensed faces have very different ascenders
+    # and descenders. Three-line phrases need deliberate breathing room or the
+    # visual lines appear to collide even when their measured boxes do not.
+    gap = 112 if len(rendered) == 3 else 96 if len(rendered) == 2 else 48
     total_height = sum(item[5] for item in rendered) + gap * (len(rendered) - 1)
     y = (TEMPLATE_CANVAS[1] - total_height) / 2
-    for index, (text, font, color, segments, width, height) in enumerate(rendered):
+    for index, (text, font, color, segments, width, height, bbox_top) in enumerate(rendered):
         x = (TEMPLATE_CANVAS[0] - width) / 2
-        _draw_centered_segments(draw, y, segments, font)
+        # Pillow fonts carry different invisible offsets above their visible
+        # glyphs. Draw against the measured visible top so serif, script, and
+        # condensed lines all receive the same actual gap.
+        _draw_centered_segments(draw, y - bbox_top, segments, font)
         if index == 0 and len(rendered) > 1:
             ray_y = y + height / 2
             for offset in (-42, 0, 42):

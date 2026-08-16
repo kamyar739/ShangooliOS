@@ -10,20 +10,20 @@
       <div>
         <div class="eyebrow">Portfolio refresh</div>
         <h1 class="display-6 fw-bold">Refresh this product slot</h1>
-        <p class="text-muted mb-0">Replace the message once, update both existing mugs, then return after reviewing Printify.</p>
+        <p class="text-muted mb-0">Replace the message once, update the active Black Accent mug, then return after reviewing Printify.</p>
       </div>
       <span class="status-badge {% if design['refresh_state'] == 'complete' %}live{% elif design['refresh_state'] == 'needs_review' %}blocked{% else %}ready{% endif %}">
         {% if design["refresh_state"] == "awaiting_printify" %}Ready to publish{% elif design["refresh_state"] == "awaiting_etsy" %}Waiting for Etsy{% elif design["refresh_state"] == "awaiting_gallery" %}Review galleries{% elif design["refresh_state"] == "needs_review" %}Needs attention{% elif design["refresh_state"] == "complete" %}Refresh complete{% else %}Ready to start{% endif %}
       </span>
     </div>
 
-    {% if request.query_params.get("result") == "ready" %}<div class="alert alert-success">Both existing Printify products were updated. Review and publish the changes in Printify.</div>{% endif %}
-    {% if request.query_params.get("result") == "publish_requested" %}<div class="alert alert-success">Printify accepted both publication requests. Use the status check below to finish Etsy synchronization.</div>{% endif %}
+    {% if request.query_params.get("result") == "ready" %}<div class="alert alert-success">The active Printify product was updated. Review and publish the change in Printify.</div>{% endif %}
+    {% if request.query_params.get("result") == "publish_requested" %}<div class="alert alert-success">Printify accepted the publication request. Use the status check below to finish Etsy synchronization.</div>{% endif %}
     {% if request.query_params.get("result") == "publish_attention" %}<div class="alert alert-warning">One product needs attention. Check the product messages before trying anything again.</div>{% endif %}
     {% if request.query_params.get("result") == "waiting" %}<div class="alert alert-warning">Printify has not reported every Etsy update yet. Wait briefly and try the final check again.</div>{% endif %}
-    {% if request.query_params.get("result") == "gallery_review" %}<div class="alert alert-success">Etsy copy is updated. Review, approve, and send both refreshed image galleries to Etsy to finish.</div>{% endif %}
+    {% if request.query_params.get("result") == "gallery_review" %}<div class="alert alert-success">Etsy copy is updated. Review, approve, and send the refreshed image gallery to Etsy to finish.</div>{% endif %}
     {% if request.query_params.get("result") == "attention" or design["refresh_state"] == "needs_review" %}<div class="alert alert-danger">{{ design["refresh_message"] or "One product needs attention. The other product was allowed to continue safely." }}</div>{% endif %}
-    {% if request.query_params.get("result") == "complete" %}<div class="alert alert-success">Portfolio refresh complete. Both Etsy listing records now use the refreshed copy. Paused listings remain unavailable to shoppers until you reactivate them.</div>{% endif %}
+    {% if request.query_params.get("result") == "complete" %}<div class="alert alert-success">Portfolio refresh complete. The active Etsy listing now uses the refreshed copy.</div>{% endif %}
 
     {% if blockers %}
     <section class="section-card mb-4">
@@ -37,8 +37,8 @@
     <section class="section-card portfolio-refresh-resume mb-4">
       <div>
         <div class="eyebrow">Printify review</div>
-        <h2 class="h4">{% if design["refresh_state"] == "awaiting_printify" %}Review both products, then publish here{% elif design["refresh_state"] == "awaiting_gallery" %}Review and send both image galleries{% elif design["refresh_state"] == "complete" %}Review the Etsy listings{% else %}Check Etsy status{% endif %}</h2>
-        <p class="text-muted">{% if design["refresh_state"] == "awaiting_printify" %}Open each product and inspect its placement and mockups. Return here to publish both through Printify safely.{% elif design["refresh_state"] == "awaiting_gallery" %}The listing copy is current. Open each gallery, confirm the refreshed images, approve the set, and send it to Etsy.{% elif design["refresh_state"] == "complete" %}The refreshed white and Black Accent mugs are linked below.{% else %}The publish request will not be sent again. ShangooliOS will only find and synchronize the resulting Etsy listings.{% endif %}</p>
+        <h2 class="h4">{% if design["refresh_state"] == "awaiting_printify" %}Review the product, then publish here{% elif design["refresh_state"] == "awaiting_gallery" %}Review and send the image gallery{% elif design["refresh_state"] == "complete" %}Review the Etsy listing{% else %}Check Etsy status{% endif %}</h2>
+        <p class="text-muted">{% if design["refresh_state"] == "awaiting_printify" %}Open the Black Accent mug and inspect its placement and mockups. Return here to publish through Printify safely.{% elif design["refresh_state"] == "awaiting_gallery" %}The listing copy is current. Confirm the refreshed images, approve the set, and send it to Etsy.{% elif design["refresh_state"] == "complete" %}The refreshed Black Accent mug is linked below.{% else %}The publish request will not be sent again. ShangooliOS will only find and synchronize the resulting Etsy listing.{% endif %}</p>
       </div>
       <div class="portfolio-refresh-products">
         {% for product in products %}
@@ -58,14 +58,14 @@
         <a class="btn btn-outline-secondary mb-3" href="/designs/{{ design['id'] }}/refresh?new=1#new-refresh">Start over with a new design</a>
       {% endif %}
       {% if design["refresh_state"] == "awaiting_printify" %}
-        <form method="post" action="/designs/{{ design['id'] }}/refresh/publish" data-long-operation data-wait-stages="Verifying white mug|Publishing white mug through Printify|Verifying Black Accent mug|Publishing Black Accent mug through Printify">
-          <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> I reviewed both products and want Printify to publish their current changes.</label>
-          <button class="btn btn-primary" type="submit">Publish Both Through Printify</button>
+        <form method="post" action="/designs/{{ design['id'] }}/refresh/publish" data-long-operation data-wait-stages="Verifying Black Accent mug|Publishing Black Accent mug through Printify">
+          <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> I reviewed the Black Accent mug and want Printify to publish its current change.</label>
+          <button class="btn btn-primary" type="submit">Publish Through Printify</button>
         </form>
       {% elif design["refresh_state"] == "awaiting_gallery" %}
-        <p class="text-muted mb-0">The refresh completes automatically after both approved galleries are sent to Etsy.</p>
+        <p class="text-muted mb-0">The refresh completes automatically after the approved gallery is sent to Etsy.</p>
       {% elif design["refresh_state"] != "complete" %}
-        <form method="post" action="/designs/{{ design['id'] }}/refresh/finish" data-long-operation data-wait-stages="Checking both Printify products|Finding Etsy listings|Synchronizing Etsy details">
+        <form method="post" action="/designs/{{ design['id'] }}/refresh/finish" data-long-operation data-wait-stages="Checking the Printify product|Finding the Etsy listing|Synchronizing Etsy details">
           <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Check status and synchronize the refreshed Etsy copy and mockups without publishing again.</label>
           <button class="btn btn-primary" type="submit">Check Status &amp; Finish</button>
         </form>
@@ -80,21 +80,43 @@
       <section class="section-card">
         <div class="eyebrow">{% if design["refresh_state"] == "complete" %}Next refresh{% else %}1 · New message{% endif %}</div>
         <h2 class="h4">{% if design["refresh_state"] == "complete" %}Start another refresh{% else %}What should replace the current design?{% endif %}</h2>
-        <p class="text-muted">ShangooliOS keeps both listing slots, prices, placement, and external IDs.</p>
+        <p class="text-muted">ShangooliOS keeps the active listing slot, price, placement, and external IDs.</p>
+        <h3 class="h6">Create from a message</h3>
         <form method="post" action="/designs/{{ design['id'] }}/refresh/preview">
           <label class="form-label" for="refresh-message">New exact message</label>
           <textarea class="form-control" id="refresh-message" name="message" rows="4" maxlength="180" required>{{ preview["message"] if preview else "" }}</textarea>
           <button class="btn btn-primary mt-3" type="submit" {% if blockers %}disabled{% endif %}>Preview Refresh</button>
+        </form>
+        <div class="portfolio-refresh-option-divider"><span>or</span></div>
+        <h3 class="h6">Upload your finished graphic</h3>
+        <p class="small text-muted">Use a PNG or JPEG. Enter its exact wording so the Etsy title, description, and tags stay accurate.</p>
+        <form method="post" enctype="multipart/form-data" action="/designs/{{ design['id'] }}/refresh/apply-upload" data-long-operation data-wait-stages="Uploading replacement graphic|Preparing Black Accent mug|Updating Black Accent mug in Printify">
+          <label class="form-label" for="refresh-upload-message">Exact message shown in the graphic</label>
+          <textarea class="form-control" id="refresh-upload-message" name="message" rows="3" maxlength="180" required></textarea>
+          <label class="form-label mt-3" for="refresh-graphic">Finished replacement graphic</label>
+          <input class="form-control" id="refresh-graphic" name="graphic" type="file" accept="image/png,image/jpeg" required>
+          <label class="confirmation-check mt-3"><input type="checkbox" name="confirmed" value="true" required> Replace the artwork in the active mug slot while keeping its ID, price, and placement.</label>
+          <button class="btn btn-primary mt-3" type="submit" {% if blockers %}disabled{% endif %}>Prepare Uploaded Replacement</button>
         </form>
       </section>
 
       {% if preview %}
       <section class="section-card">
         <div class="eyebrow">2 · Review</div>
-        <div class="portfolio-refresh-preview">
-          <img src="{{ preview['image_data'] }}" alt="Preview of the replacement message graphic">
-          <div><strong>{{ preview["metadata"]["name"] }}</strong><small>{{ preview["metadata"]["tags"] }}</small></div>
-        </div>
+        <h2 class="h4">Choose your favorite design</h2>
+        <p class="text-muted">All six use the same exact message. Select one before preparing the replacement.</p>
+        <form method="post" action="/designs/{{ design['id'] }}/refresh/apply" data-long-operation data-wait-stages="Creating selected replacement graphic|Preparing Black Accent mug|Updating Black Accent mug in Printify">
+          <input type="hidden" name="message" value="{{ preview['message'] }}">
+          <div class="portfolio-refresh-variant-grid">
+            {% for variant in preview['variants'] %}
+            <label class="portfolio-refresh-variant">
+              <input type="radio" name="style_variant" value="{{ variant['style_variant'] }}" {% if loop.first %}checked{% endif %} required>
+              <span class="portfolio-refresh-variant-image"><img src="{{ variant['image_data'] }}" alt="Design option {{ loop.index }}"></span>
+              <strong>Option {{ loop.index }}</strong>
+            </label>
+            {% endfor %}
+          </div>
+          <div class="portfolio-refresh-selected-copy"><strong>{{ preview["metadata"]["name"] }}</strong><small>{{ preview["metadata"]["tags"] }}</small></div>
         {% for product in preview["products"] %}
         <article class="portfolio-refresh-copy">
           <strong>{{ product["label"] }} · ${{ "%.2f"|format(product["price_cents"] / 100) }}</strong>
@@ -102,10 +124,8 @@
           <small>{{ product["description"] }}</small>
         </article>
         {% endfor %}
-        <form method="post" action="/designs/{{ design['id'] }}/refresh/apply" data-long-operation data-wait-stages="Creating replacement graphic|Preparing white mug|Updating white mug in Printify|Preparing Black Accent mug|Updating Black Accent mug in Printify">
-          <input type="hidden" name="message" value="{{ preview['message'] }}">
-          <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Update both existing Printify products. Keep their IDs, prices, and placements.</label>
-          <button class="btn btn-primary" type="submit">Prepare Replacement</button>
+          <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Update the active Printify product. Keep its ID, price, and placement.</label>
+          <button class="btn btn-primary" type="submit">Prepare Selected Replacement</button>
         </form>
       </section>
       {% endif %}

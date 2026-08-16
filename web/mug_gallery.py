@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 from web.db import (
     get_standalone_design,
     save_standalone_product_gallery,
+    save_standalone_product_thumbnail,
     update_standalone_product_gallery_state,
 )
 from web.etsy_api import (
@@ -60,6 +61,36 @@ def gallery_path(filename):
     except ValueError:
         return None
     return candidate if candidate.is_file() else None
+
+
+def save_product_thumbnail(design_id, product_key, contents, original_name):
+    """Store a local right-side mug image without changing the Etsy gallery."""
+    product = get_standalone_design(design_id, product_key)
+    if product is None or not product["product_id"]:
+        raise ValueError("Product setup not found")
+    try:
+        with Image.open(BytesIO(contents)) as opened:
+            image = opened.convert("RGB")
+    except OSError as error:
+        raise ValueError("Choose a readable PNG or JPEG mug image") from error
+    folder_name = f"product-{product['product_id']}"
+    safe_name = re.sub(
+        r"[^a-z0-9]+", "-", Path(original_name).stem.lower()
+    ).strip("-")
+    filename = f"{folder_name}/catalog-right-side-{safe_name or 'uploaded'}.jpg"
+    destination = GALLERY_ROOT / filename
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Preserve the entire mug view; white padding is preferable to cropping
+    # the handle or printed side used for visual verification.
+    canvas = Image.new("RGB", GALLERY_SIZE, "white")
+    placed = _contain(image, GALLERY_SIZE)
+    canvas.paste(
+        placed,
+        ((GALLERY_SIZE[0] - placed.width) // 2, (GALLERY_SIZE[1] - placed.height) // 2),
+    )
+    canvas.save(destination, "JPEG", quality=94, optimize=True)
+    save_standalone_product_thumbnail(design_id, product_key, filename)
+    return filename
 
 
 def _download_image(source):
