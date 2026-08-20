@@ -33,6 +33,10 @@
       <div class="website-traffic-section-heading"><strong id="traffic-source-title">Where visitors came from · <span data-mug-period-label>Past 24 hours</span></strong><span>Anonymous source attribution</span></div>
       <div class="traffic-source-chart" data-traffic-sources><span class="text-muted">Traffic sources will appear here.</span></div>
     </section>
+    <div class="website-traffic-collections">
+      <div class="website-traffic-section-heading"><strong>Mug views by collection · <span data-mug-period-label>Past 24 hours</span></strong><span>Each collection’s contribution to total mug views</span></div>
+      <div data-traffic-collections><span class="text-muted">No mug views recorded yet.</span></div>
+    </div>
     <section class="commerce-performance" data-commerce-performance>
       <div class="website-traffic-section-heading"><div><strong>Sales and advertising</strong><span data-commerce-status>Connect Etsy sales and Pinterest Ads to complete the funnel.</span></div><button class="commerce-sync-button" type="button" data-commerce-sync><span class="commerce-sync-icon" aria-hidden="true">↻</span><span data-commerce-sync-label>Sync sales &amp; ads</span></button></div>
       <div class="commerce-metric-grid">
@@ -49,10 +53,6 @@
       <div class="traffic-chart" data-traffic-chart aria-label="Daily traffic line chart"></div>
       <div class="website-traffic-table-wrap"><table class="website-traffic-table traffic-daily-table"><thead><tr><th>Date</th><th>Mug views</th><th>Visitors</th><th>Pinterest</th><th>Etsy clicks</th><th>Mugs / visitor</th><th>Click rate</th></tr></thead><tbody data-daily-rows></tbody></table></div>
     </section>
-    <div class="website-traffic-collections">
-      <div class="website-traffic-section-heading"><strong>Mug views by collection · <span data-mug-period-label>Past 24 hours</span></strong><span>Each collection’s contribution to total mug views</span></div>
-      <div data-traffic-collections><span class="text-muted">No mug views recorded yet.</span></div>
-    </div>
     <div class="website-traffic-products">
       <div class="website-traffic-section-heading"><strong>Mug performance · <span data-mug-period-label>Past 24 hours</span></strong><div class="traffic-table-controls"><select data-mug-collection aria-label="Filter mug collection"><option value="">All collections</option></select><select data-mug-sort aria-label="Sort mug performance"><option value="most">Most viewed</option><option value="least">Least viewed</option><option value="clicks">Most Etsy clicks</option><option value="rate">Highest click rate</option></select></div></div>
       <div class="website-traffic-product-header" aria-hidden="true"><span>Mug</span><span>Collection</span><span>Mug views</span><span>Etsy clicks</span><span>Click rate</span></div>
@@ -98,9 +98,9 @@
   const periodLabel = () => activePeriod === '24h' ? 'Past 24 hours' : activePeriod === '7d' ? '7 days' : '30 days';
   const metric = (item, key) => number(item?.[`${key}_${activePeriod}`]);
   const sourceName = (source) => ({pinterest:'Pinterest',direct:'Direct / unknown',google:'Google',bing:'Bing',social:'Other social',other:'Other referral',internal:'Internal / testing'}[source] || formatName(source));
-  const renderBarChart = (node, rows, emptyMessage) => { const max=Math.max(1,...rows.map(item=>item.value)); node.innerHTML=rows.map(item=>`<div class="traffic-bar-row"><span>${item.label}</span><div><i style="width:${Math.max(4,item.value/max*100)}%"></i></div><strong>${item.value.toLocaleString()} <small>${item.share ?? ''}</small></strong></div>`).join('')||`<span class="text-muted">${emptyMessage}</span>`; };
+  const renderBarChart = (node, rows, emptyMessage) => { const max=Math.max(1,...rows.map(item=>item.value)); node.innerHTML=rows.map(item=>`<div class="traffic-bar-row"><span>${item.label}</span><div><i style="width:${item.value?Math.max(4,item.value/max*100):0}%"></i></div><strong>${item.value.toLocaleString()} <small>${item.share ?? ''}</small></strong></div>`).join('')||`<span class="text-muted">${emptyMessage}</span>`; };
   const renderSources = () => { const rows=[...(trafficData.trafficSources||[])].map(item=>({label:sourceName(item.source),value:metric(item,'visitors')})).filter(item=>item.value>0).sort((a,b)=>b.value-a.value); renderBarChart(panel.querySelector('[data-traffic-sources]'),rows,'No attributed visitors in this period.'); };
-  const renderCollections = () => { const total=number(trafficData.totals?.[`mug_views_${activePeriod}`]); const rows=[...(trafficData.collections||[])].map(item=>({label:item.collection_name,value:metric(item,'mug_views'),share:total?percent(metric(item,'mug_views')/total*100):'0.0%'})).filter(item=>item.value>0).sort((a,b)=>b.value-a.value); renderBarChart(panel.querySelector('[data-traffic-collections]'),rows,'No mug views recorded yet.'); };
+  const renderCollections = () => { const total=number(trafficData.totals?.[`mug_views_${activePeriod}`]); const rows=[...(trafficData.collections||[])].map(item=>{const views=metric(item,'mug_views');const arrivals=metric(item,'collection_visits');return {label:item.collection_name,value:views,arrivals,share:`${total?percent(views/total*100):'0.0%'} · ${arrivals} arrival${arrivals===1?'':'s'}`};}).filter(item=>item.value>0||item.arrivals>0).sort((a,b)=>b.value-a.value||b.arrivals-a.arrivals); renderBarChart(panel.querySelector('[data-traffic-collections]'),rows,'No collection activity recorded yet.'); };
   const renderMugs = () => {
     const products = panel.querySelector('[data-traffic-products]');
     const filter = panel.querySelector('[data-mug-collection]').value; const sort = panel.querySelector('[data-mug-sort]').value;
