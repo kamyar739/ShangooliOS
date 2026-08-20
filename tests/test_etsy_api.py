@@ -68,6 +68,8 @@ class EtsyAPITests(unittest.TestCase):
         contents = self.env_path.read_text(encoding="utf-8")
         self.assertIn("PRINTIFY_SHOP_ID", contents)
         self.assertIn("ETSY_REFRESH_TOKEN", contents)
+        self.assertIn('ETSY_PERMISSION_VERSION="3"', contents)
+        self.assertEqual(etsy_config()["permission_version"], "3")
 
     def test_disconnect_removes_only_etsy_settings(self):
         self.env_path.write_text(

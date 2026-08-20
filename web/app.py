@@ -3638,6 +3638,11 @@ def standalone_product_gallery_approve(
 def standalone_product_gallery_sync(
     design_id: int, blueprint_key: str, confirmed: bool = Form(False)
 ):
+    design_before_sync = get_standalone_design(design_id)
+    is_portfolio_refresh = bool(
+        design_before_sync
+        and design_before_sync["refresh_state"] == "awaiting_gallery"
+    )
     try:
         sync_mug_gallery_to_etsy(design_id, blueprint_key, confirmed=confirmed)
     except (EtsyAPIError, OSError, ValueError) as error:
@@ -3650,13 +3655,29 @@ def standalone_product_gallery_sync(
         and product["printify_product_id"]
         and product["etsy_listing_id"]
     ]
-    if refreshed_products and all(
+    galleries_synced = bool(refreshed_products) and all(
         product["gallery_state"] == "synced" for product in refreshed_products
-    ):
+    )
+    listings_verified = galleries_synced and all(
+        product["etsy_state"] == "active" and product["etsy_listing_url"]
+        for product in refreshed_products
+    )
+    if listings_verified:
         set_standalone_design_refresh_state(
             design_id,
             "complete",
-            "The active mug product, Etsy copy, and Etsy gallery are synchronized.",
+            "The active mug product, Etsy copy, gallery, and live Etsy listing are verified.",
+        )
+    elif galleries_synced:
+        set_standalone_design_refresh_state(
+            design_id,
+            "needs_review",
+            "The gallery is synchronized, but the Etsy listing is not verified as live.",
+        )
+    if is_portfolio_refresh:
+        result = "complete" if listings_verified else "attention"
+        return RedirectResponse(
+            f"/designs/{design_id}/refresh?result={result}", status_code=303
         )
     return RedirectResponse(
         f"/designs/{design_id}/products/{blueprint_key}/gallery?synced=1",

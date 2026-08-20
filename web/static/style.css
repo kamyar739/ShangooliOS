@@ -7909,6 +7909,28 @@ a.collection-count:hover {
   gap: .5rem;
 }
 
+.portfolio-refresh-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  margin-top: .65rem;
+}
+
+.portfolio-refresh-progress span {
+  border: 1px solid #d9deea;
+  border-radius: 999px;
+  color: #7a8498;
+  font-size: .72rem;
+  font-weight: 700;
+  padding: .28rem .55rem;
+}
+
+.portfolio-refresh-progress span.done {
+  background: #e7f7ee;
+  border-color: #a9ddbf;
+  color: #157347;
+}
+
 .portfolio-refresh-etsy-link {
   text-decoration: none;
 }

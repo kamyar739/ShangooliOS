@@ -347,6 +347,7 @@ def complete_etsy_oauth(code: str, state: str) -> dict:
             "ETSY_ACCESS_TOKEN": access_token, "ETSY_REFRESH_TOKEN": token["refresh_token"],
             "ETSY_TOKEN_EXPIRES_AT": str(expires_at), "ETSY_SHOP_ID": values["shop_id"],
             "ETSY_SHOP_NAME": values["shop_name"],
-            "ETSY_PERMISSION_VERSION": "2",
+            "ETSY_PERMISSION_VERSION": "3",
         })
+    _runtime["permission_version"] = "3"
     return values

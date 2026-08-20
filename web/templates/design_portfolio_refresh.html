@@ -23,7 +23,7 @@
     {% if request.query_params.get("result") == "waiting" %}<div class="alert alert-warning">Printify has not reported every Etsy update yet. Wait briefly and try the final check again.</div>{% endif %}
     {% if request.query_params.get("result") == "gallery_review" %}<div class="alert alert-success">Etsy copy is updated. Review, approve, and send the refreshed image gallery to Etsy to finish.</div>{% endif %}
     {% if request.query_params.get("result") == "attention" or design["refresh_state"] == "needs_review" %}<div class="alert alert-danger">{{ design["refresh_message"] or "One product needs attention. The other product was allowed to continue safely." }}</div>{% endif %}
-    {% if request.query_params.get("result") == "complete" %}<div class="alert alert-success">Portfolio refresh complete. The active Etsy listing now uses the refreshed copy.</div>{% endif %}
+    {% if request.query_params.get("result") == "complete" %}<div class="alert alert-success">Portfolio refresh complete. The active Etsy listing now uses the refreshed copy and approved gallery.</div>{% endif %}
 
     {% if blockers %}
     <section class="section-card mb-4">
@@ -43,10 +43,22 @@
       <div class="portfolio-refresh-products">
         {% for product in products %}
         <article>
-          <div><strong>{{ product["product_type"]|replace("mug_11oz_black_accent", "Black Accent Mug 11 oz")|replace("mug_11oz", "White Ceramic Mug") }}</strong><small>{{ product["external_message"] or "Ready for Printify review" }}</small></div>
+          <div>
+            <strong>{{ product["product_type"]|replace("mug_11oz_black_accent", "Black Accent Mug 11 oz")|replace("mug_11oz", "White Ceramic Mug") }}</strong>
+            <small>{{ product["external_message"] or "Ready for Printify review" }}</small>
+            {% if design["refresh_state"] in ("awaiting_gallery", "needs_review", "complete") %}
+            <div class="portfolio-refresh-progress" aria-label="Portfolio refresh progress">
+              <span class="done">Copy synchronized</span>
+              <span class="{% if product['gallery_state'] in ('prepared', 'approved', 'synced') %}done{% endif %}">Gallery prepared</span>
+              <span class="{% if product['gallery_state'] in ('approved', 'synced') %}done{% endif %}">Gallery approved</span>
+              <span class="{% if product['gallery_state'] == 'synced' %}done{% endif %}">Gallery synchronized</span>
+              <span class="{% if product['gallery_state'] == 'synced' and product['etsy_state'] == 'active' and product['etsy_listing_url'] %}done{% endif %}">Live listing verified</span>
+            </div>
+            {% endif %}
+          </div>
           <div class="portfolio-refresh-product-links">
             <a class="btn btn-outline-success" href="{{ product['printify_product_url'] }}" target="_blank" rel="noopener noreferrer">Review in Printify ↗</a>
-            {% if design["refresh_state"] in ("awaiting_gallery", "complete") %}<a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/products/{{ product['product_type'] }}/gallery">Review new gallery →</a>{% endif %}
+            {% if design["refresh_state"] in ("awaiting_gallery", "needs_review") %}<a class="btn btn-primary" href="/designs/{{ design['id'] }}/products/{{ product['product_type'] }}/gallery">{% if product['gallery_state'] == 'approved' %}Synchronize approved gallery →{% elif product['gallery_state'] == 'synced' %}Review verification →{% else %}Continue gallery review →{% endif %}</a>{% elif design["refresh_state"] == "complete" %}<a class="btn btn-outline-primary" href="/designs/{{ design['id'] }}/products/{{ product['product_type'] }}/gallery">View synchronized gallery →</a>{% endif %}
             {% if design["refresh_state"] == "complete" and product["etsy_listing_url"] %}<a class="btn btn-outline-secondary" href="/designs/{{ design['id'] }}/products/{{ product['product_type'] }}/pinterest">Pinterest bundle →</a>{% endif %}
             {% if product["etsy_listing_url"] and product["etsy_state"] == "active" %}<a class="status-badge live portfolio-refresh-etsy-link" href="{{ product['etsy_listing_url'] }}" target="_blank" rel="noopener noreferrer">Live on Etsy ↗</a>
             {% elif product["etsy_listing_url"] %}<a class="status-badge ready portfolio-refresh-etsy-link" href="/designs/{{ design['id'] }}#product-{{ product['product_type'] }}">Paused on Etsy · Reactivate →</a>{% endif %}
@@ -63,7 +75,7 @@
           <button class="btn btn-primary" type="submit">Publish Through Printify</button>
         </form>
       {% elif design["refresh_state"] == "awaiting_gallery" %}
-        <p class="text-muted mb-0">The refresh completes automatically after the approved gallery is sent to Etsy.</p>
+        <p class="text-muted mb-0">The refresh completes only after the approved gallery is synchronized and the live Etsy listing is verified.</p>
       {% elif design["refresh_state"] != "complete" %}
         <form method="post" action="/designs/{{ design['id'] }}/refresh/finish" data-long-operation data-wait-stages="Checking the Printify product|Finding the Etsy listing|Synchronizing Etsy details">
           <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Check status and synchronize the refreshed Etsy copy and mockups without publishing again.</label>

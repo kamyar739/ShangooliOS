@@ -2739,6 +2739,76 @@ class StandaloneDesignTests(unittest.TestCase):
         self.assertIn('name="message"', page.text)
         self.assertIn("Review the Etsy listing", page.text)
 
+    def test_portfolio_refresh_shows_each_gallery_completion_stage(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="2222222",
+            etsy_state="active",
+            product_key="mug_11oz_black_accent",
+        )
+        db.update_standalone_product_gallery_state(
+            design_id,
+            "mug_11oz_black_accent",
+            state="approved",
+            message="Gallery approved.",
+        )
+        db.set_standalone_design_refresh_state(
+            design_id, "awaiting_gallery", "Review the gallery."
+        )
+
+        page = self.client.get(f"/designs/{design_id}/refresh")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Copy synchronized", page.text)
+        self.assertIn("Gallery prepared", page.text)
+        self.assertIn("Gallery approved", page.text)
+        self.assertIn("Gallery synchronized", page.text)
+        self.assertIn("Live listing verified", page.text)
+        self.assertIn("Synchronize approved gallery", page.text)
+
+    def test_portfolio_refresh_completes_only_after_gallery_and_live_listing(self):
+        design_id = self._create_refreshable_portfolio_slot()
+        db.record_standalone_marketplace_status(
+            design_id,
+            etsy_listing_id="2222222",
+            etsy_listing_url="https://www.etsy.com/listing/2222222",
+            etsy_state="active",
+            product_key="mug_11oz_black_accent",
+        )
+        db.update_standalone_product_gallery_state(
+            design_id,
+            "mug_11oz_black_accent",
+            state="approved",
+            message="Gallery approved.",
+        )
+        db.set_standalone_design_refresh_state(
+            design_id, "awaiting_gallery", "Review the gallery."
+        )
+
+        def sync_gallery(*args, **kwargs):
+            db.update_standalone_product_gallery_state(
+                design_id,
+                "mug_11oz_black_accent",
+                state="synced",
+                message="Gallery synchronized.",
+            )
+
+        with patch("web.app.sync_mug_gallery_to_etsy", side_effect=sync_gallery):
+            response = self.client.post(
+                f"/designs/{design_id}/products/mug_11oz_black_accent/gallery/sync",
+                data={"confirmed": "true"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"], f"/designs/{design_id}/refresh?result=complete"
+        )
+        self.assertEqual(
+            db.get_standalone_design(design_id)["refresh_state"], "complete"
+        )
+
     def test_portfolio_refresh_updates_only_active_slot_without_replacing_history(self):
         design_id = self._create_refreshable_portfolio_slot()
         before = {
