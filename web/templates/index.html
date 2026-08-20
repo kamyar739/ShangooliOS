@@ -15,7 +15,7 @@
   <section class="website-traffic-panel mb-4" data-website-traffic>
     <div class="website-traffic-heading">
       <div><div class="eyebrow">Shangooli.com</div><h2 class="h4 mb-1">Website traffic</h2><p class="text-muted mb-0">Anonymous aggregate counts across the public storefront.</p></div>
-      <span data-traffic-status>Loading current totals…</span>
+      <div class="traffic-heading-actions"><a href="https://shangooli.com/?exclude_analytics=1" target="_blank" rel="noopener noreferrer" title="Open Shangooli.com once to stop counting this browser">Exclude this browser</a><span data-traffic-status>Loading current totals…</span></div>
     </div>
     <div class="traffic-period-switch" aria-label="Traffic period">
       <button type="button" class="is-active" data-traffic-period="24h">Past 24 hours</button><button type="button" data-traffic-period="7d">7 days</button><button type="button" data-traffic-period="30d">30 days</button>
@@ -29,6 +29,10 @@
       <i aria-hidden="true">→</i>
       <article><span>Click rate</span><strong data-funnel="click_rate">—</strong><small>Etsy clicks ÷ visitors</small></article>
     </div>
+    <section class="traffic-source-panel" aria-labelledby="traffic-source-title">
+      <div class="website-traffic-section-heading"><strong id="traffic-source-title">Where visitors came from · <span data-mug-period-label>Past 24 hours</span></strong><span>Anonymous source attribution</span></div>
+      <div class="traffic-source-chart" data-traffic-sources><span class="text-muted">Traffic sources will appear here.</span></div>
+    </section>
     <section class="commerce-performance" data-commerce-performance>
       <div class="website-traffic-section-heading"><div><strong>Sales and advertising</strong><span data-commerce-status>Connect Etsy sales and Pinterest Ads to complete the funnel.</span></div><button class="commerce-sync-button" type="button" data-commerce-sync><span class="commerce-sync-icon" aria-hidden="true">↻</span><span data-commerce-sync-label>Sync sales &amp; ads</span></button></div>
       <div class="commerce-metric-grid">
@@ -87,12 +91,16 @@
   const formatName = (slug) => slug.split('-').map((word) => word ? word[0].toUpperCase() + word.slice(1) : '').join(' ');
   const number = (value) => Number(value || 0);
   const percent = (value) => `${number(value).toFixed(1)}%`;
-  let trafficData = {totals: {}, daily: [], mugPerformance: [], collections: []};
+  let trafficData = {totals: {}, daily: [], mugPerformance: [], collections: [], trafficSources: []};
   let commerceData = {totals: {}, daily: [], connections: {}};
   let activePeriod = '24h'; let chartRange = 7; let page = 1;
   let refreshTimer;
   const periodLabel = () => activePeriod === '24h' ? 'Past 24 hours' : activePeriod === '7d' ? '7 days' : '30 days';
   const metric = (item, key) => number(item?.[`${key}_${activePeriod}`]);
+  const sourceName = (source) => ({pinterest:'Pinterest',direct:'Direct / unknown',google:'Google',bing:'Bing',social:'Other social',other:'Other referral',internal:'Internal / testing'}[source] || formatName(source));
+  const renderBarChart = (node, rows, emptyMessage) => { const max=Math.max(1,...rows.map(item=>item.value)); node.innerHTML=rows.map(item=>`<div class="traffic-bar-row"><span>${item.label}</span><div><i style="width:${Math.max(4,item.value/max*100)}%"></i></div><strong>${item.value.toLocaleString()} <small>${item.share ?? ''}</small></strong></div>`).join('')||`<span class="text-muted">${emptyMessage}</span>`; };
+  const renderSources = () => { const rows=[...(trafficData.trafficSources||[])].map(item=>({label:sourceName(item.source),value:metric(item,'visitors')})).filter(item=>item.value>0).sort((a,b)=>b.value-a.value); renderBarChart(panel.querySelector('[data-traffic-sources]'),rows,'No attributed visitors in this period.'); };
+  const renderCollections = () => { const total=number(trafficData.totals?.[`mug_views_${activePeriod}`]); const rows=[...(trafficData.collections||[])].map(item=>({label:item.collection_name,value:metric(item,'mug_views'),share:total?percent(metric(item,'mug_views')/total*100):'0.0%'})).filter(item=>item.value>0).sort((a,b)=>b.value-a.value); renderBarChart(panel.querySelector('[data-traffic-collections]'),rows,'No mug views recorded yet.'); };
   const renderMugs = () => {
     const products = panel.querySelector('[data-traffic-products]');
     const filter = panel.querySelector('[data-mug-collection]').value; const sort = panel.querySelector('[data-mug-sort]').value;
@@ -115,7 +123,7 @@
     panel.querySelector('[data-commerce-daily]').innerHTML = rows.map(row => { const traffic=trafficByDate.get(row.metric_date)||{}; return `<tr><th>${row.metric_date}</th><td>${money(row.ad_spend_cents)}</td><td>${number(traffic.visitors)}</td><td>${number(traffic.etsy_clicks)}</td><td>${number(row.orders)}</td><td>${money(row.estimated_profit_cents)}</td><td>${number(row.orders)?money(number(row.ad_spend_cents)/number(row.orders)):'—'}</td></tr>`; }).join('');
     const connected=[]; if(commerceData.connections?.etsy_sales) connected.push('Etsy'); if(commerceData.connections?.pinterest_ads) connected.push('Pinterest Ads'); panel.querySelector('[data-commerce-status]').textContent = connected.length ? `${connected.join(' + ')} connected · cached daily totals` : 'Connect Etsy sales and Pinterest Ads to complete the funnel.';
   };
-  const renderAll = () => { const totals=trafficData.totals||{}; [['mug_views',false],['visitors',false],['pinterest',false],['etsy_clicks',false],['click_rate',true]].forEach(([key,isPercent])=>{ const node=panel.querySelector(`[data-funnel="${key}"]`); const value=totals[`${key}_${activePeriod}`]; node.textContent=isPercent?percent(value):number(value).toLocaleString(); node.classList.remove('is-flipping'); void node.offsetWidth; node.classList.add('is-flipping'); }); panel.querySelectorAll('[data-mug-period-label]').forEach(node=>node.textContent=periodLabel()); const totalViews=number(totals[`mug_views_${activePeriod}`]); panel.querySelector('[data-traffic-collections]').innerHTML=trafficData.collections.map(item=>`<div><span>${item.collection_name}</span><strong>${metric(item,'mug_views').toLocaleString()} <small>${totalViews?percent(metric(item,'mug_views')/totalViews*100):'0.0%'}</small></strong></div>`).join('')||'<span class="text-muted">No mug views recorded yet.</span>'; const select=panel.querySelector('[data-mug-collection]'); if(select.options.length===1) trafficData.collections.forEach(item=>select.add(new Option(item.collection_name,item.collection_code))); renderTrend(); renderMugs(); renderCommerce(); };
+  const renderAll = () => { const totals=trafficData.totals||{}; [['mug_views',false],['visitors',false],['pinterest',false],['etsy_clicks',false],['click_rate',true]].forEach(([key,isPercent])=>{ const node=panel.querySelector(`[data-funnel="${key}"]`); const value=totals[`${key}_${activePeriod}`]; node.textContent=isPercent?percent(value):number(value).toLocaleString(); node.classList.remove('is-flipping'); void node.offsetWidth; node.classList.add('is-flipping'); }); panel.querySelectorAll('[data-mug-period-label]').forEach(node=>node.textContent=periodLabel()); const select=panel.querySelector('[data-mug-collection]'); if(select.options.length===1) trafficData.collections.forEach(item=>select.add(new Option(item.collection_name,item.collection_code))); renderSources(); renderCollections(); renderTrend(); renderMugs(); renderCommerce(); };
   panel.querySelectorAll('[data-traffic-period]').forEach(button=>button.addEventListener('click',()=>{ activePeriod=button.dataset.trafficPeriod; page=1; panel.querySelectorAll('[data-traffic-period]').forEach(item=>item.classList.toggle('is-active',item===button)); renderAll(); })); panel.querySelectorAll('[data-chart-range]').forEach(button=>button.addEventListener('click',()=>{ chartRange=Number(button.dataset.chartRange); panel.querySelectorAll('[data-chart-range]').forEach(item=>item.classList.toggle('is-active',item===button)); renderTrend(); })); panel.querySelectorAll('[data-mug-sort],[data-mug-collection]').forEach(control=>control.addEventListener('change',()=>{page=1;renderMugs();})); panel.querySelector('[data-page-prev]').addEventListener('click',()=>{page--;renderMugs();}); panel.querySelector('[data-page-next]').addEventListener('click',()=>{page++;renderMugs();});
   const refreshTraffic = () => {
     status.textContent = 'Updating…';
