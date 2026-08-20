@@ -30,7 +30,7 @@
       <article><span>Click rate</span><strong data-funnel="click_rate">—</strong><small>Etsy clicks ÷ visitors</small></article>
     </div>
     <section class="commerce-performance" data-commerce-performance>
-      <div class="website-traffic-section-heading"><div><strong>Sales and advertising</strong><span data-commerce-status>Connect Etsy sales and Pinterest Ads to complete the funnel.</span></div><button class="btn btn-sm btn-outline-primary" type="button" data-commerce-sync>Sync sales &amp; ads</button></div>
+      <div class="website-traffic-section-heading"><div><strong>Sales and advertising</strong><span data-commerce-status>Connect Etsy sales and Pinterest Ads to complete the funnel.</span></div><button class="commerce-sync-button" type="button" data-commerce-sync><span class="commerce-sync-icon" aria-hidden="true">↻</span><span data-commerce-sync-label>Sync sales &amp; ads</span></button></div>
       <div class="commerce-metric-grid">
         <article><span>Ad spend</span><strong data-commerce="ad_spend">—</strong><small>Pinterest advertising</small></article>
         <article><span>Orders</span><strong data-commerce="orders">—</strong><small>Etsy sales</small></article>
@@ -128,7 +128,7 @@
       .catch(() => { status.textContent = 'Live update temporarily unavailable'; status.classList.remove('is-updating'); });
   };
   const refreshCommerce = () => fetch('/api/commerce-metrics', {cache:'no-store'}).then(response=>response.json()).then(data=>{commerceData=data;renderCommerce();});
-  panel.querySelector('[data-commerce-sync]').addEventListener('click', (event) => { const button=event.currentTarget; button.disabled=true; button.textContent='Synchronizing…'; fetch('/api/commerce-metrics/sync',{method:'POST'}).then(response=>response.json()).then(data=>{commerceData=data.summary||commerceData;renderCommerce(); const failures=Object.values(data.errors||{}); panel.querySelector('[data-commerce-status]').textContent=failures.length?failures.join(' · '):'Sales and advertising totals updated.';}).catch(()=>{panel.querySelector('[data-commerce-status]').textContent='Could not synchronize right now.';}).finally(()=>{button.disabled=false;button.textContent='Sync sales & ads';}); });
+  panel.querySelector('[data-commerce-sync]').addEventListener('click', (event) => { const button=event.currentTarget; const label=button.querySelector('[data-commerce-sync-label]'); button.disabled=true; button.setAttribute('aria-busy','true'); label.textContent='Synchronizing…'; fetch('/api/commerce-metrics/sync',{method:'POST'}).then(response=>response.json()).then(data=>{commerceData=data.summary||commerceData;renderCommerce(); const failures=Object.values(data.errors||{}); panel.querySelector('[data-commerce-status]').textContent=failures.length?failures.join(' · '):'Sales and advertising totals updated.';}).catch(()=>{panel.querySelector('[data-commerce-status]').textContent='Could not synchronize right now.';}).finally(()=>{button.disabled=false;button.removeAttribute('aria-busy');label.textContent='Sync sales & ads';}); });
   refreshTraffic();
   refreshCommerce();
   refreshTimer = window.setInterval(() => { if (!document.hidden) refreshTraffic(); }, 30000);

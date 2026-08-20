@@ -8268,6 +8268,65 @@ a.collection-count:hover {
 @media(max-width:560px){.traffic-funnel-board{grid-template-columns:1fr}.traffic-period-switch{display:grid;grid-template-columns:repeat(3,1fr);width:100%}.website-traffic-products [data-traffic-products]>div{grid-template-columns:1fr auto}.website-traffic-products [data-traffic-products]>div>strong{margin-left:0}.traffic-chart{overflow-x:auto}.traffic-chart svg{min-width:650px}.traffic-pagination{justify-content:space-between}.traffic-table-controls select{flex:1;min-width:140px}}
 
 .commerce-performance{margin-top:1rem;padding:1rem;border:1px solid #e2e6f0;border-radius:13px;background:#fff}.commerce-performance .website-traffic-section-heading>div{display:grid;gap:.1rem}.commerce-performance .website-traffic-section-heading span{font-size:.7rem;color:#7b8597}.commerce-metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:.8rem 0}.commerce-metric-grid article{padding:.85rem;border-radius:12px;background:#f4f6fa;border:1px solid #e2e6ef}.commerce-metric-grid span,.commerce-metric-grid small{display:block;color:#6d778a;font-size:.66rem}.commerce-metric-grid span{font-weight:900;letter-spacing:.06em;text-transform:uppercase}.commerce-metric-grid strong{display:block;margin:.25rem 0;color:#17233c;font:800 1.4rem/1 ui-monospace,SFMono-Regular,Menlo,monospace}.commerce-daily-table{font-size:.72rem}.commerce-daily-table tbody{display:table-row-group}.commerce-daily-table th,.commerce-daily-table td{white-space:nowrap}@media(max-width:850px){.commerce-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.commerce-metric-grid{grid-template-columns:1fr}}
+
+.commerce-sync-button {
+    align-items: center;
+    background: linear-gradient(135deg, #6550db, #4c3ac2);
+    border: 0;
+    border-radius: 0.65rem;
+    box-shadow: 0 0.45rem 1.15rem rgba(80, 61, 194, 0.24);
+    color: #fff;
+    display: inline-flex;
+    font-size: 0.72rem;
+    font-weight: 850;
+    gap: 0.42rem;
+    justify-content: center;
+    min-height: 2.35rem;
+    padding: 0.58rem 0.9rem;
+    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.commerce-sync-button:hover {
+    box-shadow: 0 0.65rem 1.5rem rgba(80, 61, 194, 0.32);
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+}
+
+.commerce-sync-button:focus-visible {
+    outline: 3px solid rgba(101, 80, 219, 0.25);
+    outline-offset: 3px;
+}
+
+.commerce-sync-button:disabled {
+    box-shadow: none;
+    cursor: wait;
+    filter: saturate(0.65);
+    opacity: 0.76;
+    transform: none;
+}
+
+.commerce-sync-icon {
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.commerce-sync-button[aria-busy="true"] .commerce-sync-icon {
+    animation: commerce-sync-spin 800ms linear infinite;
+}
+
+@keyframes commerce-sync-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 520px) {
+    .commerce-performance .website-traffic-section-heading {
+        align-items: flex-start;
+        gap: 0.7rem;
+    }
+
+    .commerce-sync-button { width: 100%; }
+}
 .design-tshirt-candidate{display:flex;align-items:flex-start;gap:.65rem;padding:.75rem;border:1px solid #dfe3ee;border-radius:10px;background:#f7f8fc}.design-tshirt-candidate input{margin-top:.2rem}.design-tshirt-candidate span,.design-tshirt-candidate small{display:block}.design-tshirt-candidate small{margin-top:.15rem;color:#737d8f}
 .collection-artwork-mode {
   min-width: 205px;
