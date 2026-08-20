@@ -53,6 +53,47 @@ TEMPLATE_SERIF_FONT = Path("/System/Library/Fonts/Supplemental/Didot.ttc")
 TEMPLATE_SCRIPT_FONT = Path("/System/Library/Fonts/Supplemental/SignPainter.ttc")
 TEMPLATE_BLOCK_FONT = Path("/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf")
 
+
+_MARKETPLACE_PUNCTUATION = str.maketrans({
+    "–": "-",
+    "—": "-",
+    "‘": "'",
+    "’": "'",
+    "“": '"',
+    "”": '"',
+    " ": " ",
+})
+
+
+def printify_safe_marketplace_copy(title, description):
+    """Normalize listing copy without ever changing the printed artwork."""
+    def normalize(value, *, multiline):
+        value = str(value or "").translate(_MARKETPLACE_PUNCTUATION)
+        value = re.sub(r"(?<=\d)\s*%", " Percent", value)
+        value = value.replace("%", " Percent")
+        value = "".join(
+            character
+            for character in value
+            if character in "\n\t" or ord(character) >= 32
+        )
+        if multiline:
+            return "\n".join(
+                re.sub(r"[ \t]+", " ", line).strip()
+                for line in value.splitlines()
+            ).strip()
+        return re.sub(r"\s+", " ", value).strip()
+
+    safe_title = normalize(title, multiline=False)
+    safe_description = normalize(description, multiline=True)
+    if not safe_title:
+        raise ValueError("Enter the Etsy title")
+    if len(safe_title) > 140:
+        raise ValueError("Keep the Etsy title at 140 characters or fewer")
+    if not safe_description:
+        raise ValueError("Enter the Etsy description")
+    return safe_title, safe_description
+
+
 def mug_profile(blueprint_key=DEFAULT_MUG_BLUEPRINT_KEY):
     """Resolve one supported mug blueprint and its reusable placement rules."""
     key, blueprint = get_product_blueprint(blueprint_key)
@@ -474,7 +515,12 @@ def _wrap_quick_text(draw, message, font, max_width):
     return lines
 
 
-def render_quick_text_design(message: str, style_variant: int | None = None):
+def render_quick_text_design(
+    message: str,
+    style_variant: int | None = None,
+    *,
+    accent_graphics: bool = False,
+):
     """Render the approved Shangooli mixed-typography template as a transparent PNG."""
     normalized = "\n".join(
         " ".join(line.split()) for line in str(message or "").splitlines()
@@ -484,7 +530,11 @@ def render_quick_text_design(message: str, style_variant: int | None = None):
         raise ValueError("Enter the message for the design")
     if len(normalized) > 180:
         raise ValueError("Keep the quick design message under 180 characters")
-    return render_mixed_typography_design(normalized, style_variant=style_variant)
+    return render_mixed_typography_design(
+        normalized,
+        style_variant=style_variant,
+        accent_graphics=accent_graphics,
+    )
 
 
 def _balanced_template_lines(message, target_lines=4):
@@ -541,7 +591,31 @@ def _draw_centered_segments(draw, y, segments, font):
         x += width
 
 
-def render_mixed_typography_design(message: str, style_variant: int | None = None):
+def _draw_accent_graphics(draw, variant):
+    """Draw restrained, clearly visible abstract shapes around the typography."""
+    palettes = (
+        (TEMPLATE_MEDICAL_BLUE, TEMPLATE_TEAL),
+        (TEMPLATE_TEAL, TEMPLATE_GOLD),
+        (TEMPLATE_MEDICAL_BLUE, TEMPLATE_GOLD),
+    )
+    primary, secondary = palettes[variant % len(palettes)]
+    # Keep the center clear for wording while making the selected format
+    # unmistakably different from Text Only.
+    draw.ellipse((120, 250, 390, 520), fill=primary)
+    draw.ellipse((245, 390, 455, 600), fill=TEMPLATE_GOLD)
+    draw.polygon(((1940, 190), (2260, 315), (2130, 610), (1835, 440)), fill=secondary)
+    draw.rounded_rectangle((115, 1840, 500, 1970), radius=65, fill=secondary)
+    draw.rounded_rectangle((180, 2020, 625, 2140), radius=60, fill=primary)
+    draw.ellipse((1930, 1830, 2280, 2180), outline=primary, width=48)
+    draw.ellipse((2025, 1925, 2185, 2085), fill=TEMPLATE_GOLD)
+
+
+def render_mixed_typography_design(
+    message: str,
+    style_variant: int | None = None,
+    *,
+    accent_graphics: bool = False,
+):
     """Render editable phrases with the approved colorful teacher-mug recipe."""
     normalized = "\n".join(
         " ".join(line.split()) for line in str(message or "").splitlines()
@@ -605,6 +679,8 @@ def render_mixed_typography_design(message: str, style_variant: int | None = Non
         if style_variant is None
         else int(style_variant) % len(style_recipes)
     )
+    if accent_graphics:
+        _draw_accent_graphics(draw, recipe_index)
     recipes = style_recipes[recipe_index]
     accents = [TEMPLATE_TEAL, TEMPLATE_MEDICAL_BLUE, TEMPLATE_GOLD, TEMPLATE_INK]
     mixed_line = digest[1] % len(lines) if digest[2] % 3 else -1
@@ -1139,11 +1215,14 @@ def create_mug_draft(
     )
     try:
         image_placements = _mug_image_placements(design, source, profile)
+        safe_title, safe_description = printify_safe_marketplace_copy(
+            design["product_title"], design["product_description"] or ""
+        )
         result = create_printify_product(
             printify_api,
             listing={
-                "title": design["product_title"],
-                "description": design["product_description"] or "",
+                "title": safe_title,
+                "description": safe_description,
             },
             blueprint_id=design["blueprint_id"],
             provider_id=design["provider_id"],
@@ -1255,9 +1334,12 @@ def update_mug_draft_graphics(
             }
             for item in placements
         ]
+        safe_title, safe_description = printify_safe_marketplace_copy(
+            design["product_title"], design["product_description"] or ""
+        )
         payload = {
-            "title": design["product_title"],
-            "description": design["product_description"] or "",
+            "title": safe_title,
+            "description": safe_description,
             "variants": [
                 {
                     "id": variant["id"],
@@ -1336,11 +1418,14 @@ def update_mug_draft_copy(
         product_key=blueprint_key,
     )
     try:
+        safe_title, safe_description = printify_safe_marketplace_copy(
+            design["product_title"], design["product_description"] or ""
+        )
         printify_api.update_product(
             design["printify_product_id"],
             {
-                "title": design["product_title"],
-                "description": design["product_description"] or "",
+                "title": safe_title,
+                "description": safe_description,
             },
         )
     except PrintifyAPIConnectionError:

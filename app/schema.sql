@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS standalone_designs (
     image_width INTEGER,
     image_height INTEGER,
     status TEXT NOT NULL DEFAULT 'draft',
+    tshirt_candidate INTEGER NOT NULL DEFAULT 0 CHECK (tshirt_candidate IN (0, 1)),
     refresh_state TEXT,
     refresh_message TEXT,
     refresh_updated_at TEXT,

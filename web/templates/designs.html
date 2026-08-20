@@ -18,7 +18,6 @@
         </form>
         {% endif %}
         {% if selected_mug_collection %}
-          {% if not show_archived %}<a class="btn btn-outline-danger" href="/designs/pinterest-launch?collection={{ selected_mug_collection.code }}">Pinterest launch</a>{% endif %}
           <a class="btn btn-outline-secondary" href="/designs?collection={{ selected_mug_collection.code }}{% if not show_archived %}&amp;show=archived{% endif %}">{% if show_archived %}Show current{% else %}Archived designs{% endif %}</a>
           {% if not show_archived %}<a class="btn btn-outline-primary" href="/designs/new?collection={{ selected_mug_collection.code }}">Upload finished design</a><a class="btn btn-primary" href="/designs/quick-text?collection={{ selected_mug_collection.code }}">+ Quick text design</a>{% endif %}
         {% endif %}

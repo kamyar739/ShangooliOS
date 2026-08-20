@@ -10,7 +10,7 @@
       <div>
         <div class="eyebrow">Resumable collection launch</div>
         <h1 class="display-6 fw-bold">Launch {{ collection.name }}</h1>
-        <p class="text-muted mb-0">One guarded sequence from approved text through Printify, Etsy, Shangooli.com, and Pinterest preparation.</p>
+        <p class="text-muted mb-0">One guarded sequence from approved text through Printify, Etsy, and the Shangooli.com storefront.</p>
       </div>
       <span class="collection-launch-state">Saved · {{ launch.current_step|title }}</span>
     </div>
@@ -32,7 +32,6 @@
         <div><span>Product</span><strong>Black Accent Mug 11 oz</strong></div>
         <div><span>Price</span><strong>${{ '%.2f'|format(collection.default_price_cents / 100) }}</strong></div>
         <div><span>Placement</span><strong>{{ collection.placement_x }}, {{ collection.placement_y }} · {{ collection.placement_scale }}</strong></div>
-        <div><span>Pinterest style</span><strong>{{ collection.pinterest_style|replace('_', ' ')|title }}</strong></div>
       </div>
     </details>
 
@@ -43,16 +42,7 @@
         {% for item in launch_items %}
         <li id="artwork-{{ item.id }}">
           <span>{{ item.message }}</span>
-          <form class="collection-artwork-mode" method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-mode">
-            <input type="hidden" name="item_id" value="{{ item.id }}">
-            <label>Artwork format
-              <select class="form-select" name="artwork_mode" onchange="this.form.submit()"{% if item.artwork_state == 'approved' %} disabled title="Approved artwork is locked"{% endif %}>
-                <option value="text_only"{% if item.artwork_mode == 'text_only' %} selected{% endif %}>Text Only</option>
-                <option value="text_graphics"{% if item.artwork_mode == 'text_graphics' %} selected{% endif %}>Text + Accent Graphics</option>
-                <option value="graphic_only"{% if item.artwork_mode == 'graphic_only' %} selected{% endif %}>Graphic Only</option>
-              </select>
-            </label>
-          </form>
+          <small>{{ item.artwork_mode|replace('_', ' ')|title }}</small>
           <div><i class="{% if item.artwork_state == 'approved' %}launch-approved{% else %}launch-waiting{% endif %}">Artwork {{ item.artwork_state }}</i><i class="launch-waiting">Printify waiting</i><i class="launch-waiting">Mockup waiting</i>{% if item.artwork_state == 'approved' and item.printify_state == 'waiting' %}<form class="collection-artwork-reopen" method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-reopen"><input type="hidden" name="item_id" value="{{ item.id }}"><button class="btn btn-link btn-sm" type="submit">Reopen artwork</button></form>{% endif %}</div>
         </li>
         {% endfor %}
@@ -67,10 +57,19 @@
       {% if active_artwork_item %}
         <div class="collection-artwork-review-heading">
           <div><span>Next message</span><h3>{{ active_artwork_item.message }}</h3></div>
-          <strong>{{ active_artwork_item.artwork_mode|replace('_', ' ')|title }}</strong>
+          <form class="collection-artwork-mode" method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-mode">
+            <input type="hidden" name="item_id" value="{{ active_artwork_item.id }}">
+            <label>Artwork format
+              <select class="form-select" name="artwork_mode" onchange="this.form.submit()">
+                <option value="text_only"{% if active_artwork_item.artwork_mode == 'text_only' %} selected{% endif %}>Text Only</option>
+                <option value="text_graphics"{% if active_artwork_item.artwork_mode == 'text_graphics' %} selected{% endif %}>Text + Accent Graphics</option>
+                <option value="graphic_only"{% if active_artwork_item.artwork_mode == 'graphic_only' %} selected{% endif %}>Graphic Only</option>
+              </select>
+            </label>
+          </form>
         </div>
         {% if active_artwork_item.artwork_mode == 'graphic_only' %}
-          <div class="collection-launch-placeholder"><strong>This item needs finished graphic artwork.</strong><p>Upload support for Graphic Only items is the next addition. Change its format above if you want to generate typography choices now.</p></div>
+          <div class="collection-launch-placeholder"><strong>This item needs finished graphic artwork.</strong><p>Upload support for Graphic Only items is the next addition. Choose another format here if you want to generate typography choices now.</p></div>
         {% else %}
           <form class="collection-artwork-line-editor" method="post" action="/designs/collections/{{ collection.code }}/launch/artwork-message">
             <input type="hidden" name="item_id" value="{{ active_artwork_item.id }}">
@@ -166,19 +165,26 @@
     <details class="collection-launch-panel{% if listing_approved_count != launch_items|length %} is-locked{% endif %}" id="publish-verify"{% if listing_approved_count == launch_items|length and launch_items %} open{% endif %}>
       <summary><span><b>Publish and verify</b><small>Submit one approved mug at a time and verify its Etsy listing before continuing.</small></span><em>{% if listing_approved_count != launch_items|length %}Locked{% else %}{{ publish_verified_count }}/{{ launch_items|length }}{% endif %}</em></summary>
       {% if active_publish_item %}
+      <div class="collection-auto-publish" data-auto-publish-state="{{ active_publish_item.publish_state }}">
+        <div><strong>Let ShangooliOS finish this stage</strong><small>It will publish one mug, wait for Etsy, verify it, and continue through every remaining mug. Keep this page open.</small></div>
+        <button class="btn btn-primary" type="button" data-auto-publish-toggle>Automatically finish remaining mugs</button>
+        <span data-auto-publish-status aria-live="polite"></span>
+      </div>
+      {% endif %}
+      {% if active_publish_item %}
       <div class="collection-printify-next">
         <div><span>Current mug</span><h3>{{ active_publish_item.message }}</h3><p>Mug {{ active_publish_item.display_order }} of {{ launch_items|length }}</p></div>
         <div class="collection-printify-actions">
           {% if active_publish_item.error_message %}<div class="alert alert-warning">{{ active_publish_item.error_message }}</div>{% endif %}
           {% if active_publish_item.publish_state in ['waiting', 'failed'] %}
-          <form method="post" action="/designs/collections/{{ collection.code }}/launch/publish-item" data-preserve-scroll data-long-operation data-wait-stages="Updating approved wording in Printify|Submitting this mug to Etsy|Saving publication status">
+          <form method="post" action="/designs/collections/{{ collection.code }}/launch/publish-item" data-preserve-scroll data-long-operation data-auto-publish-form data-wait-stages="Updating approved wording in Printify|Submitting this mug to Etsy|Saving publication status">
             <input type="hidden" name="item_id" value="{{ active_publish_item.id }}">
             <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Publish this one approved mug through Printify to Etsy.</label>
             <button class="btn btn-primary" type="submit">Publish this mug to Etsy →</button>
           </form>
           {% else %}
           <div class="collection-publication-waiting"><strong>Publication was submitted.</strong><p>Printify may take a short time to report the new Etsy listing. This check is read-only and will never publish twice.</p></div>
-          <form method="post" action="/designs/collections/{{ collection.code }}/launch/verify-item" data-preserve-scroll data-long-operation data-wait-stages="Checking Printify publication|Finding the Etsy listing|Synchronizing approved details">
+          <form method="post" action="/designs/collections/{{ collection.code }}/launch/verify-item" data-preserve-scroll data-long-operation data-auto-verify-form data-wait-stages="Checking Printify publication|Finding the Etsy listing|Synchronizing approved details">
             <input type="hidden" name="item_id" value="{{ active_publish_item.id }}">
             <button class="btn btn-primary" type="submit">Check Etsy and continue →</button>
           </form>
@@ -186,7 +192,7 @@
           {% endif %}
         </div>
       </div>
-      {% elif launch_items and publish_verified_count == launch_items|length %}<div class="collection-artwork-complete"><strong>All {{ launch_items|length }} Etsy listings are published and verified.</strong><p>The collection is ready for the Shangooli.com inventory update and Pinterest launch package.</p></div>{% endif %}
+      {% elif launch_items and publish_verified_count == launch_items|length %}<div class="collection-artwork-complete"><strong>All {{ launch_items|length }} Etsy listings are published and verified.</strong><p>The collection is ready for the Shangooli.com inventory update.</p></div>{% endif %}
       {% if verified_publish_items %}
       <details class="collection-verified-listings">
         <summary>Verified Etsy listings · {{ verified_publish_items|length }}</summary>
@@ -200,19 +206,24 @@
       <div><div class="eyebrow">Collection handoff</div><h2>Send the verified collection to Shangooli.com</h2><p>This prepares the complete storefront inventory using the saved right-side mug images and verified Etsy links. Public deployment remains a separate confirmation.</p></div>
       {% if request.query_params.get('storefront_ready') %}
       <div class="alert alert-success"><strong>Storefront files are ready.</strong> {{ request.query_params.get('storefront_count') }} active mugs passed validation.</div>
-      <a class="btn btn-primary" href="/designs/pinterest-launch?collection={{ collection.code }}">Open {{ collection.name }} Pinterest launch →</a>
+      <div class="collection-finish-line">
+        <div class="collection-finish-step is-complete"><span>1</span><div><strong>Storefront prepared</strong><small>The inventory and right-side mug images passed validation.</small></div><em>Complete</em></div>
+        <div class="collection-finish-step"><span>2</span><div><strong>Publish with Codex</strong><small>Copy this protected request, paste it into your Codex conversation, and approve the public deployment there.</small></div><button class="btn btn-primary" type="button" data-copy-storefront-publish data-publish-request="Publish the prepared Shangooli.com storefront update for {{ collection.name }}. Build and validate the existing marketing site, deploy its existing Sites project publicly, and then verify https://shangooli.com/collections/{{ collection.code|lower }}.">Copy publishing request</button></div>
+        <div class="collection-finish-step"><span>3</span><div><strong>Verify the live collection</strong><small>After Codex confirms deployment, open the collection and check its mugs and Etsy links.</small></div><a class="btn btn-outline-primary" href="https://shangooli.com/collections/{{ collection.code|lower }}" target="_blank" rel="noopener noreferrer">Open live collection ↗</a></div>
+        <p class="collection-finish-status" data-storefront-publish-status aria-live="polite">Nothing is deployed until you approve it in Codex.</p>
+      </div>
+      <p class="mb-0"><strong>This collection launch is complete.</strong> Pinterest creatives remain a separate, optional activity available from each design when you are ready.</p>
       {% else %}
       <form method="post" action="/designs/collections/{{ collection.code }}/launch/storefront-prepare" data-preserve-scroll data-long-operation data-wait-stages="Validating Etsy links|Copying approved mug images|Preparing Shangooli.com inventory">
         <label class="confirmation-check"><input type="checkbox" name="confirmed" value="true" required> Prepare Shangooli.com with the current verified inventory. Do not deploy publicly yet.</label>
         <button class="btn btn-primary" type="submit">Prepare Shangooli.com update →</button>
       </form>
       {% endif %}
-      <div class="collection-handoff-next"><span>After the public site is verified</span><strong>Generate the Doctor Mugs Pinterest launch package</strong><p>Each Pin will use its approved mug image and direct Shangooli.com product URL.</p></div>
     </section>
     {% endif %}
 
     <section class="collection-launch-dry-run">
-      <div><div class="eyebrow">Safety check</div>{% if publish_verified_count %}<h2>{{ publish_verified_count }} Etsy listing{% if publish_verified_count != 1 %}s{% endif %} verified</h2><p>Publication is proceeding one mug at a time. Pinterest and Shangooli.com have not been updated yet.</p>{% elif launch_items|selectattr('printify_state', 'ne', 'waiting')|list %}<h2>Unpublished Printify drafts exist</h2><p>Nothing has been published to Etsy, Pinterest, or Shangooli.com.</p>{% else %}<h2>Nothing external has been created</h2><p>This launch is stored locally and can be resumed safely. Printify, Etsy, Pinterest, and Shangooli.com remain untouched.</p>{% endif %}</div>
+      <div><div class="eyebrow">Safety check</div>{% if publish_verified_count %}<h2>{{ publish_verified_count }} Etsy listing{% if publish_verified_count != 1 %}s{% endif %} verified</h2><p>Publication is proceeding one mug at a time. Shangooli.com has not been updated yet; Pinterest is handled separately.</p>{% elif launch_items|selectattr('printify_state', 'ne', 'waiting')|list %}<h2>Unpublished Printify drafts exist</h2><p>Nothing has been published to Etsy or Shangooli.com. Pinterest is not part of this launch.</p>{% else %}<h2>Nothing external has been created</h2><p>This launch is stored locally and can be resumed safely. Printify, Etsy, and Shangooli.com remain untouched.</p>{% endif %}</div>
       <button class="btn btn-primary" type="button" disabled>{% if listing_approved_count == launch_items|length %}Publication checks are active{% else %}Complete listing review first{% endif %}</button>
     </section>
   </main>
@@ -220,11 +231,82 @@
 <script>
 (() => {
   const scrollKey = `collection-launch-scroll:${window.location.pathname}`;
+  const autoPublishKey = `collection-launch-auto-publish:${window.location.pathname}`;
   document.querySelectorAll('form[data-preserve-scroll]').forEach((form) => {
     form.addEventListener('submit', () => {
       window.sessionStorage.setItem(scrollKey, String(window.scrollY));
     });
   });
+
+  const autoToggle = document.querySelector('[data-auto-publish-toggle]');
+  const autoStatus = document.querySelector('[data-auto-publish-status]');
+  const autoState = document.querySelector('[data-auto-publish-state]')?.dataset.autoPublishState;
+  const publishForm = document.querySelector('[data-auto-publish-form]');
+  const verifyForm = document.querySelector('[data-auto-verify-form]');
+  let autoTimer;
+
+  function stopAuto(message) {
+    window.sessionStorage.removeItem(autoPublishKey);
+    clearTimeout(autoTimer);
+    if (autoToggle) autoToggle.textContent = 'Automatically finish remaining mugs';
+    if (autoStatus) autoStatus.textContent = message || 'Automatic processing stopped.';
+  }
+
+  function continueAuto() {
+    if (window.sessionStorage.getItem(autoPublishKey) !== 'on') return;
+    if (autoState === 'failed') {
+      stopAuto('Paused because this mug needs attention.');
+      return;
+    }
+    if (autoToggle) autoToggle.textContent = 'Stop automatic processing';
+    if (publishForm) {
+      const confirmation = publishForm.querySelector('input[name="confirmed"]');
+      if (confirmation) confirmation.checked = true;
+      if (autoStatus) autoStatus.textContent = 'Publishing the current mug…';
+      autoTimer = setTimeout(() => publishForm.requestSubmit(), 1200);
+    } else if (verifyForm) {
+      if (autoStatus) autoStatus.textContent = 'Waiting for Etsy, then checking again automatically…';
+      autoTimer = setTimeout(() => verifyForm.requestSubmit(), 12000);
+    }
+  }
+
+  if (autoToggle) {
+    autoToggle.addEventListener('click', () => {
+      if (window.sessionStorage.getItem(autoPublishKey) === 'on') {
+        stopAuto();
+      } else {
+        window.sessionStorage.setItem(autoPublishKey, 'on');
+        continueAuto();
+      }
+    });
+    continueAuto();
+  } else if (window.sessionStorage.getItem(autoPublishKey) === 'on') {
+    // All mugs are verified. Stop here and wait for the user to continue.
+    window.sessionStorage.removeItem(autoPublishKey);
+  }
+
+  const publishCopyButton = document.querySelector('[data-copy-storefront-publish]');
+  const publishCopyStatus = document.querySelector('[data-storefront-publish-status]');
+  if (publishCopyButton) {
+    publishCopyButton.addEventListener('click', async () => {
+      const request = publishCopyButton.dataset.publishRequest || '';
+      try {
+        await navigator.clipboard.writeText(request);
+      } catch (_) {
+        const temporary = document.createElement('textarea');
+        temporary.value = request;
+        temporary.setAttribute('readonly', '');
+        temporary.style.position = 'fixed';
+        temporary.style.opacity = '0';
+        document.body.appendChild(temporary);
+        temporary.select();
+        document.execCommand('copy');
+        temporary.remove();
+      }
+      publishCopyButton.textContent = 'Publishing request copied';
+      if (publishCopyStatus) publishCopyStatus.textContent = 'Paste the request into Codex to continue safely.';
+    });
+  }
   const savedScroll = window.sessionStorage.getItem(scrollKey);
   if (savedScroll !== null) {
     window.sessionStorage.removeItem(scrollKey);

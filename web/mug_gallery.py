@@ -84,6 +84,12 @@ def save_product_thumbnail(design_id, product_key, contents, original_name):
     # the handle or printed side used for visual verification.
     canvas = Image.new("RGB", GALLERY_SIZE, "white")
     placed = _contain(image, GALLERY_SIZE)
+    if placed.size != GALLERY_SIZE and image.width <= GALLERY_SIZE[0] and image.height <= GALLERY_SIZE[1]:
+        scale = min(GALLERY_SIZE[0] / image.width, GALLERY_SIZE[1] / image.height)
+        placed = image.resize(
+            (round(image.width * scale), round(image.height * scale)),
+            Image.Resampling.LANCZOS,
+        )
     canvas.paste(
         placed,
         ((GALLERY_SIZE[0] - placed.width) // 2, (GALLERY_SIZE[1] - placed.height) // 2),
@@ -91,6 +97,44 @@ def save_product_thumbnail(design_id, product_key, contents, original_name):
     canvas.save(destination, "JPEG", quality=94, optimize=True)
     save_standalone_product_thumbnail(design_id, product_key, filename)
     return filename
+
+
+def promote_product_thumbnail_to_etsy_hero(design_id, product_key):
+    """Make the approved artwork-facing mug image Etsy's first listing photo."""
+    product = get_standalone_design(design_id, product_key)
+    if product is None or not product["etsy_listing_id"]:
+        raise ValueError("Find and link the Etsy listing first")
+    thumbnail = gallery_path(product["product_thumbnail_filename"])
+    if thumbnail is None:
+        raise ValueError("The approved artwork-facing mug image is missing")
+
+    listing_id = str(product["etsy_listing_id"])
+    existing = sorted(
+        get_etsy_listing_images(listing_id),
+        key=lambda image: int(image.get("rank") or 999),
+    )
+    previous_artwork_image_id = (
+        int(existing[1]["listing_image_id"])
+        if len(existing) > 1 and existing[1].get("listing_image_id")
+        else None
+    )
+    result = upload_etsy_listing_image(
+        listing_id,
+        thumbnail,
+        1,
+        f"{product['product_title']} — artwork-facing mug view",
+    )
+    new_image_id = result.get("listing_image_id")
+    if not new_image_id:
+        raise ValueError("Etsy did not confirm the new primary mug image")
+    if previous_artwork_image_id and previous_artwork_image_id != int(new_image_id):
+        try:
+            delete_etsy_listing_image(listing_id, previous_artwork_image_id)
+        except Exception:
+            # The new hero is already correct. A duplicate is safer than
+            # failing verification or repeatedly uploading the same image.
+            pass
+    return {"listing_id": listing_id, "listing_image_id": int(new_image_id)}
 
 
 def _download_image(source):

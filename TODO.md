@@ -333,3 +333,37 @@ product gallery has been approved and synchronized to Etsy.
 - Only expose the final Etsy verification step after all required galleries have
   been synchronized, so a listing cannot appear finished while Etsy still shows
   old product images.
+
+## Completed: Website Traffic Funnel and Trends
+
+Improve the Shangooli.com traffic table on the ShangooliOS dashboard:
+
+- Track and display outbound clicks from Shangooli.com to Etsy.
+- Add **Past 24 hours** alongside the existing **Last 7 days** and **Last 30 days** columns.
+- Apply all three time ranges consistently to human page views, estimated visitors,
+  Pinterest visitors, Etsy outbound clicks, detected bot views, and Pinterest crawler views.
+- Keep the existing privacy-friendly aggregate approach; do not add personal profiles or
+  intrusive tracking.
+
+Implemented as a complete storefront funnel: mug views, estimated visitors with Pinterest
+share, Etsy outbound clicks, visitor-to-Etsy click rate, rolling 24-hour totals, 7- and
+30-day daily trends, average guidance, collection contribution, and a sortable paginated
+per-mug performance table.
+
+## Completed: Collection Artwork Format at Approval
+
+Move the per-item Artwork Format choice from the locked message summary into the active
+Artwork Approval panel. Changing the format refreshes the current choices and returns to
+the same approval position.
+
+## Completed: T-Shirt Candidate Marker
+
+Allow a reusable mug design to be marked as a future T-shirt candidate without creating,
+publishing, or otherwise changing any product.
+
+## Completed: Mug-Only Storefront and Collection-Link Recovery
+
+Keep Shangooli.com focused on mugs, describe ShangooliShop as an independent shop with
+new collections added regularly, generate Pinterest destinations from the saved mug
+collection, and redirect older incorrectly categorized campaign links to the collection
+that owns the referenced mug.

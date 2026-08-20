@@ -211,6 +211,7 @@ from web.standalone_designs import (
     design_opposite_source_path,
     design_source_path,
     product_asset_path,
+    printify_safe_marketplace_copy,
     removable_background_preview,
     render_quick_text_design,
     save_design_source,
@@ -258,6 +259,7 @@ from web.mug_gallery import (
     gallery_items,
     gallery_path,
     prepare_mug_gallery,
+    promote_product_thumbnail_to_etsy_hero,
     reorder_mug_gallery,
     replace_mug_gallery_item,
     save_product_thumbnail,
@@ -1587,7 +1589,9 @@ def mug_collection_launch_page(request: Request, collection_code: str):
         )
         for style_variant in range(6):
             image_bytes = render_quick_text_design(
-                active_artwork_item["render_message"], style_variant=style_variant
+                active_artwork_item["render_message"],
+                style_variant=style_variant,
+                accent_graphics=active_artwork_item["artwork_mode"] == "text_graphics",
             )
             artwork_variants.append(
                 {
@@ -1815,7 +1819,9 @@ def mug_collection_launch_artwork_approve_post(
     try:
         render_message = item.get("artwork_message") or item["message"]
         image_bytes = render_quick_text_design(
-            render_message, style_variant=style_variant
+            render_message,
+            style_variant=style_variant,
+            accent_graphics=item["artwork_mode"] == "text_graphics",
         )
         design_id, saved = _save_launch_artwork_design(
             collection_code,
@@ -1982,6 +1988,7 @@ def mug_collection_launch_listing_approve_post(
     price: float = Form(...),
 ):
     try:
+        title, description = printify_safe_marketplace_copy(title, description)
         approve_mug_collection_launch_listing(
             collection_code,
             item_id,
@@ -2083,6 +2090,7 @@ def mug_collection_launch_verify_item_post(
     else:
         try:
             _sync_standalone_design_product_etsy(design_id, blueprint_key)
+            promote_product_thumbnail_to_etsy_hero(design_id, blueprint_key)
             set_mug_collection_launch_publish_state(
                 collection_code, item_id, "verified"
             )
@@ -2136,7 +2144,7 @@ def mug_collection_launch_artwork_mode_post(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return RedirectResponse(
-        f"/designs/collections/{collection_code}/launch#artwork-{item_id}",
+        f"/designs/collections/{collection_code}/launch#artwork-approval",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -2746,6 +2754,7 @@ def update_standalone_design_post(
     message: str = Form(""),
     description: str = Form(""),
     tags: str = Form(""),
+    tshirt_candidate: str | None = Form(None),
 ):
     try:
         update_standalone_design(
@@ -2754,6 +2763,7 @@ def update_standalone_design_post(
             message=message,
             description=description,
             tags=tags,
+            tshirt_candidate=tshirt_candidate == "1",
         )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -3766,6 +3776,7 @@ def update_standalone_product_copy_post(
 ):
     try:
         get_product_blueprint(blueprint_key)
+        title, description = printify_safe_marketplace_copy(title, description)
         update_standalone_product_copy(
             design_id,
             blueprint_key,

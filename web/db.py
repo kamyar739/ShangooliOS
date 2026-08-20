@@ -463,6 +463,7 @@ def ensure_production_schema():
                 image_width INTEGER,
                 image_height INTEGER,
                 status TEXT NOT NULL DEFAULT 'draft',
+                tshirt_candidate INTEGER NOT NULL DEFAULT 0 CHECK (tshirt_candidate IN (0, 1)),
                 display_order INTEGER NOT NULL DEFAULT 0,
                 refresh_state TEXT,
                 refresh_message TEXT,
@@ -714,6 +715,10 @@ def ensure_production_schema():
         if "mug_collection_id" not in design_columns:
             conn.execute(
                 "ALTER TABLE standalone_designs ADD COLUMN mug_collection_id INTEGER"
+            )
+        if "tshirt_candidate" not in design_columns:
+            conn.execute(
+                "ALTER TABLE standalone_designs ADD COLUMN tshirt_candidate INTEGER NOT NULL DEFAULT 0"
             )
         conn.execute(
             """
@@ -4337,7 +4342,7 @@ def reorder_standalone_designs(design_ids):
 
 
 def update_standalone_design(
-    design_id, *, name, message, description, tags
+    design_id, *, name, message, description, tags, tshirt_candidate=False
 ):
     normalized_name = (name or "").strip()
     if not normalized_name:
@@ -4349,7 +4354,7 @@ def update_standalone_design(
         cursor = conn.execute(
             """
             UPDATE standalone_designs
-            SET name = ?, message = ?, description = ?, tags = ?,
+            SET name = ?, message = ?, description = ?, tags = ?, tshirt_candidate = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
@@ -4358,6 +4363,7 @@ def update_standalone_design(
                 (message or "").strip(),
                 (description or "").strip(),
                 (tags or "").strip(),
+                int(bool(tshirt_candidate)),
                 design_id,
             ),
         )

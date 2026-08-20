@@ -81,6 +81,7 @@
         <div class="mb-3"><label class="form-label">Message</label><textarea class="form-control" name="message" rows="3">{{ design["message"] or "" }}</textarea></div>
         <input type="hidden" name="description" value="{{ design['description'] or '' }}">
         <div class="mb-3"><label class="form-label">Tags</label><textarea class="form-control" name="tags" rows="5">{{ design["tags"] or "" }}</textarea></div>
+        <label class="design-tshirt-candidate mb-3"><input type="checkbox" name="tshirt_candidate" value="1"{% if design['tshirt_candidate'] %} checked{% endif %}><span><strong>T-shirt candidate</strong><small>Save this design for possible future T-shirt use. This does not create or publish a product.</small></span></label>
         <div class="text-end"><button class="btn btn-primary" type="submit">Save Details</button></div>
       </form>
     </div>

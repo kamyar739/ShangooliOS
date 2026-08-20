@@ -32,11 +32,11 @@
     </section>
 
     <section class="idea-generator-card">
-      <div><div class="eyebrow">Automatic candidate pool</div><h2>Generate 50 more funny {{ selected_collection.profession|lower }} ideas</h2><p>Every click skips ideas already in this collection and adds the next unseen batch. Creates reviewable candidates only; nothing is sent to Printify, Etsy, Pinterest, or Shangooli.com.</p></div>
+      <div><div class="eyebrow">Automatic candidate pool</div><h2>Generate 50{% if ideas %} more{% endif %} funny {{ selected_collection.profession|lower }} ideas</h2><p>Every click skips ideas already in this collection and adds the next unseen batch. Creates reviewable candidates only; nothing is sent to Printify, Etsy, Pinterest, or Shangooli.com.</p></div>
       <form method="post" action="/designs/text-ideas/generate">
         <input type="hidden" name="collection" value="{{ selected_collection.code }}">
         <input type="hidden" name="count" value="50">
-        <button class="btn btn-primary" type="submit"{% if selected_collection.profession|lower != 'doctor' %} disabled title="Automatic generation is prepared for Doctor Mugs first"{% endif %}>Generate 50 more funny ideas</button>
+        <button class="btn btn-primary" type="submit">Generate 50{% if ideas %} more{% endif %} funny ideas</button>
       </form>
     </section>
 

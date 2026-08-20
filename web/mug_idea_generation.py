@@ -109,6 +109,118 @@ WITTY_DOCTOR_IDEAS = (
 )
 
 
+DENTIST_IDEAS = (
+    ("Dental Wit", "I Have a Plaque Record. It's Mostly Dental."),
+    ("Dental Wit", "I Make a Living Getting to the Root of Things."),
+    ("Dental Wit", "My Poker Face Is Behind This Mask."),
+    ("Dental Wit", "I See Your Point. It's a Cusp."),
+    ("Dental Wit", "Flossophy Is Part of the Treatment Plan."),
+    ("Dental Wit", "I Have Strong Feelings About Weak Enamel."),
+    ("Dental Wit", "I Came. I Saw. I Asked About Flossing."),
+    ("Dental Wit", "Your Teeth Told Me Everything."),
+    ("Dental Wit", "I Fix Problems You Pretend Not to Feel."),
+    ("Dental Wit", "The Tooth Is Out There."),
+    ("Patient Logic", "You Started Flossing This Morning. I Can Tell."),
+    ("Patient Logic", "Twice a Day Is Not a Limited-Time Offer."),
+    ("Patient Logic", "The Toothbrush Was Not Just a Suggestion."),
+    ("Patient Logic", "Your Gums Have Entered the Conversation."),
+    ("Patient Logic", "That 'Tiny Twinge' Has Its Own ZIP Code."),
+    ("Patient Logic", "You Only Chew Ice on Special Occasions. Of Course."),
+    ("Patient Logic", "No Judgment. Just Several Follow-Up Questions."),
+    ("Patient Logic", "The X-Ray Has Notes."),
+    ("Patient Logic", "Your Tooth Has Been Trying to Reach You."),
+    ("Patient Logic", "Let's Circle Back to 'It Doesn't Hurt That Much.'"),
+    ("Office Humor", "Open Wide. My Schedule Already Did."),
+    ("Office Humor", "My Chair Has Heard Everything."),
+    ("Office Humor", "The Suction Has Better Timing Than Most People."),
+    ("Office Humor", "My Schedule Has More Crowding Than Your Teeth."),
+    ("Office Humor", "Running on Coffee and Bitewings."),
+    ("Office Humor", "This Meeting Could Have Been an X-Ray."),
+    ("Office Humor", "The Waiting Room Is Practicing Patience."),
+    ("Office Humor", "My Lunch Break Needs a Crown."),
+    ("Office Humor", "The Autoclave Is the Most Reliable One Here."),
+    ("Office Humor", "Today's Forecast: Ninety Percent Chance of Plaque."),
+    ("Dental Wordplay", "Brace Yourself. I Have an Opinion."),
+    ("Dental Wordplay", "Keep Calm and Carry Floss."),
+    ("Dental Wordplay", "I Put the Pro in Prophylaxis."),
+    ("Dental Wordplay", "Molar Support Is Important."),
+    ("Dental Wordplay", "I Have Excellent Cusp Control."),
+    ("Dental Wordplay", "Nothing Personal. It's Just Calculus."),
+    ("Dental Wordplay", "That's a Bridge Too Far."),
+    ("Dental Wordplay", "I Speak Fluent Occlusion."),
+    ("Dental Wordplay", "The Root Cause Is Usually the Root."),
+    ("Dental Wordplay", "Don't Make Me Use My Dentist Voice."),
+    ("Double-Take Wit", "Trust Me. I Have the Receipts and the X-Rays."),
+    ("Double-Take Wit", "The Good News: You Still Have Options. The Options Have Opinions."),
+    ("Double-Take Wit", "I Respect the Confidence of 'I Floss Regularly.'"),
+    ("Double-Take Wit", "Your Smile Is Fine. Your Timeline Needs Work."),
+    ("Double-Take Wit", "I Solve Problems One Tiny Mirror at a Time."),
+    ("Double-Take Wit", "I Asked One Question and Got a Full Dental History."),
+    ("Double-Take Wit", "The Bite Is Normal. The Schedule Is Not."),
+    ("Double-Take Wit", "My Professional Opinion Is Please Stop Chewing Ice."),
+    ("Double-Take Wit", "You Can't Hide the Truth From a Bitewing."),
+    ("Double-Take Wit", "I Believe You. The Plaque Has a Different Statement."),
+)
+
+
+_DENTIST_HUMOR_PATTERNS = (
+    ("Dental Wit", "My {} and I Need Some Space.", ("Schedule", "Loupe Light", "Inbox", "Dental Mirror", "Suction Tip")),
+    ("Dental Wit", "{} Is Doing a Lot of Work in That Sentence.", ("Regularly", "Usually", "Sometimes", "Tiny", "Painless")),
+    ("Patient Logic", "The Patient Said {}.", ("I Floss Sometimes", "It Just Started", "I Never Chew Ice", "It Barely Hurts", "I Brush Everywhere")),
+    ("Patient Logic", "Apparently, {} Was Important.", ("The Swelling", "The Cracked Tooth", "The Missing Filling", "The Jaw Pain", "The Root Canal")),
+    ("Patient Logic", "Nothing Changed Except {}.", ("The Pain", "The Tooth", "The Bite", "The Swelling", "Everything Relevant")),
+    ("Office Humor", "Today's Workout: {}.", ("Adjusting the Chair", "Chasing the Schedule", "Finding the Explorer", "Lifting the Lead Apron", "Running Behind")),
+    ("Office Humor", "Everything Is Fine Except {}.", ("The Schedule", "The Compressor", "The Printer", "The Insurance Portal", "The Last Appointment")),
+    ("Office Humor", "I Was Told There Would Be {}.", ("A Lunch Break", "Fewer Emergencies", "Working Suction", "An Empty Waiting Room", "Legible Forms")),
+    ("Dental Wordplay", "My Superpower Is {}.", ("Seeing Plaque in the Dark", "Finding the Hidden Canal", "Reading Tiny X-Rays", "Hearing 'I Floss' Calmly", "Remembering Tooth Numbers")),
+    ("Double-Take Wit", "Plot Twist: {}.", ("The Tooth Was the Problem", "The X-Ray Had Answers", "They Actually Flossed", "The Bite Needed Adjusting", "Lunch Happened")),
+)
+
+
+def _dentist_idea_bank():
+    ideas = list(DENTIST_IDEAS)
+    for category, template, options in _DENTIST_HUMOR_PATTERNS:
+        ideas.extend((category, template.format(option)) for option in options)
+    return ideas
+
+
+_PROFESSION_HUMOR_PATTERNS = (
+    ("Professional Wit", "{} Mode: {}.", ("Powered by Coffee", "Professionally Calm", "Answers Pending", "Schedule Full", "Still Loading")),
+    ("Professional Wit", "{} by Training. {} by Necessity.", ("Problem Solver", "Mind Reader", "Multitasker", "Diplomat", "Miracle Worker")),
+    ("Professional Wit", "I Became a {} for the {}.", ("Coffee", "Plot Twists", "Meetings", "Follow-Up Questions", "Excellent Pens")),
+    ("Professional Wit", "My {} Face Is Professionally Certified.", ("Thinking", "Listening", "Concerned", "This Again", "One Moment")),
+    ("Professional Wit", "Ask a {}. Get {}.", ("A Better Question", "Three More Questions", "A Detailed Answer", "A Very Specific Maybe", "The Actual Story")),
+    ("Workday Reality", "Today's Plan: {}.", ("Stay Calm", "Find the Coffee", "Solve the Mystery", "Finish One Thing", "Ignore the Printer")),
+    ("Workday Reality", "My Schedule Has {}.", ("A Schedule", "Trust Issues", "Plot Twists", "No Respect for Lunch", "Excellent Timing")),
+    ("Workday Reality", "Everything Is Under Control Except {}.", ("The Inbox", "The Calendar", "The Printer", "The Last Meeting", "All the Details")),
+    ("Workday Reality", "I Was Told There Would Be {}.", ("A Lunch Break", "Fewer Meetings", "Clear Instructions", "Working Wi-Fi", "Time to Finish")),
+    ("Workday Reality", "Currently Running on {}.", ("Coffee and Judgment", "Experience and Snacks", "Professionalism", "A Strong Maybe", "One More Minute")),
+    ("Double-Take Wit", "The Good News: {}.", ("I Have a Plan", "I Found the Problem", "The Coffee Is Working", "We Have Options", "Nobody Panicked")),
+    ("Double-Take Wit", "Plot Twist: {}.", ("The Plan Worked", "The Meeting Was Useful", "Lunch Happened", "The Printer Cooperated", "They Read the Instructions")),
+    ("Double-Take Wit", "I Have Follow-Up Questions About {}.", ("Your Follow-Up Questions", "The Original Question", "That Timeline", "The New Plan", "Everything After 'Quick Question'")),
+    ("Double-Take Wit", "My Professional Opinion Is {}.", ("We Need Coffee", "That Depends", "Try That Again", "Read the Instructions", "This Needs a Meeting Less")),
+    ("Double-Take Wit", "Trust Me. I {}.", ("Checked Twice", "Read the Fine Print", "Have Notes", "Asked the Right Question", "Know Where the Coffee Is")),
+    ("Office Humor", "This Meeting Could Have Been {}.", ("An Email", "A Sentence", "A Sticky Note", "Canceled", "Five Minutes")),
+    ("Office Humor", "My Inbox Deserves {}.", ("Its Own Assistant", "A Warning Label", "A Vacation", "A Support Group", "Better Boundaries")),
+    ("Office Humor", "The Printer Has Chosen {}.", ("Chaos", "A Different Career", "Violence", "Not Today", "To Be Mysterious")),
+    ("Office Humor", "Today's Forecast: {}.", ("Questions", "Meetings", "Strong Coffee", "Unexpected Updates", "A Chance of Progress")),
+    ("Office Humor", "I Came. I Saw. I {}.", ("Took Notes", "Fixed It", "Asked Why", "Made a List", "Scheduled a Follow-Up")),
+)
+
+
+def _generic_profession_idea_bank(profession):
+    label = " ".join((profession or "Professional").split()).title()
+    ideas = []
+    for category, template, endings in _PROFESSION_HUMOR_PATTERNS:
+        for ending in endings:
+            if template.count("{}") == 2:
+                text = template.format(label, ending)
+            else:
+                text = template.format(ending)
+            ideas.append((f"{label} {category}", text))
+    return ideas
+
+
 _DOCTOR_HUMOR_PATTERNS = (
     ("Doctor Humor", "My {} and I Are in a Complicated Relationship.", ("Pager", "Inbox", "Schedule", "Stethoscope", "Dictation Software")),
     ("Doctor Humor", "{}: A Bold Choice Before Rounds.", ("Optimism", "Decaf", "Skipping Breakfast", "A Quiet Hallway", "An Empty Inbox")),
@@ -153,18 +265,22 @@ def _doctor_idea_bank():
 def generated_profession_ideas(profession, count=50, excluded_texts=()):
     """Return an original curated pool without network calls or publishing."""
     normalized = " ".join((profession or "").split()).casefold()
-    if normalized != "doctor":
-        raise ValueError(
-            "Automatic candidates are currently prepared for Doctor Mugs only"
-        )
+    if normalized == "doctor":
+        bank = _doctor_idea_bank()
+    elif normalized == "dentist":
+        bank = _dentist_idea_bank()
+    else:
+        bank = _generic_profession_idea_bank(profession)
     normalized_count = int(count)
     if normalized_count < 1:
         raise ValueError("Choose at least one idea")
     excluded = {" ".join((text or "").casefold().split()) for text in excluded_texts}
     available = [
-        idea for idea in _doctor_idea_bank()
+        idea for idea in bank
         if " ".join(idea[1].casefold().split()) not in excluded
     ]
     if not available:
-        raise ValueError("Every prepared doctor joke is already in your idea list")
+        raise ValueError(
+            f"Every prepared {normalized} joke is already in your idea list"
+        )
     return available[:normalized_count]

@@ -17,25 +17,34 @@
       <div><div class="eyebrow">Shangooli.com</div><h2 class="h4 mb-1">Website traffic</h2><p class="text-muted mb-0">Anonymous aggregate counts across the public storefront.</p></div>
       <span data-traffic-status>Loading current totals…</span>
     </div>
-    <div class="website-traffic-metrics">
-      <div><span>Views · 30 days</span><strong data-traffic-value="views_30d">—</strong></div>
-      <div><span>Visitors · 30 days</span><strong data-traffic-value="visitors_30d">—</strong></div>
-      <div><span>From Pinterest · 30 days</span><strong data-traffic-value="pinterest_30d">—</strong></div>
-      <div><span>Etsy clicks · 30 days</span><strong data-traffic-value="etsy_clicks_30d">—</strong></div>
+    <div class="traffic-period-switch" aria-label="Traffic period">
+      <button type="button" data-traffic-period="24h">Past 24 hours</button><button type="button" class="is-active" data-traffic-period="7d">7 days</button><button type="button" data-traffic-period="30d">30 days</button>
     </div>
-    <div class="website-traffic-table-wrap">
-      <table class="website-traffic-table">
-        <thead><tr><th>Traffic type</th><th>Last 7 days</th><th>Last 30 days</th><th>What it means</th></tr></thead>
-        <tbody>
-          <tr><th><span class="traffic-kind human"></span>Human page views</th><td data-traffic-value="views_7d">—</td><td data-traffic-value="views_30d">—</td><td>Pages viewed by people</td></tr>
-          <tr><th><span class="traffic-kind visitor"></span>Estimated visitors</th><td data-traffic-value="visitors_7d">—</td><td data-traffic-value="visitors_30d">—</td><td>One browser counted once per day</td></tr>
-          <tr><th><span class="traffic-kind pinterest"></span>Pinterest visitors</th><td data-traffic-value="pinterest_7d">—</td><td data-traffic-value="pinterest_30d">—</td><td>Human traffic referred by Pinterest</td></tr>
-          <tr><th><span class="traffic-kind bot"></span>Detected bot views</th><td data-traffic-value="bot_views_7d">—</td><td data-traffic-value="bot_views_30d">—</td><td>Known crawlers excluded from human totals</td></tr>
-          <tr><th><span class="traffic-kind pinterest-bot"></span>Pinterest crawler</th><td data-traffic-value="pinterest_bot_7d">—</td><td data-traffic-value="pinterest_bot_30d">—</td><td>Pinterest checking or indexing pages</td></tr>
-        </tbody>
-      </table>
+    <div class="traffic-funnel-board" aria-label="Storefront funnel">
+      <article><span>Mug views</span><strong data-funnel="mug_views">—</strong><small>Mugs people actually saw</small></article>
+      <i aria-hidden="true">→</i>
+      <article><span>Visitors</span><strong data-funnel="visitors">—</strong><small><b data-funnel="pinterest">—</b> from Pinterest</small></article>
+      <i aria-hidden="true">→</i>
+      <article><span>Etsy clicks</span><strong data-funnel="etsy_clicks">—</strong><small>Outbound shop visits</small></article>
+      <i aria-hidden="true">→</i>
+      <article><span>Click rate</span><strong data-funnel="click_rate">—</strong><small>Etsy clicks ÷ visitors</small></article>
     </div>
-    <div class="website-traffic-products"><strong>Most-viewed mugs · 30 days</strong><div data-traffic-products><span class="text-muted">Traffic will appear as visitors view the storefront.</span></div></div>
+    <section class="traffic-trends" aria-labelledby="traffic-trends-heading">
+      <div class="website-traffic-section-heading"><strong id="traffic-trends-heading">Daily storefront funnel</strong><div class="traffic-range-switch"><button type="button" class="is-active" data-chart-range="7">7 days</button><button type="button" data-chart-range="30">30 days</button></div></div>
+      <div class="traffic-chart-legend"><span class="views">Mug views</span><span class="visitors">Visitors</span><span class="etsy">Etsy clicks</span><span class="pinterest">Pinterest visitors</span><i>··· period average</i></div>
+      <div class="traffic-chart" data-traffic-chart aria-label="Daily traffic line chart"></div>
+      <div class="website-traffic-table-wrap"><table class="website-traffic-table traffic-daily-table"><thead><tr><th>Date</th><th>Mug views</th><th>Visitors</th><th>Pinterest</th><th>Etsy clicks</th><th>Mugs / visitor</th><th>Click rate</th></tr></thead><tbody data-daily-rows></tbody></table></div>
+    </section>
+    <div class="website-traffic-collections">
+      <div class="website-traffic-section-heading"><strong>Mug views by collection · 30 days</strong><span>Each collection’s contribution to total mug views</span></div>
+      <div data-traffic-collections><span class="text-muted">No mug views recorded yet.</span></div>
+    </div>
+    <div class="website-traffic-products">
+      <div class="website-traffic-section-heading"><strong>Mug performance · 30 days</strong><div class="traffic-table-controls"><select data-mug-collection aria-label="Filter mug collection"><option value="">All collections</option></select><select data-mug-sort aria-label="Sort mug performance"><option value="most">Most viewed</option><option value="least">Least viewed</option><option value="clicks">Most Etsy clicks</option><option value="rate">Highest click rate</option></select></div></div>
+      <div class="website-traffic-product-header" aria-hidden="true"><span>Mug</span><span>Collection</span><span>Mug views</span><span>Etsy clicks</span><span>Click rate</span></div>
+      <div data-traffic-products><span class="text-muted">Traffic will appear as visitors view the storefront.</span></div>
+      <div class="traffic-pagination"><button type="button" data-page-prev>← Previous</button><span data-page-status>Page 1</span><button type="button" data-page-next>Next →</button></div>
+    </div>
     <p class="website-traffic-note">Visitor and bot counts are privacy-friendly estimates. A returning person can be counted again on a different day.</p>
   </section>
 
@@ -66,17 +75,31 @@
   if (!panel) return;
   const status = panel.querySelector('[data-traffic-status]');
   const formatName = (slug) => slug.split('-').map((word) => word ? word[0].toUpperCase() + word.slice(1) : '').join(' ');
+  const number = (value) => Number(value || 0);
+  const percent = (value) => `${number(value).toFixed(1)}%`;
+  let trafficData = {totals: {}, daily: [], mugPerformance: [], collections: []};
+  let activePeriod = '7d'; let chartRange = 7; let page = 1;
   let refreshTimer;
+  const renderMugs = () => {
+    const products = panel.querySelector('[data-traffic-products]');
+    const filter = panel.querySelector('[data-mug-collection]').value; const sort = panel.querySelector('[data-mug-sort]').value;
+    const comparison = sort === 'least' ? (a,b) => number(a.mug_views)-number(b.mug_views) : sort === 'clicks' ? (a,b) => number(b.etsy_clicks)-number(a.etsy_clicks) : sort === 'rate' ? (a,b) => number(b.click_rate)-number(a.click_rate) : (a,b) => number(b.mug_views)-number(a.mug_views);
+    const ranked = [...trafficData.mugPerformance].filter((item) => !filter || item.collection_code === filter).sort((a,b) => comparison(a,b) || String(a.product_slug).localeCompare(String(b.product_slug)));
+    const pages = Math.max(1, Math.ceil(ranked.length / 10)); page = Math.min(page, pages); const visible = ranked.slice((page-1)*10, page*10);
+    products.innerHTML = visible.map((item, index) => `<div><span class="traffic-mug-name"><em>${(page-1)*10+index+1}</em>${formatName(item.product_slug)}</span><span class="traffic-mug-collection">${item.collection_name}</span><strong>${number(item.mug_views).toLocaleString()}</strong><strong>${number(item.etsy_clicks).toLocaleString()}</strong><strong>${percent(item.click_rate)}</strong></div>`).join('') || '<span class="text-muted">No matching mugs.</span>';
+    panel.querySelector('[data-page-status]').textContent = `Page ${page} of ${pages} · ${ranked.length} mugs`; panel.querySelector('[data-page-prev]').disabled = page <= 1; panel.querySelector('[data-page-next]').disabled = page >= pages;
+  };
+  const completeDays = (days) => { const byDate = new Map(trafficData.daily.map((row) => [row.event_date,row])); return Array.from({length:days},(_,offset) => { const date=new Date(); date.setUTCDate(date.getUTCDate()-(days-offset-1)); const key=date.toISOString().slice(0,10); return {event_date:key,mug_views:0,visitors:0,pinterest_visitors:0,etsy_clicks:0,...byDate.get(key)}; }); };
+  const renderTrend = () => { const rows=completeDays(chartRange); const metrics=[['mug_views','#446bd8'],['visitors','#23a36d'],['etsy_clicks','#e09619'],['pinterest_visitors','#df3154']]; const width=900,height=250,pad=34,max=Math.max(1,...rows.flatMap(r=>metrics.map(([key])=>number(r[key])))); const x=i=>pad+(i*(width-pad*2)/Math.max(1,rows.length-1)); const y=v=>height-pad-(v*(height-pad*2)/max); const paths=metrics.map(([key,color])=>`<path d="${rows.map((r,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(number(r[key])).toFixed(1)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="3"/>`).join(''); const average=rows.reduce((sum,r)=>sum+number(r.mug_views),0)/rows.length; panel.querySelector('[data-traffic-chart]').innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img"><line x1="${pad}" x2="${width-pad}" y1="${y(average)}" y2="${y(average)}" class="average"/><text x="${width-pad}" y="${Math.max(14,y(average)-5)}" text-anchor="end">Avg mug views ${average.toFixed(1)}</text>${paths}${rows.map((r,i)=>i%(chartRange===30?5:1)===0?`<text x="${x(i)}" y="${height-7}" text-anchor="middle">${r.event_date.slice(5)}</text>`:'').join('')}</svg>`; panel.querySelector('[data-daily-rows]').innerHTML=rows.slice().reverse().map(r=>`<tr><th>${r.event_date}</th><td>${number(r.mug_views)}</td><td>${number(r.visitors)}</td><td>${number(r.pinterest_visitors)}</td><td>${number(r.etsy_clicks)}</td><td>${number(r.visitors)?(number(r.mug_views)/number(r.visitors)).toFixed(1):'—'}</td><td>${number(r.visitors)?percent(number(r.etsy_clicks)/number(r.visitors)*100):'—'}</td></tr>`).join(''); };
+  const renderAll = () => { const totals=trafficData.totals||{}; [['mug_views',false],['visitors',false],['pinterest',false],['etsy_clicks',false],['click_rate',true]].forEach(([key,isPercent])=>{ const node=panel.querySelector(`[data-funnel="${key}"]`); const value=totals[`${key}_${activePeriod}`]; node.textContent=isPercent?percent(value):number(value).toLocaleString(); node.classList.remove('is-flipping'); void node.offsetWidth; node.classList.add('is-flipping'); }); const totalViews=number(totals.mug_views_30d); panel.querySelector('[data-traffic-collections]').innerHTML=trafficData.collections.map(item=>`<div><span>${item.collection_name}</span><strong>${number(item.mug_views).toLocaleString()} <small>${totalViews?percent(number(item.mug_views)/totalViews*100):'0.0%'}</small></strong></div>`).join('')||'<span class="text-muted">No mug views recorded yet.</span>'; const select=panel.querySelector('[data-mug-collection]'); if(select.options.length===1) trafficData.collections.forEach(item=>select.add(new Option(item.collection_name,item.collection_code))); renderTrend(); renderMugs(); };
+  panel.querySelectorAll('[data-traffic-period]').forEach(button=>button.addEventListener('click',()=>{ activePeriod=button.dataset.trafficPeriod; panel.querySelectorAll('[data-traffic-period]').forEach(item=>item.classList.toggle('is-active',item===button)); renderAll(); })); panel.querySelectorAll('[data-chart-range]').forEach(button=>button.addEventListener('click',()=>{ chartRange=Number(button.dataset.chartRange); panel.querySelectorAll('[data-chart-range]').forEach(item=>item.classList.toggle('is-active',item===button)); renderTrend(); })); panel.querySelectorAll('[data-mug-sort],[data-mug-collection]').forEach(control=>control.addEventListener('change',()=>{page=1;renderMugs();})); panel.querySelector('[data-page-prev]').addEventListener('click',()=>{page--;renderMugs();}); panel.querySelector('[data-page-next]').addEventListener('click',()=>{page++;renderMugs();});
   const refreshTraffic = () => {
     status.textContent = 'Updating…';
     status.classList.add('is-updating');
     fetch(`https://shangooli.com/api/analytics/summary?now=${Date.now()}`, {cache: 'no-store'})
       .then((response) => { if (!response.ok) throw new Error(); return response.json(); })
       .then((data) => {
-        const totals = data.totals || {};
-        panel.querySelectorAll('[data-traffic-value]').forEach((node) => { node.textContent = Number(totals[node.dataset.trafficValue] || 0).toLocaleString(); });
-        const products = panel.querySelector('[data-traffic-products]');
-        if (data.topMugs && data.topMugs.length) products.innerHTML = data.topMugs.map((item, index) => `<div><span><em>${index + 1}</em>${formatName(item.product_slug)}</span><strong>${Number(item.views || 0).toLocaleString()} page visits · ${Number(item.slider_views || 0).toLocaleString()} slider views</strong></div>`).join('');
+        trafficData = data; renderAll();
         status.textContent = 'Live · updated just now';
         status.classList.remove('is-updating');
       })

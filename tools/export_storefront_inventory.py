@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import sqlite3
 from pathlib import Path
@@ -20,6 +21,12 @@ AUDIT_PATH = SITE_ROOT / "storefront-image-audit.json"
 
 
 def export_storefront_inventory():
+    try:
+        previous_inventory = {
+            int(item["id"]): item for item in json.loads(INVENTORY_PATH.read_text())
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        previous_inventory = {}
     connection = sqlite3.connect(DATABASE)
     connection.row_factory = sqlite3.Row
     rows = connection.execute(
@@ -70,7 +77,29 @@ def export_storefront_inventory():
             )
             continue
         seen_listings.add(listing_id)
-        storefront_filename = f"design-{row['id']}-black-accent-right-side.jpg"
+        legacy_filename = f"design-{row['id']}-black-accent-right-side.jpg"
+        previous_image = str(previous_inventory.get(int(row["id"]), {}).get("image") or "")
+        previous_filename = Path(previous_image).name if previous_image.startswith("/images/mugs/") else ""
+        previous_path = SITE_IMAGES / previous_filename if previous_filename else None
+        source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        previous_matches = (
+            previous_path is not None
+            and previous_path.is_file()
+            and hashlib.sha256(previous_path.read_bytes()).hexdigest() == source_digest
+        )
+        # Preserve stable URLs while an image is unchanged. When a corrected
+        # Printify render replaces an existing file, use a content-versioned
+        # URL so the public custom-domain cache cannot serve the former image.
+        if previous_matches and not (
+            previous_filename == legacy_filename and "corrected" in source.stem
+        ):
+            storefront_filename = previous_filename
+        elif previous_filename:
+            storefront_filename = (
+                f"design-{row['id']}-black-accent-right-side-{source_digest[:10]}.jpg"
+            )
+        else:
+            storefront_filename = legacy_filename
         shutil.copy2(source, SITE_IMAGES / storefront_filename)
         products.append(
             {

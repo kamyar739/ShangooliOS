@@ -241,10 +241,20 @@ def pinterest_bundle_copy(design, product_key):
         if teacher
         else "THOUGHTFUL GIFT"
     )
+    collection_slug = _storefront_slug(
+        collection_code
+        or ("DOCTOR" if doctor else "TEACHER" if teacher else "EVERYDAY")
+    )
+    campaign = f"{collection_slug.replace('-', '_')}_mugs"
+    creative_slug = _storefront_slug(message)
     return {
         "title": title,
         "description": description,
-        "link": f"https://shangooli.com/mugs/{_storefront_slug(message)}",
+        "link": (
+            f"https://shangooli.com/collections/{collection_slug}"
+            f"?utm_source=pinterest&utm_medium=social&utm_campaign={campaign}"
+            f"&utm_content={creative_slug}"
+        ),
         "alt_text": alt_text,
         "board": (
             "Doctor Gift Ideas"
