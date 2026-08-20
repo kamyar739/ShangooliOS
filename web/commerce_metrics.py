@@ -176,7 +176,7 @@ def sync_pinterest_ads(days: int = 30) -> dict:
         "start_date": start.isoformat(),
         "end_date": today.isoformat(),
         "granularity": "DAY",
-        "columns": "SPEND_IN_DOLLAR,IMPRESSION_1,PIN_CLICK",
+        "columns": "SPEND_IN_DOLLAR,PAID_IMPRESSION,TOTAL_CLICKTHROUGH",
     })
     payload = _pinterest_request(
         f"https://api.pinterest.com/v5/ad_accounts/{config['ad_account_id']}/analytics?{query}",
@@ -190,8 +190,8 @@ def sync_pinterest_ads(days: int = 30) -> dict:
             continue
         rows[day] = {
             "ad_spend_cents": round(float(item.get("SPEND_IN_DOLLAR") or 0) * 100),
-            "impressions": int(float(item.get("IMPRESSION_1") or 0)),
-            "paid_clicks": int(float(item.get("PIN_CLICK") or 0)),
+            "impressions": int(float(item.get("PAID_IMPRESSION") or 0)),
+            "paid_clicks": int(float(item.get("TOTAL_CLICKTHROUGH") or 0)),
         }
     _upsert_daily("pinterest", rows)
     return {"days": len(rows), "spend_cents": sum(row.get("ad_spend_cents", 0) for row in rows.values())}

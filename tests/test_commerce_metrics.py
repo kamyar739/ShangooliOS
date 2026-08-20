@@ -53,8 +53,8 @@ class CommerceMetricsTests(unittest.TestCase):
         with patch("web.commerce_metrics._pinterest_request", return_value=[{
             "DATE": today,
             "SPEND_IN_DOLLAR": 4.25,
-            "IMPRESSION_1": 900,
-            "PIN_CLICK": 12,
+            "PAID_IMPRESSION": 900,
+            "TOTAL_CLICKTHROUGH": 12,
         }]):
             commerce_metrics.sync_pinterest_ads(days=1)
         summary = commerce_metrics.commerce_metrics_summary(days=1)
