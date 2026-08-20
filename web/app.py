@@ -152,6 +152,15 @@ from web.etsy_api import (
     update_etsy_listing_state,
 )
 from web.etsy_validation import parse_tags, validate_etsy_listing
+from web.commerce_metrics import (
+    PinterestAdsError,
+    clear_pinterest_ads_config,
+    commerce_metrics_summary,
+    pinterest_ads_config,
+    save_pinterest_ads_config,
+    sync_etsy_sales,
+    sync_pinterest_ads,
+)
 from web.etsy_sync import (
     build_etsy_sync_preview,
     find_etsy_candidates,
@@ -4539,6 +4548,63 @@ def etsy_reconnect_post():
         config["api_key"], config["shared_secret"], remember=True
     )
     return RedirectResponse(authorization_url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/pinterest-ads/connect")
+def pinterest_ads_connect_page(request: Request):
+    config = pinterest_ads_config()
+    return templates.TemplateResponse(
+        request=request,
+        name="pinterest_ads_connect.html",
+        context={
+            "config": config,
+            "connected": bool(config["access_token"] and config["ad_account_id"]),
+            "error": request.query_params.get("error", ""),
+        },
+    )
+
+
+@app.post("/pinterest-ads/connect")
+def pinterest_ads_connect_post(
+    access_token: str = Form(...), ad_account_id: str = Form(...)
+):
+    try:
+        save_pinterest_ads_config(access_token, ad_account_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(
+        "/pinterest-ads/connect?saved=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/pinterest-ads/disconnect")
+def pinterest_ads_disconnect_post():
+    clear_pinterest_ads_config()
+    return RedirectResponse(
+        "/pinterest-ads/connect?disconnected=1", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.get("/api/commerce-metrics")
+def commerce_metrics_api():
+    return JSONResponse(commerce_metrics_summary())
+
+
+@app.post("/api/commerce-metrics/sync")
+def commerce_metrics_sync():
+    results, errors = {}, {}
+    try:
+        results["etsy"] = sync_etsy_sales()
+    except (EtsyAPIError, ValueError, KeyError) as error:
+        errors["etsy"] = str(error)
+    try:
+        results["pinterest"] = sync_pinterest_ads()
+    except (PinterestAdsError, ValueError, KeyError) as error:
+        errors["pinterest"] = str(error)
+    return JSONResponse(
+        {"results": results, "errors": errors, "summary": commerce_metrics_summary()},
+        status_code=200 if results else 409,
+    )
 
 
 @app.get("/search")

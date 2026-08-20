@@ -722,6 +722,22 @@ def ensure_production_schema():
             )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS commerce_metrics_daily (
+                metric_date TEXT NOT NULL,
+                source TEXT NOT NULL CHECK (source IN ('etsy', 'pinterest')),
+                orders INTEGER NOT NULL DEFAULT 0,
+                items_sold INTEGER NOT NULL DEFAULT 0,
+                revenue_cents INTEGER NOT NULL DEFAULT 0,
+                ad_spend_cents INTEGER NOT NULL DEFAULT 0,
+                impressions INTEGER NOT NULL DEFAULT 0,
+                paid_clicks INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (metric_date, source)
+            )
+            """
+        )
+        conn.execute(
+            """
             INSERT OR IGNORE INTO mug_collections (
                 code, name, profession, description, status,
                 default_product_key, display_order

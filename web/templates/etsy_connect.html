@@ -10,9 +10,9 @@
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 <div class="card border-0 shadow-sm"><div class="card-body p-4">
 {% if connected %}
-<div class="eyebrow">Connected shop</div><h2 class="h4">{{ config['shop_name'] or 'Etsy shop' }}</h2><p class="text-muted">Shop ID {{ config['shop_id'] }} · Listings can now be read and updated by ShangooliOS.</p>
-{% if config['permission_version'] != '2' %}<div class="alert alert-info">Reconnect once to allow ShangooliOS to create and manage buyer-facing Etsy shop sections for future collections.</div>{% endif %}
-<div class="d-flex gap-2 flex-wrap"><a class="btn btn-success" href="{{ store_url }}" target="_blank" rel="noopener noreferrer">Open Etsy shop ↗</a>{% if config['permission_version'] != '2' %}<form method="post" action="/etsy/reconnect"><button class="btn btn-primary">Reconnect Etsy permissions</button></form>{% endif %}<form method="post" action="/etsy/disconnect"><button class="btn btn-outline-danger" onclick="return confirm('Disconnect Etsy and remove its saved credentials from this computer?')">Disconnect Etsy</button></form></div>
+<div class="eyebrow">Connected shop</div><h2 class="h4">{{ config['shop_name'] or 'Etsy shop' }}</h2><p class="text-muted">Shop ID {{ config['shop_id'] }} · Listings can be managed and daily sales can be summarized without storing customer details.</p>
+{% if config['permission_version'] != '3' %}<div class="alert alert-info">Reconnect Etsy once to allow ShangooliOS to read daily order and revenue totals for the dashboard.</div>{% endif %}
+<div class="d-flex gap-2 flex-wrap"><a class="btn btn-success" href="{{ store_url }}" target="_blank" rel="noopener noreferrer">Open Etsy shop ↗</a>{% if config['permission_version'] != '3' %}<form method="post" action="/etsy/reconnect"><button class="btn btn-primary">Enable sales reporting</button></form>{% endif %}<form method="post" action="/etsy/disconnect"><button class="btn btn-outline-danger" onclick="return confirm('Disconnect Etsy and remove its saved credentials from this computer?')">Disconnect Etsy</button></form></div>
 {% else %}
 <h2 class="h4 mb-2">Etsy Seller App credentials</h2><p class="text-muted">Enter these only here on your Mac. They are stored in the Git-ignored local .env file.</p>
 <form method="post" action="/etsy/connect" class="row g-3">

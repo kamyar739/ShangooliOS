@@ -177,3 +177,16 @@ CREATE TABLE IF NOT EXISTS mug_text_ideas (
 
 CREATE INDEX IF NOT EXISTS idx_mug_text_ideas_order
 ON mug_text_ideas(display_order, id);
+
+CREATE TABLE IF NOT EXISTS commerce_metrics_daily (
+    metric_date TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('etsy', 'pinterest')),
+    orders INTEGER NOT NULL DEFAULT 0,
+    items_sold INTEGER NOT NULL DEFAULT 0,
+    revenue_cents INTEGER NOT NULL DEFAULT 0,
+    ad_spend_cents INTEGER NOT NULL DEFAULT 0,
+    impressions INTEGER NOT NULL DEFAULT 0,
+    paid_clicks INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (metric_date, source)
+);

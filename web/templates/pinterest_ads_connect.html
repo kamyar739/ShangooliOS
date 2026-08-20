@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Connect Pinterest Ads — ShangooliOS{% endblock %}
+{% block content %}
+<div class="workflow-shell">
+{% set primary_nav_active = "pinterest_ads" %}
+{% include "components/global_sidebar.html" %}
+<main class="workflow-stage-content">
+  <div class="page-header mb-4"><div><div class="eyebrow">Advertising connection</div><h1 class="display-6 fw-bold">Connect Pinterest Ads</h1><p class="text-muted mb-0">Read daily advertising totals for the business dashboard. ShangooliOS never changes campaigns from this connection.</p></div></div>
+  {% if request.query_params.get('saved') %}<div class="alert alert-success">Pinterest Ads connection saved.</div>{% endif %}
+  {% if request.query_params.get('disconnected') %}<div class="alert alert-success">Pinterest Ads disconnected.</div>{% endif %}
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <div class="card border-0 shadow-sm"><div class="card-body p-4">
+  {% if connected %}
+    <div class="eyebrow">Connected advertising account</div>
+    <h2 class="h4">Account {{ config['ad_account_id'] }}</h2>
+    <p class="text-muted">Daily spend, impressions, and paid Pin clicks can now be synchronized. The token stays only in the local protected environment file.</p>
+    <form method="post" action="/pinterest-ads/disconnect"><button class="btn btn-outline-danger">Disconnect Pinterest Ads</button></form>
+  {% else %}
+    <h2 class="h4 mb-2">Pinterest API access</h2>
+    <p class="text-muted">Enter an access token with permission to read your advertising account and the numeric ad account ID. These values stay on this Mac.</p>
+    <form method="post" action="/pinterest-ads/connect" class="row g-3">
+      <div class="col-12"><label class="form-label">Access token</label><input class="form-control" type="password" name="access_token" autocomplete="off" required></div>
+      <div class="col-md-6"><label class="form-label">Ad account ID</label><input class="form-control" name="ad_account_id" inputmode="numeric" pattern="[0-9]+" required></div>
+      <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Save Pinterest Ads connection</button></div>
+    </form>
+  {% endif %}
+  </div></div>
+</main>
+</div>
+{% endblock %}

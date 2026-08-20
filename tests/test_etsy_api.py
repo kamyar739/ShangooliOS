@@ -38,7 +38,7 @@ class EtsyAPITests(unittest.TestCase):
         url = begin_etsy_oauth("keystring", "secret", remember=True)
         query = parse_qs(urlparse(url).query)
         self.assertEqual(query["redirect_uri"], ["http://localhost:8000/etsy/oauth/callback"])
-        self.assertEqual(query["scope"], ["listings_r listings_w shops_r shops_w"])
+        self.assertEqual(query["scope"], ["listings_r listings_w shops_r shops_w transactions_r"])
         self.assertEqual(query["code_challenge_method"], ["S256"])
         self.assertTrue(query["code_challenge"][0])
         contents = self.env_path.read_text(encoding="utf-8")

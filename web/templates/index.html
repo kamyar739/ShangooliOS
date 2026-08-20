@@ -29,6 +29,16 @@
       <i aria-hidden="true">→</i>
       <article><span>Click rate</span><strong data-funnel="click_rate">—</strong><small>Etsy clicks ÷ visitors</small></article>
     </div>
+    <section class="commerce-performance" data-commerce-performance>
+      <div class="website-traffic-section-heading"><div><strong>Sales and advertising</strong><span data-commerce-status>Connect Etsy sales and Pinterest Ads to complete the funnel.</span></div><button class="btn btn-sm btn-outline-primary" type="button" data-commerce-sync>Sync sales &amp; ads</button></div>
+      <div class="commerce-metric-grid">
+        <article><span>Ad spend</span><strong data-commerce="ad_spend">—</strong><small>Pinterest advertising</small></article>
+        <article><span>Orders</span><strong data-commerce="orders">—</strong><small>Etsy sales</small></article>
+        <article><span>Revenue</span><strong data-commerce="revenue">—</strong><small>Gross Etsy order value</small></article>
+        <article><span>ROAS</span><strong data-commerce="roas">—</strong><small>Revenue ÷ ad spend</small></article>
+      </div>
+      <div class="website-traffic-table-wrap"><table class="website-traffic-table commerce-daily-table"><thead><tr><th>Date</th><th>Ad spend</th><th>Visitors</th><th>Etsy clicks</th><th>Orders</th><th>Revenue</th><th>Cost / order</th></tr></thead><tbody data-commerce-daily></tbody></table></div>
+    </section>
     <section class="traffic-trends" aria-labelledby="traffic-trends-heading">
       <div class="website-traffic-section-heading"><strong id="traffic-trends-heading">Daily storefront funnel</strong><div class="traffic-range-switch"><button type="button" class="is-active" data-chart-range="7">7 days</button><button type="button" data-chart-range="30">30 days</button></div></div>
       <div class="traffic-chart-legend"><span class="views">Mug views</span><span class="visitors">Visitors</span><span class="etsy">Etsy clicks</span><span class="pinterest">Pinterest visitors</span><i>··· period average</i></div>
@@ -65,7 +75,7 @@
 
   <section class="global-connections-card">
     <div><div class="eyebrow">Shared services</div><h2 class="h5 mb-1">Connections</h2><p class="text-muted mb-0">Connections used across current and future product businesses.</p></div>
-    <div><a class="btn btn-outline-secondary" href="/printify/connect">Printify</a><a class="btn btn-outline-secondary" href="/etsy/connect">Etsy</a><a class="btn btn-outline-secondary" href="https://shangooli.com" target="_blank" rel="noopener noreferrer">Shangooli.com ↗</a></div>
+    <div><a class="btn btn-outline-secondary" href="/printify/connect">Printify</a><a class="btn btn-outline-secondary" href="/etsy/connect">Etsy</a><a class="btn btn-outline-secondary" href="/pinterest-ads/connect">Pinterest Ads</a><a class="btn btn-outline-secondary" href="https://shangooli.com" target="_blank" rel="noopener noreferrer">Shangooli.com ↗</a></div>
   </section>
 </main>
 </div>
@@ -78,6 +88,7 @@
   const number = (value) => Number(value || 0);
   const percent = (value) => `${number(value).toFixed(1)}%`;
   let trafficData = {totals: {}, daily: [], mugPerformance: [], collections: []};
+  let commerceData = {totals: {}, daily: [], connections: {}};
   let activePeriod = '7d'; let chartRange = 7; let page = 1;
   let refreshTimer;
   const renderMugs = () => {
@@ -91,7 +102,18 @@
   };
   const completeDays = (days) => { const byDate = new Map(trafficData.daily.map((row) => [row.event_date,row])); return Array.from({length:days},(_,offset) => { const date=new Date(); date.setUTCDate(date.getUTCDate()-(days-offset-1)); const key=date.toISOString().slice(0,10); return {event_date:key,mug_views:0,visitors:0,pinterest_visitors:0,etsy_clicks:0,...byDate.get(key)}; }); };
   const renderTrend = () => { const rows=completeDays(chartRange); const metrics=[['mug_views','#446bd8'],['visitors','#23a36d'],['etsy_clicks','#e09619'],['pinterest_visitors','#df3154']]; const width=900,height=250,pad=34,max=Math.max(1,...rows.flatMap(r=>metrics.map(([key])=>number(r[key])))); const x=i=>pad+(i*(width-pad*2)/Math.max(1,rows.length-1)); const y=v=>height-pad-(v*(height-pad*2)/max); const paths=metrics.map(([key,color])=>`<path d="${rows.map((r,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(number(r[key])).toFixed(1)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="3"/>`).join(''); const average=rows.reduce((sum,r)=>sum+number(r.mug_views),0)/rows.length; panel.querySelector('[data-traffic-chart]').innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img"><line x1="${pad}" x2="${width-pad}" y1="${y(average)}" y2="${y(average)}" class="average"/><text x="${width-pad}" y="${Math.max(14,y(average)-5)}" text-anchor="end">Avg mug views ${average.toFixed(1)}</text>${paths}${rows.map((r,i)=>i%(chartRange===30?5:1)===0?`<text x="${x(i)}" y="${height-7}" text-anchor="middle">${r.event_date.slice(5)}</text>`:'').join('')}</svg>`; panel.querySelector('[data-daily-rows]').innerHTML=rows.slice().reverse().map(r=>`<tr><th>${r.event_date}</th><td>${number(r.mug_views)}</td><td>${number(r.visitors)}</td><td>${number(r.pinterest_visitors)}</td><td>${number(r.etsy_clicks)}</td><td>${number(r.visitors)?(number(r.mug_views)/number(r.visitors)).toFixed(1):'—'}</td><td>${number(r.visitors)?percent(number(r.etsy_clicks)/number(r.visitors)*100):'—'}</td></tr>`).join(''); };
-  const renderAll = () => { const totals=trafficData.totals||{}; [['mug_views',false],['visitors',false],['pinterest',false],['etsy_clicks',false],['click_rate',true]].forEach(([key,isPercent])=>{ const node=panel.querySelector(`[data-funnel="${key}"]`); const value=totals[`${key}_${activePeriod}`]; node.textContent=isPercent?percent(value):number(value).toLocaleString(); node.classList.remove('is-flipping'); void node.offsetWidth; node.classList.add('is-flipping'); }); const totalViews=number(totals.mug_views_30d); panel.querySelector('[data-traffic-collections]').innerHTML=trafficData.collections.map(item=>`<div><span>${item.collection_name}</span><strong>${number(item.mug_views).toLocaleString()} <small>${totalViews?percent(number(item.mug_views)/totalViews*100):'0.0%'}</small></strong></div>`).join('')||'<span class="text-muted">No mug views recorded yet.</span>'; const select=panel.querySelector('[data-mug-collection]'); if(select.options.length===1) trafficData.collections.forEach(item=>select.add(new Option(item.collection_name,item.collection_code))); renderTrend(); renderMugs(); };
+  const money = (cents) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD'}).format(number(cents)/100);
+  const renderCommerce = () => {
+    const period = activePeriod; const totals = commerceData.totals?.[period] || {};
+    panel.querySelector('[data-commerce="ad_spend"]').textContent = money(totals.ad_spend_cents);
+    panel.querySelector('[data-commerce="orders"]').textContent = number(totals.orders).toLocaleString();
+    panel.querySelector('[data-commerce="revenue"]').textContent = money(totals.revenue_cents);
+    panel.querySelector('[data-commerce="roas"]').textContent = totals.ad_spend_cents ? `${number(totals.roas).toFixed(2)}×` : '—';
+    const trafficByDate = new Map(trafficData.daily.map(row => [row.event_date,row])); const rows = commerceData.daily.slice(-(activePeriod === '30d' ? 30 : activePeriod === '24h' ? 1 : 7)).reverse();
+    panel.querySelector('[data-commerce-daily]').innerHTML = rows.map(row => { const traffic=trafficByDate.get(row.metric_date)||{}; return `<tr><th>${row.metric_date}</th><td>${money(row.ad_spend_cents)}</td><td>${number(traffic.visitors)}</td><td>${number(traffic.etsy_clicks)}</td><td>${number(row.orders)}</td><td>${money(row.revenue_cents)}</td><td>${number(row.orders)?money(number(row.ad_spend_cents)/number(row.orders)):'—'}</td></tr>`; }).join('');
+    const connected=[]; if(commerceData.connections?.etsy_sales) connected.push('Etsy'); if(commerceData.connections?.pinterest_ads) connected.push('Pinterest Ads'); panel.querySelector('[data-commerce-status]').textContent = connected.length ? `${connected.join(' + ')} connected · cached daily totals` : 'Connect Etsy sales and Pinterest Ads to complete the funnel.';
+  };
+  const renderAll = () => { const totals=trafficData.totals||{}; [['mug_views',false],['visitors',false],['pinterest',false],['etsy_clicks',false],['click_rate',true]].forEach(([key,isPercent])=>{ const node=panel.querySelector(`[data-funnel="${key}"]`); const value=totals[`${key}_${activePeriod}`]; node.textContent=isPercent?percent(value):number(value).toLocaleString(); node.classList.remove('is-flipping'); void node.offsetWidth; node.classList.add('is-flipping'); }); const totalViews=number(totals.mug_views_30d); panel.querySelector('[data-traffic-collections]').innerHTML=trafficData.collections.map(item=>`<div><span>${item.collection_name}</span><strong>${number(item.mug_views).toLocaleString()} <small>${totalViews?percent(number(item.mug_views)/totalViews*100):'0.0%'}</small></strong></div>`).join('')||'<span class="text-muted">No mug views recorded yet.</span>'; const select=panel.querySelector('[data-mug-collection]'); if(select.options.length===1) trafficData.collections.forEach(item=>select.add(new Option(item.collection_name,item.collection_code))); renderTrend(); renderMugs(); renderCommerce(); };
   panel.querySelectorAll('[data-traffic-period]').forEach(button=>button.addEventListener('click',()=>{ activePeriod=button.dataset.trafficPeriod; panel.querySelectorAll('[data-traffic-period]').forEach(item=>item.classList.toggle('is-active',item===button)); renderAll(); })); panel.querySelectorAll('[data-chart-range]').forEach(button=>button.addEventListener('click',()=>{ chartRange=Number(button.dataset.chartRange); panel.querySelectorAll('[data-chart-range]').forEach(item=>item.classList.toggle('is-active',item===button)); renderTrend(); })); panel.querySelectorAll('[data-mug-sort],[data-mug-collection]').forEach(control=>control.addEventListener('change',()=>{page=1;renderMugs();})); panel.querySelector('[data-page-prev]').addEventListener('click',()=>{page--;renderMugs();}); panel.querySelector('[data-page-next]').addEventListener('click',()=>{page++;renderMugs();});
   const refreshTraffic = () => {
     status.textContent = 'Updating…';
@@ -105,7 +127,10 @@
       })
       .catch(() => { status.textContent = 'Live update temporarily unavailable'; status.classList.remove('is-updating'); });
   };
+  const refreshCommerce = () => fetch('/api/commerce-metrics', {cache:'no-store'}).then(response=>response.json()).then(data=>{commerceData=data;renderCommerce();});
+  panel.querySelector('[data-commerce-sync]').addEventListener('click', (event) => { const button=event.currentTarget; button.disabled=true; button.textContent='Synchronizing…'; fetch('/api/commerce-metrics/sync',{method:'POST'}).then(response=>response.json()).then(data=>{commerceData=data.summary||commerceData;renderCommerce(); const failures=Object.values(data.errors||{}); panel.querySelector('[data-commerce-status]').textContent=failures.length?failures.join(' · '):'Sales and advertising totals updated.';}).catch(()=>{panel.querySelector('[data-commerce-status]').textContent='Could not synchronize right now.';}).finally(()=>{button.disabled=false;button.textContent='Sync sales & ads';}); });
   refreshTraffic();
+  refreshCommerce();
   refreshTimer = window.setInterval(() => { if (!document.hidden) refreshTraffic(); }, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTraffic(); });
   window.addEventListener('pagehide', () => window.clearInterval(refreshTimer), {once: true});

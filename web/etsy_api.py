@@ -13,7 +13,7 @@ from web.printify_api import LOCAL_ENV_PATH
 
 
 ETSY_REDIRECT_URI = "http://localhost:8000/etsy/oauth/callback"
-ETSY_SCOPES = ("listings_r", "listings_w", "shops_r", "shops_w")
+ETSY_SCOPES = ("listings_r", "listings_w", "shops_r", "shops_w", "transactions_r")
 _runtime = {
     "api_key": "", "shared_secret": "", "access_token": "",
     "refresh_token": "", "expires_at": 0, "shop_id": "", "shop_name": "",
@@ -126,7 +126,7 @@ def _save_tokens(token: dict) -> dict:
         "expires_at": expires_at,
     }
     _runtime.update(values)
-    _runtime["permission_version"] = "2"
+    _runtime["permission_version"] = "3"
     if _runtime["remember"] or LOCAL_ENV_PATH.is_file():
         _save_values({
             "ETSY_ACCESS_TOKEN": values["access_token"],
@@ -178,6 +178,30 @@ def list_etsy_shop_listings() -> list[dict]:
             headers=_authorized_headers(),
         )
         results.extend(response.get("results", []))
+    return results
+
+
+def list_etsy_shop_receipts(*, min_created: int, max_created: int) -> list[dict]:
+    config = _authorized_config()
+    results, offset = [], 0
+    while True:
+        response = _request(
+            f"https://api.etsy.com/v3/application/shops/{config['shop_id']}/receipts?"
+            + urlencode({
+                "min_created": int(min_created),
+                "max_created": int(max_created),
+                "was_canceled": "false",
+                "limit": 100,
+                "offset": offset,
+                "legacy": "true",
+            }),
+            headers=_authorized_headers(),
+        )
+        batch = response.get("results", [])
+        results.extend(batch)
+        if len(batch) < 100:
+            break
+        offset += len(batch)
     return results
 
 
