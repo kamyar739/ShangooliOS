@@ -16,6 +16,15 @@ class PinterestAdsError(RuntimeError):
     pass
 
 
+# Conservative fallback for the active Printed Mint 11 oz Black Accent mug.
+# Saved Printify product costs take precedence as soon as they are available.
+FALLBACK_MUG_COST_CENTS = 1138
+PRINTIFY_FIRST_ITEM_SHIPPING_CENTS = 879
+PRINTIFY_ADDITIONAL_ITEM_SHIPPING_CENTS = 309
+ETSY_PERCENT_FEE = 0.095
+ETSY_FIXED_FEE_PER_ORDER_CENTS = 45
+
+
 def _env_values() -> dict[str, str]:
     if not LOCAL_ENV_PATH.is_file():
         return {}
@@ -201,6 +210,15 @@ def commerce_metrics_summary(days: int = 30) -> dict:
     today = date.today()
     start = today - timedelta(days=max(1, days) - 1)
     with get_connection() as conn:
+        cost_row = conn.execute(
+            """
+            SELECT ROUND(AVG(printify_base_cost_cents)) AS average_cost_cents
+            FROM standalone_design_products
+            WHERE product_type = 'mug_11oz_black_accent'
+              AND printify_base_cost_cents IS NOT NULL
+              AND printify_base_cost_cents > 0
+            """
+        ).fetchone()
         records = conn.execute(
             """
             SELECT metric_date,
@@ -218,19 +236,44 @@ def commerce_metrics_summary(days: int = 30) -> dict:
             """,
             (start.isoformat(),),
         ).fetchall()
+    estimated_unit_cost_cents = int(
+        (cost_row["average_cost_cents"] if cost_row else 0)
+        or FALLBACK_MUG_COST_CENTS
+    )
     by_date = {row["metric_date"]: dict(row) for row in records}
     daily = []
     for offset in range((today - start).days + 1):
         day = (start + timedelta(days=offset)).isoformat()
         row = {"metric_date": day, "orders": 0, "items_sold": 0, "revenue_cents": 0, "ad_spend_cents": 0, "impressions": 0, "paid_clicks": 0}
         row.update(by_date.get(day, {}))
+        items_sold = int(row.get("items_sold") or 0)
+        orders = int(row.get("orders") or 0)
+        revenue_cents = int(row.get("revenue_cents") or 0)
+        production_cents = items_sold * estimated_unit_cost_cents
+        shipping_cents = (
+            orders * PRINTIFY_FIRST_ITEM_SHIPPING_CENTS
+            + max(0, items_sold - orders) * PRINTIFY_ADDITIONAL_ITEM_SHIPPING_CENTS
+        )
+        etsy_fee_cents = round(revenue_cents * ETSY_PERCENT_FEE) + (
+            orders * ETSY_FIXED_FEE_PER_ORDER_CENTS
+        )
+        row["estimated_profit_cents"] = (
+            revenue_cents
+            - production_cents
+            - shipping_cents
+            - etsy_fee_cents
+            - int(row.get("ad_spend_cents") or 0)
+        )
         daily.append(row)
 
     def totals_for(period: int):
         rows = daily[-period:]
-        totals = {key: sum(int(row.get(key) or 0) for row in rows) for key in ("orders", "items_sold", "revenue_cents", "ad_spend_cents", "impressions", "paid_clicks")}
+        totals = {key: sum(int(row.get(key) or 0) for row in rows) for key in ("orders", "items_sold", "revenue_cents", "estimated_profit_cents", "ad_spend_cents", "impressions", "paid_clicks")}
         totals["roas"] = round(totals["revenue_cents"] / totals["ad_spend_cents"], 2) if totals["ad_spend_cents"] else 0
         totals["cost_per_order_cents"] = round(totals["ad_spend_cents"] / totals["orders"]) if totals["orders"] else 0
+        totals["estimated_profit_per_order_cents"] = round(
+            totals["estimated_profit_cents"] / totals["orders"]
+        ) if totals["orders"] else 0
         return totals
 
     return {
@@ -239,6 +282,13 @@ def commerce_metrics_summary(days: int = 30) -> dict:
         "connections": {
             "etsy_sales": bool(_env_values().get("ETSY_REFRESH_TOKEN")),
             "pinterest_ads": bool(pinterest_ads_config()["access_token"] and pinterest_ads_config()["ad_account_id"]),
+        },
+        "profit_estimate": {
+            "unit_cost_cents": estimated_unit_cost_cents,
+            "first_item_shipping_cents": PRINTIFY_FIRST_ITEM_SHIPPING_CENTS,
+            "additional_item_shipping_cents": PRINTIFY_ADDITIONAL_ITEM_SHIPPING_CENTS,
+            "etsy_percent_fee": ETSY_PERCENT_FEE,
+            "etsy_fixed_fee_per_order_cents": ETSY_FIXED_FEE_PER_ORDER_CENTS,
         },
         "updated_at": max((row.get("updated_at") or "" for row in daily), default=""),
     }

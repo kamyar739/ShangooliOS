@@ -46,6 +46,9 @@ class CommerceMetricsTests(unittest.TestCase):
         self.assertEqual(summary["totals"]["7d"]["orders"], 1)
         self.assertEqual(summary["totals"]["7d"]["items_sold"], 2)
         self.assertEqual(summary["totals"]["7d"]["revenue_cents"], 4400)
+        self.assertEqual(summary["totals"]["7d"]["estimated_profit_cents"], 473)
+        self.assertEqual(summary["totals"]["7d"]["estimated_profit_per_order_cents"], 473)
+        self.assertEqual(summary["profit_estimate"]["unit_cost_cents"], 1138)
 
     def test_pinterest_daily_spend_and_roas_are_summarized(self):
         commerce_metrics.save_pinterest_ads_config("secret-token", "123456")

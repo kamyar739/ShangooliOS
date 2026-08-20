@@ -34,10 +34,10 @@
       <div class="commerce-metric-grid">
         <article><span>Ad spend</span><strong data-commerce="ad_spend">—</strong><small>Pinterest advertising</small></article>
         <article><span>Orders</span><strong data-commerce="orders">—</strong><small>Etsy sales</small></article>
-        <article><span>Revenue</span><strong data-commerce="revenue">—</strong><small>Gross Etsy order value</small></article>
-        <article><span>ROAS</span><strong data-commerce="roas">—</strong><small>Revenue ÷ ad spend</small></article>
+        <article><span>Profit (est.)</span><strong data-commerce="profit">—</strong><small>After fulfillment, estimated fees &amp; ads</small></article>
+        <article><span>Profit / order</span><strong data-commerce="profit_per_order">—</strong><small>Estimated net per Etsy order</small></article>
       </div>
-      <div class="website-traffic-table-wrap"><table class="website-traffic-table commerce-daily-table"><thead><tr><th>Date</th><th>Ad spend</th><th>Visitors</th><th>Etsy clicks</th><th>Orders</th><th>Revenue</th><th>Cost / order</th></tr></thead><tbody data-commerce-daily></tbody></table></div>
+      <div class="website-traffic-table-wrap"><table class="website-traffic-table commerce-daily-table"><thead><tr><th>Date</th><th>Ad spend</th><th>Visitors</th><th>Etsy clicks</th><th>Orders</th><th>Profit (est.)</th><th>Cost / order</th></tr></thead><tbody data-commerce-daily></tbody></table></div>
     </section>
     <section class="traffic-trends" aria-labelledby="traffic-trends-heading">
       <div class="website-traffic-section-heading"><strong id="traffic-trends-heading">Daily storefront funnel</strong><div class="traffic-range-switch"><button type="button" class="is-active" data-chart-range="7">7 days</button><button type="button" data-chart-range="30">30 days</button></div></div>
@@ -107,10 +107,10 @@
     const period = activePeriod; const totals = commerceData.totals?.[period] || {};
     panel.querySelector('[data-commerce="ad_spend"]').textContent = money(totals.ad_spend_cents);
     panel.querySelector('[data-commerce="orders"]').textContent = number(totals.orders).toLocaleString();
-    panel.querySelector('[data-commerce="revenue"]').textContent = money(totals.revenue_cents);
-    panel.querySelector('[data-commerce="roas"]').textContent = totals.ad_spend_cents ? `${number(totals.roas).toFixed(2)}×` : '—';
+    panel.querySelector('[data-commerce="profit"]').textContent = money(totals.estimated_profit_cents);
+    panel.querySelector('[data-commerce="profit_per_order"]').textContent = number(totals.orders) ? money(totals.estimated_profit_per_order_cents) : '—';
     const trafficByDate = new Map(trafficData.daily.map(row => [row.event_date,row])); const rows = commerceData.daily.slice(-(activePeriod === '30d' ? 30 : activePeriod === '24h' ? 1 : 7)).reverse();
-    panel.querySelector('[data-commerce-daily]').innerHTML = rows.map(row => { const traffic=trafficByDate.get(row.metric_date)||{}; return `<tr><th>${row.metric_date}</th><td>${money(row.ad_spend_cents)}</td><td>${number(traffic.visitors)}</td><td>${number(traffic.etsy_clicks)}</td><td>${number(row.orders)}</td><td>${money(row.revenue_cents)}</td><td>${number(row.orders)?money(number(row.ad_spend_cents)/number(row.orders)):'—'}</td></tr>`; }).join('');
+    panel.querySelector('[data-commerce-daily]').innerHTML = rows.map(row => { const traffic=trafficByDate.get(row.metric_date)||{}; return `<tr><th>${row.metric_date}</th><td>${money(row.ad_spend_cents)}</td><td>${number(traffic.visitors)}</td><td>${number(traffic.etsy_clicks)}</td><td>${number(row.orders)}</td><td>${money(row.estimated_profit_cents)}</td><td>${number(row.orders)?money(number(row.ad_spend_cents)/number(row.orders)):'—'}</td></tr>`; }).join('');
     const connected=[]; if(commerceData.connections?.etsy_sales) connected.push('Etsy'); if(commerceData.connections?.pinterest_ads) connected.push('Pinterest Ads'); panel.querySelector('[data-commerce-status]').textContent = connected.length ? `${connected.join(' + ')} connected · cached daily totals` : 'Connect Etsy sales and Pinterest Ads to complete the funnel.';
   };
   const renderAll = () => { const totals=trafficData.totals||{}; [['mug_views',false],['visitors',false],['pinterest',false],['etsy_clicks',false],['click_rate',true]].forEach(([key,isPercent])=>{ const node=panel.querySelector(`[data-funnel="${key}"]`); const value=totals[`${key}_${activePeriod}`]; node.textContent=isPercent?percent(value):number(value).toLocaleString(); node.classList.remove('is-flipping'); void node.offsetWidth; node.classList.add('is-flipping'); }); const totalViews=number(totals.mug_views_30d); panel.querySelector('[data-traffic-collections]').innerHTML=trafficData.collections.map(item=>`<div><span>${item.collection_name}</span><strong>${number(item.mug_views).toLocaleString()} <small>${totalViews?percent(number(item.mug_views)/totalViews*100):'0.0%'}</small></strong></div>`).join('')||'<span class="text-muted">No mug views recorded yet.</span>'; const select=panel.querySelector('[data-mug-collection]'); if(select.options.length===1) trafficData.collections.forEach(item=>select.add(new Option(item.collection_name,item.collection_code))); renderTrend(); renderMugs(); renderCommerce(); };
