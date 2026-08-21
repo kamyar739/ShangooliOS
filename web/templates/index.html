@@ -18,7 +18,7 @@
       <div class="traffic-heading-actions"><a href="https://shangooli.com/?exclude_analytics=1" target="_blank" rel="noopener noreferrer" title="Open Shangooli.com once to stop counting this browser">Exclude this browser</a><span data-traffic-status>Loading current totals…</span></div>
     </div>
     <div class="traffic-period-switch" aria-label="Traffic period">
-      <button type="button" class="is-active" data-traffic-period="24h">Past 24 hours</button><button type="button" data-traffic-period="7d">7 days</button><button type="button" data-traffic-period="30d">30 days</button>
+      <button type="button" class="is-active" data-traffic-period="24h">Today</button><button type="button" data-traffic-period="7d">7 days</button><button type="button" data-traffic-period="30d">30 days</button>
     </div>
     <div class="traffic-funnel-board" aria-label="Storefront funnel">
       <article><span>Visitors</span><strong data-funnel="visitors">—</strong><small><b data-funnel="pinterest">—</b> from Pinterest</small></article>
@@ -95,7 +95,7 @@
   let commerceData = {totals: {}, daily: [], connections: {}};
   let activePeriod = '24h'; let chartRange = 7; let page = 1;
   let refreshTimer;
-  const periodLabel = () => activePeriod === '24h' ? 'Past 24 hours' : activePeriod === '7d' ? '7 days' : '30 days';
+  const periodLabel = () => activePeriod === '24h' ? 'Today' : activePeriod === '7d' ? '7 days' : '30 days';
   const metric = (item, key) => number(item?.[`${key}_${activePeriod}`]);
   const sourceName = (source) => ({pinterest:'Pinterest',direct:'Direct / unknown',google:'Google',bing:'Bing',social:'Other social',other:'Other referral',internal:'Internal / testing'}[source] || formatName(source));
   const renderBarChart = (node, rows, emptyMessage) => { const max=Math.max(1,...rows.map(item=>item.value)); node.innerHTML=rows.map(item=>`<div class="traffic-bar-row"><span>${item.label}</span><div><i style="width:${item.value?Math.max(4,item.value/max*100):0}%"></i></div><strong>${item.value.toLocaleString()} <small>${item.share ?? ''}</small></strong></div>`).join('')||`<span class="text-muted">${emptyMessage}</span>`; };
