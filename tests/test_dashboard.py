@@ -81,6 +81,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Daily storefront funnel", response.text)
         self.assertIn("Etsy clicks", response.text)
         self.assertIn("Click rate", response.text)
+        self.assertIn('data-funnel="orders"', response.text)
+        self.assertIn("Verified Etsy sales", response.text)
         self.assertIn("Sales and advertising", response.text)
         self.assertIn("Sync sales &amp; ads", response.text)
         self.assertIn('href="/pinterest-ads/connect"', response.text)

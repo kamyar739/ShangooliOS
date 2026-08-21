@@ -25,9 +25,9 @@
       <i aria-hidden="true">→</i>
       <article><span>Mug views</span><strong data-funnel="mug_views">—</strong><small>Mugs people actually saw</small></article>
       <i aria-hidden="true">→</i>
-      <article><span>Etsy clicks</span><strong data-funnel="etsy_clicks">—</strong><small>Outbound shop visits</small></article>
+      <article><span>Etsy clicks</span><strong data-funnel="etsy_clicks">—</strong><small><b data-funnel="click_rate">—</b> click rate</small></article>
       <i aria-hidden="true">→</i>
-      <article><span>Click rate</span><strong data-funnel="click_rate">—</strong><small>Etsy clicks ÷ visitors</small></article>
+      <article><span>Orders</span><strong data-funnel="orders">—</strong><small>Verified Etsy sales</small></article>
     </div>
     <section class="traffic-source-panel" aria-labelledby="traffic-source-title">
       <div class="website-traffic-section-heading"><strong id="traffic-source-title">Where visitors came from · <span data-mug-period-label>Past 24 hours</span></strong><span>Anonymous source attribution</span></div>
@@ -117,6 +117,9 @@
     const period = activePeriod; const totals = commerceData.totals?.[period] || {};
     panel.querySelector('[data-commerce="ad_spend"]').textContent = money(totals.ad_spend_cents);
     panel.querySelector('[data-commerce="orders"]').textContent = number(totals.orders).toLocaleString();
+    const funnelOrders = panel.querySelector('[data-funnel="orders"]');
+    funnelOrders.textContent = number(totals.orders).toLocaleString();
+    funnelOrders.classList.remove('is-flipping'); void funnelOrders.offsetWidth; funnelOrders.classList.add('is-flipping');
     panel.querySelector('[data-commerce="profit"]').textContent = money(totals.estimated_profit_cents);
     panel.querySelector('[data-commerce="profit_per_order"]').textContent = number(totals.orders) ? money(totals.estimated_profit_per_order_cents) : '—';
     const trafficByDate = new Map(trafficData.daily.map(row => [row.event_date,row])); const rows = commerceData.daily.slice(-(activePeriod === '30d' ? 30 : activePeriod === '24h' ? 1 : 7)).reverse();
