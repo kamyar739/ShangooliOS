@@ -1,11 +1,13 @@
 from pathlib import Path
 import base64
+import json
 import re
 import secrets
 import shutil
 import sqlite3
 import time
-from urllib.parse import urlencode
+import urllib.request
+from urllib.parse import quote_plus, urlencode
 
 from fastapi import (
     FastAPI,
@@ -21,6 +23,41 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette import status
 from PIL import Image, UnidentifiedImageError
+
+
+_STOREFRONT_VIEW_CACHE = {"expires_at": 0.0, "counts": {}}
+
+
+def _storefront_slug(value):
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+
+
+def _storefront_mug_view_counts():
+    """Return cached 30-day mug views without making the catalog depend on analytics."""
+    now = time.monotonic()
+    if now < _STOREFRONT_VIEW_CACHE["expires_at"]:
+        return _STOREFRONT_VIEW_CACHE["counts"]
+    try:
+        request = urllib.request.Request(
+            "https://shangooli.com/api/analytics/summary",
+            headers={"Accept": "application/json", "User-Agent": "ShangooliOS/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=2.5) as response:
+            payload = json.load(response)
+        counts = {
+            str(item.get("product_slug") or ""): int(item.get("mug_views_30d") or 0)
+            for item in payload.get("mugPerformance", [])
+            if item.get("product_slug")
+        }
+        _STOREFRONT_VIEW_CACHE.update(
+            {"expires_at": now + 300.0, "counts": counts}
+        )
+        return counts
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        _STOREFRONT_VIEW_CACHE.update(
+            {"expires_at": now + 30.0, "counts": {}}
+        )
+        return {}
 
 from app.database import (
     create_artwork as create_artwork_with_workspace,
@@ -67,6 +104,7 @@ from web.db import (
     list_listings,
     list_standalone_designs,
     list_mug_collections,
+    list_due_sales_reminders,
     mug_catalog_integrity,
     list_standalone_design_products,
     list_standalone_product_summaries,
@@ -88,6 +126,8 @@ from web.db import (
     set_mug_collection_launch_publish_state,
     delete_mug_text_idea,
     rate_mug_text_idea,
+    snooze_sales_reminder,
+    dismiss_sales_reminder,
     reorder_mug_text_ideas,
     rate_standalone_product_pinterest_ad,
     save_pinterest_launch_state,
@@ -154,10 +194,13 @@ from web.etsy_api import (
 from web.etsy_validation import parse_tags, validate_etsy_listing
 from web.commerce_metrics import (
     PinterestAdsError,
+    begin_pinterest_oauth,
     clear_pinterest_ads_config,
+    complete_pinterest_oauth,
     commerce_metrics_summary,
     pinterest_ads_config,
     save_pinterest_ads_config,
+    save_pinterest_oauth_config,
     sync_etsy_sales,
     sync_pinterest_ads,
 )
@@ -830,11 +873,30 @@ def home(request: Request, dashboard_view: str = Query("artworks", alias="view")
     context["mug_live_designs"] = sum(
         item["live_design_count"] or 0 for item in context["mug_collections"]
     )
+    context["sales_reminders"] = list_due_sales_reminders()
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context=context,
     )
+
+
+@app.post("/sales-reminders/{event_id}/snooze")
+def snooze_sales_reminder_post(event_id: int, event_year: int = Form(...)):
+    try:
+        snooze_sales_reminder(event_id, event_year)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse("/#sales-reminders", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/sales-reminders/{event_id}/dismiss")
+def dismiss_sales_reminder_post(event_id: int, event_year: int = Form(...)):
+    try:
+        dismiss_sales_reminder(event_id, event_year)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return RedirectResponse("/#sales-reminders", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/designs")
@@ -855,7 +917,9 @@ def standalone_designs_page(
     normalized_product = product_key.strip() or "all"
     normalized_collection = collection_code.strip().upper() or "ALL"
     normalized_sort = sort.strip().lower() or "manual"
-    if normalized_sort not in {"manual", "pinterest_desc", "pinterest_asc"}:
+    if normalized_sort not in {
+        "manual", "views_desc", "pinterest_desc", "pinterest_asc"
+    }:
         raise HTTPException(status_code=400, detail="Invalid design sort")
     if normalized_status not in {
         "all", "draft", "printify", "etsy", "etsy_sync", "paused"
@@ -1085,7 +1149,17 @@ def standalone_designs_page(
         else:
             item["catalog_state"] = "Draft"
             item["catalog_state_class"] = "listing-status-draft"
-    if normalized_sort != "manual":
+    if normalized_sort == "views_desc":
+        view_counts = _storefront_mug_view_counts()
+        for item in designs:
+            item["mug_views_30d"] = view_counts.get(
+                _storefront_slug(item.get("message") or item.get("name")), 0
+            )
+        designs.sort(
+            key=lambda item: item["mug_views_30d"],
+            reverse=True,
+        )
+    elif normalized_sort != "manual":
         reverse = normalized_sort == "pinterest_desc"
         designs.sort(
             key=lambda item: max(
@@ -4580,8 +4654,52 @@ def pinterest_ads_connect_page(request: Request):
         context={
             "config": config,
             "connected": bool(config["access_token"] and config["ad_account_id"]),
+            "renewable": bool(config["refresh_token"]),
             "error": request.query_params.get("error", ""),
         },
+    )
+
+
+@app.post("/pinterest-ads/oauth/start")
+def pinterest_ads_oauth_start(
+    app_id: str = Form(...),
+    app_secret: str = Form(""),
+    ad_account_id: str = Form(...),
+    redirect_uri: str = Form(...),
+):
+    try:
+        app_secret = app_secret or pinterest_ads_config()["app_secret"]
+        save_pinterest_oauth_config(
+            app_id, app_secret, ad_account_id, redirect_uri
+        )
+        authorization_url = begin_pinterest_oauth()
+    except (ValueError, PinterestAdsError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return RedirectResponse(authorization_url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/pinterest-ads/oauth/callback")
+def pinterest_ads_oauth_callback(
+    request: Request,
+    code: str = Query(""),
+    state: str = Query(""),
+    error: str = Query(""),
+):
+    if error:
+        return RedirectResponse(
+            f"/pinterest-ads/connect?error={quote_plus(error)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    try:
+        complete_pinterest_oauth(code, state)
+    except PinterestAdsError as oauth_error:
+        return RedirectResponse(
+            f"/pinterest-ads/connect?error={quote_plus(str(oauth_error))}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        "/pinterest-ads/connect?saved=oauth",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
 
 

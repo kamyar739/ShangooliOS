@@ -4,7 +4,7 @@
 <div class="workflow-shell">
   {% set dashboard_sidebar_active = "designs" %}
   {% include "components/dashboard_sidebar.html" %}
-  <main class="workflow-stage-content">
+  <main class="workflow-stage-content design-catalog-page">
     <div class="page-header mb-4">
       <div>
         <div class="eyebrow">Mug catalog</div>
@@ -57,6 +57,7 @@
           <label class="form-label" for="design-sort">Sort</label>
           <select class="form-select" id="design-sort" name="sort" onchange="this.form.requestSubmit()">
             <option value="manual"{% if active_design_sort == "manual" %} selected{% endif %}>Manual order</option>
+            <option value="views_desc"{% if active_design_sort == "views_desc" %} selected{% endif %}>Most viewed · 30 days</option>
             <option value="pinterest_desc"{% if active_design_sort == "pinterest_desc" %} selected{% endif %}>Best Pinterest ads</option>
             <option value="pinterest_asc"{% if active_design_sort == "pinterest_asc" %} selected{% endif %}>Lowest Pinterest ads</option>
           </select>

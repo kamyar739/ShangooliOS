@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ design["name"] }} — Designs{% endblock %}
 {% block content %}
-<div class="workflow-shell">
+<div class="workflow-shell design-detail-page">
   {% set dashboard_sidebar_active = "designs" %}
   {% include "components/dashboard_sidebar.html" %}
   <main class="workflow-stage-content">
@@ -79,13 +79,13 @@
         <div class="eyebrow">Design details</div>
         <div class="mb-3"><label class="form-label">Name</label><textarea class="form-control" name="name" rows="2" required>{{ design["name"] }}</textarea></div>
         <div class="mb-3"><label class="form-label">Message</label><textarea class="form-control" name="message" rows="3">{{ design["message"] or "" }}</textarea></div>
-        <input type="hidden" name="description" value="{{ design['description'] or '' }}">
+        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="5">{{ design["description"] or "" }}</textarea></div>
         <div class="mb-3"><label class="form-label">Tags</label><textarea class="form-control" name="tags" rows="5">{{ design["tags"] or "" }}</textarea></div>
         <label class="design-tshirt-candidate mb-3"><input type="checkbox" name="tshirt_candidate" value="1"{% if design['tshirt_candidate'] %} checked{% endif %}><span><strong>T-shirt candidate</strong><small>Save this design for possible future T-shirt use. This does not create or publish a product.</small></span></label>
         <div class="text-end"><button class="btn btn-primary" type="submit">Save Details</button></div>
       </form>
     </div>
-    <section class="section-card compact-section-card mt-4">
+    <section class="section-card compact-section-card mt-4 design-products-card">
       <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
         <div><div class="eyebrow">Products</div><h2 class="h4 mb-1">Create from this design</h2><p class="text-muted mb-0">Each mug keeps its own listing title, description, setup, price, Printify product, and marketplace state.</p></div>
       </div>

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
+import hmac
+import secrets
 import time
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
@@ -16,6 +20,17 @@ class PinterestAdsError(RuntimeError):
     pass
 
 
+PINTEREST_OAUTH_AUTHORIZE_URL = "https://www.pinterest.com/oauth/"
+PINTEREST_OAUTH_TOKEN_URL = "https://api.pinterest.com/v5/oauth/token"
+PINTEREST_OAUTH_SCOPES = "ads:read,user_accounts:read"
+PINTEREST_DEFAULT_REDIRECT_URI = (
+    "http://localhost:8000/pinterest-ads/oauth/callback"
+)
+PINTEREST_LEGACY_REDIRECT_URI = (
+    "https://shangoolishop.kamyart839987.chatgpt.site/pinterest-ads/oauth/callback"
+)
+
+
 # Conservative fallback for the active Printed Mint 11 oz Black Accent mug.
 # Saved Printify product costs take precedence as soon as they are available.
 FALLBACK_MUG_COST_CENTS = 1138
@@ -23,6 +38,10 @@ PRINTIFY_FIRST_ITEM_SHIPPING_CENTS = 879
 PRINTIFY_ADDITIONAL_ITEM_SHIPPING_CENTS = 309
 ETSY_PERCENT_FEE = 0.095
 ETSY_FIXED_FEE_PER_ORDER_CENTS = 45
+
+
+def _utc_today():
+    return datetime.now(timezone.utc).date()
 
 
 def _env_values() -> dict[str, str]:
@@ -60,8 +79,23 @@ def _save_env_values(values: dict[str, str]):
 
 def pinterest_ads_config() -> dict[str, str]:
     values = _env_values()
+    redirect_uri = values.get(
+        "PINTEREST_OAUTH_REDIRECT_URI", PINTEREST_DEFAULT_REDIRECT_URI
+    )
+    if redirect_uri == PINTEREST_LEGACY_REDIRECT_URI:
+        redirect_uri = PINTEREST_DEFAULT_REDIRECT_URI
     return {
+        "app_id": values.get("PINTEREST_APP_ID", ""),
+        "app_secret": values.get("PINTEREST_APP_SECRET", ""),
+        "redirect_uri": redirect_uri,
         "access_token": values.get("PINTEREST_ADS_ACCESS_TOKEN", ""),
+        "refresh_token": values.get("PINTEREST_ADS_REFRESH_TOKEN", ""),
+        "access_token_expires_at": values.get(
+            "PINTEREST_ADS_ACCESS_TOKEN_EXPIRES_AT", ""
+        ),
+        "refresh_token_expires_at": values.get(
+            "PINTEREST_ADS_REFRESH_TOKEN_EXPIRES_AT", ""
+        ),
         "ad_account_id": values.get("PINTEREST_AD_ACCOUNT_ID", ""),
     }
 
@@ -79,10 +113,160 @@ def save_pinterest_ads_config(access_token: str, ad_account_id: str):
     })
 
 
+def save_pinterest_oauth_config(
+    app_id: str, app_secret: str, ad_account_id: str, redirect_uri: str
+):
+    app_id = (app_id or "").strip()
+    app_secret = (app_secret or "").strip()
+    ad_account_id = (ad_account_id or "").strip()
+    redirect_uri = (redirect_uri or "").strip()
+    if not app_id or not app_secret or not ad_account_id or not redirect_uri:
+        raise ValueError("Enter the App ID, app secret, ad account ID, and redirect URI")
+    if not app_id.isdigit() or not ad_account_id.isdigit():
+        raise ValueError("Pinterest App ID and ad account ID must contain digits only")
+    if not (
+        redirect_uri.startswith("https://")
+        or redirect_uri.startswith("http://localhost:")
+        or redirect_uri.startswith("http://127.0.0.1:")
+    ):
+        raise ValueError("Use an HTTPS redirect URI or an HTTP localhost URI")
+    _save_env_values({
+        "PINTEREST_APP_ID": app_id,
+        "PINTEREST_APP_SECRET": app_secret,
+        "PINTEREST_AD_ACCOUNT_ID": ad_account_id,
+        "PINTEREST_OAUTH_REDIRECT_URI": redirect_uri,
+    })
+
+
+def _oauth_state(app_secret: str) -> str:
+    payload = f"{int(time.time())}:{secrets.token_urlsafe(18)}".encode()
+    signature = hmac.new(app_secret.encode(), payload, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(payload + b"." + signature).decode().rstrip("=")
+
+
+def _verify_oauth_state(state: str, app_secret: str) -> bool:
+    try:
+        padded = state + "=" * (-len(state) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode())
+        if len(raw) < 34 or raw[-33:-32] != b".":
+            return False
+        payload, signature = raw[:-33], raw[-32:]
+        expected = hmac.new(app_secret.encode(), payload, hashlib.sha256).digest()
+        issued_at = int(payload.split(b":", 1)[0])
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(signature, expected) and 0 <= time.time() - issued_at <= 900
+
+
+def begin_pinterest_oauth() -> str:
+    config = pinterest_ads_config()
+    if not config["app_id"] or not config["app_secret"]:
+        raise PinterestAdsError("Save the Pinterest App ID and app secret first")
+    query = urlencode({
+        # Pinterest's maintained API quickstart uses consumer_id here even
+        # though some documentation labels the same value client_id.
+        "consumer_id": config["app_id"],
+        "redirect_uri": config["redirect_uri"],
+        "response_type": "code",
+        "scope": PINTEREST_OAUTH_SCOPES,
+        "state": _oauth_state(config["app_secret"]),
+    })
+    return f"{PINTEREST_OAUTH_AUTHORIZE_URL}?{query}"
+
+
+def _pinterest_token_request(form: dict[str, str], app_id: str, app_secret: str) -> dict:
+    credentials = base64.b64encode(f"{app_id}:{app_secret}".encode()).decode()
+    request = Request(
+        PINTEREST_OAUTH_TOKEN_URL,
+        data=urlencode(form).encode(),
+        headers={
+            "Authorization": f"Basic {credentials}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=60) as response:
+            return json.loads(response.read() or b"{}")
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise PinterestAdsError(
+            f"Pinterest authorization failed (HTTP {error.code}): {detail[:240]}"
+        ) from error
+    except (URLError, TimeoutError) as error:
+        raise PinterestAdsError(f"Could not reach Pinterest: {error}") from error
+
+
+def _save_pinterest_tokens(payload: dict):
+    access_token = str(payload.get("access_token") or "").strip()
+    refresh_token = str(payload.get("refresh_token") or "").strip()
+    if not access_token or not refresh_token:
+        raise PinterestAdsError("Pinterest did not return renewable OAuth credentials")
+    now = int(time.time())
+    _save_env_values({
+        "PINTEREST_ADS_ACCESS_TOKEN": access_token,
+        "PINTEREST_ADS_REFRESH_TOKEN": refresh_token,
+        "PINTEREST_ADS_ACCESS_TOKEN_EXPIRES_AT": (
+            now + int(payload.get("expires_in") or 2592000)
+        ),
+        "PINTEREST_ADS_REFRESH_TOKEN_EXPIRES_AT": int(
+            payload.get("refresh_token_expires_at")
+            or now + int(payload.get("refresh_token_expires_in") or 5184000)
+        ),
+    })
+
+
+def complete_pinterest_oauth(code: str, state: str):
+    config = pinterest_ads_config()
+    if not code or not _verify_oauth_state(state, config["app_secret"]):
+        raise PinterestAdsError("Pinterest authorization expired or could not be verified")
+    payload = _pinterest_token_request(
+        {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": config["redirect_uri"],
+            "continuous_refresh": "true",
+        },
+        config["app_id"],
+        config["app_secret"],
+    )
+    _save_pinterest_tokens(payload)
+
+
+def refresh_pinterest_access_token(force: bool = False) -> str:
+    config = pinterest_ads_config()
+    if not config["refresh_token"]:
+        return config["access_token"]
+    try:
+        expires_at = int(config["access_token_expires_at"] or 0)
+    except ValueError:
+        expires_at = 0
+    if not force and expires_at > int(time.time()) + 86400:
+        return config["access_token"]
+    if not config["app_id"] or not config["app_secret"]:
+        raise PinterestAdsError("Pinterest OAuth app credentials are missing")
+    payload = _pinterest_token_request(
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": config["refresh_token"],
+        },
+        config["app_id"],
+        config["app_secret"],
+    )
+    _save_pinterest_tokens(payload)
+    return pinterest_ads_config()["access_token"]
+
+
 def clear_pinterest_ads_config():
     if not LOCAL_ENV_PATH.is_file():
         return
-    keys = {"PINTEREST_ADS_ACCESS_TOKEN", "PINTEREST_AD_ACCOUNT_ID"}
+    keys = {
+        "PINTEREST_APP_ID", "PINTEREST_APP_SECRET", "PINTEREST_AD_ACCOUNT_ID",
+        "PINTEREST_OAUTH_REDIRECT_URI", "PINTEREST_ADS_ACCESS_TOKEN",
+        "PINTEREST_ADS_REFRESH_TOKEN", "PINTEREST_ADS_ACCESS_TOKEN_EXPIRES_AT",
+        "PINTEREST_ADS_REFRESH_TOKEN_EXPIRES_AT",
+    }
     lines = [
         line for line in LOCAL_ENV_PATH.read_text(encoding="utf-8").splitlines()
         if (line.split("=", 1)[0].strip() if "=" in line else "") not in keys
@@ -139,7 +323,7 @@ def _upsert_daily(source: str, rows: dict[str, dict]):
 
 
 def sync_etsy_sales(days: int = 30) -> dict:
-    today = datetime.now(timezone.utc).date()
+    today = _utc_today()
     start = today - timedelta(days=max(1, days) - 1)
     receipts = list_etsy_shop_receipts(
         min_created=int(datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc).timestamp()),
@@ -170,6 +354,11 @@ def _pinterest_request(url: str, token: str):
             return json.loads(response.read() or b"{}")
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
+        if error.code in {401, 403}:
+            raise PinterestAdsError(
+                "Pinterest Ads access expired or was revoked. Open Pinterest Ads "
+                "under Connections and replace the access token."
+            ) from error
         raise PinterestAdsError(f"Pinterest returned HTTP {error.code}: {detail[:240]}") from error
     except (URLError, TimeoutError) as error:
         raise PinterestAdsError(f"Could not reach Pinterest: {error}") from error
@@ -179,7 +368,7 @@ def sync_pinterest_ads(days: int = 30) -> dict:
     config = pinterest_ads_config()
     if not config["access_token"] or not config["ad_account_id"]:
         raise PinterestAdsError("Connect Pinterest Ads before synchronizing spend")
-    today = date.today()
+    today = _utc_today()
     start = today - timedelta(days=max(1, days) - 1)
     query = urlencode({
         "start_date": start.isoformat(),
@@ -187,10 +376,14 @@ def sync_pinterest_ads(days: int = 30) -> dict:
         "granularity": "DAY",
         "columns": "SPEND_IN_DOLLAR,PAID_IMPRESSION,TOTAL_CLICKTHROUGH",
     })
-    payload = _pinterest_request(
-        f"https://api.pinterest.com/v5/ad_accounts/{config['ad_account_id']}/analytics?{query}",
-        config["access_token"],
-    )
+    url = f"https://api.pinterest.com/v5/ad_accounts/{config['ad_account_id']}/analytics?{query}"
+    token = refresh_pinterest_access_token()
+    try:
+        payload = _pinterest_request(url, token)
+    except PinterestAdsError as error:
+        if not config["refresh_token"] or "expired or was revoked" not in str(error):
+            raise
+        payload = _pinterest_request(url, refresh_pinterest_access_token(force=True))
     results = payload if isinstance(payload, list) else payload.get("items") or payload.get("results") or []
     rows = { (start + timedelta(days=i)).isoformat(): {} for i in range((today - start).days + 1) }
     for item in results:
@@ -207,7 +400,7 @@ def sync_pinterest_ads(days: int = 30) -> dict:
 
 
 def commerce_metrics_summary(days: int = 30) -> dict:
-    today = date.today()
+    today = _utc_today()
     start = today - timedelta(days=max(1, days) - 1)
     with get_connection() as conn:
         cost_row = conn.execute(

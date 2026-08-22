@@ -6,22 +6,44 @@
 {% include "components/global_sidebar.html" %}
 <main class="workflow-stage-content">
   <div class="page-header mb-4"><div><div class="eyebrow">Advertising connection</div><h1 class="display-6 fw-bold">Connect Pinterest Ads</h1><p class="text-muted mb-0">Read daily advertising totals for the business dashboard. ShangooliOS never changes campaigns from this connection.</p></div></div>
-  {% if request.query_params.get('saved') %}<div class="alert alert-success">Pinterest Ads connection saved.</div>{% endif %}
+  {% if request.query_params.get('saved') %}<div class="alert alert-success">Pinterest Ads is connected with automatic token renewal.</div>{% endif %}
   {% if request.query_params.get('disconnected') %}<div class="alert alert-success">Pinterest Ads disconnected.</div>{% endif %}
   {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
   <div class="card border-0 shadow-sm"><div class="card-body p-4">
-  {% if connected %}
+  {% if connected and renewable %}
     <div class="eyebrow">Connected advertising account</div>
     <h2 class="h4">Account {{ config['ad_account_id'] }}</h2>
-    <p class="text-muted">Daily spend, impressions, and paid Pin clicks can now be synchronized. The token stays only in the local protected environment file.</p>
+    <div class="alert alert-success mt-3 mb-3">
+      <strong>Automatic renewal is active.</strong><br>
+      ShangooliOS will renew Pinterest access during normal dashboard syncs. You should not need to replace a token each day.
+    </div>
+    <p class="text-muted">The app secret and renewable tokens stay only in the protected local environment file on this Mac.</p>
     <form method="post" action="/pinterest-ads/disconnect"><button class="btn btn-outline-danger">Disconnect Pinterest Ads</button></form>
   {% else %}
-    <h2 class="h4 mb-2">Pinterest API access</h2>
-    <p class="text-muted">Enter an access token with permission to read your advertising account and the numeric ad account ID. These values stay on this Mac.</p>
-    <form method="post" action="/pinterest-ads/connect" class="row g-3">
-      <div class="col-12"><label class="form-label">Access token</label><input class="form-control" type="password" name="access_token" autocomplete="off" required></div>
-      <div class="col-md-6"><label class="form-label">Ad account ID</label><input class="form-control" name="ad_account_id" inputmode="numeric" pattern="[0-9]+" required></div>
-      <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Save Pinterest Ads connection</button></div>
+    <div class="eyebrow">One-time permanent setup</div>
+    <h2 class="h4 mb-2">Authorize ShangooliOS with Pinterest</h2>
+    {% if connected %}<div class="alert alert-warning">The current connection uses a temporary token. Complete this authorization once to enable automatic renewal.</div>{% endif %}
+    <p class="text-muted">First add this exact redirect URI to the <strong>Redirect URIs</strong> area of your Pinterest app:</p>
+    <div class="p-3 rounded border bg-light mb-4"><code>{{ config['redirect_uri'] }}</code></div>
+    <form method="post" action="/pinterest-ads/oauth/start" class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Pinterest App ID</label>
+        <input class="form-control" name="app_id" inputmode="numeric" pattern="[0-9]+" value="{{ config['app_id'] or '1603143' }}" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Ad account ID</label>
+        <input class="form-control" name="ad_account_id" inputmode="numeric" pattern="[0-9]+" value="{{ config['ad_account_id'] or '549770647450' }}" required>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Pinterest app secret</label>
+        <input class="form-control" type="password" name="app_secret" autocomplete="off" {% if not config['app_secret'] %}required{% endif %} placeholder="{% if config['app_secret'] %}Saved securely — leave blank to reuse{% endif %}">
+        <div class="form-text">{% if config['app_secret'] %}Your app secret is already saved securely. Leave this blank to reuse it.{% else %}This is saved only in ShangooliOS on this Mac and is never displayed again.{% endif %}</div>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Redirect URI</label>
+        <input class="form-control" name="redirect_uri" value="{{ config['redirect_uri'] }}" required>
+      </div>
+      <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary btn-lg">Authorize with Pinterest →</button></div>
     </form>
   {% endif %}
   </div></div>

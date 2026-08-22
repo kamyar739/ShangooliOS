@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import date, timedelta
 import sqlite3
 
 from app.database import initialize_database
@@ -1102,11 +1103,171 @@ def ensure_production_schema():
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sales_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                name TEXT NOT NULL,
+                event_month INTEGER NOT NULL CHECK (event_month BETWEEN 1 AND 12),
+                event_day INTEGER NOT NULL CHECK (event_day BETWEEN 1 AND 31),
+                reminder_month INTEGER NOT NULL CHECK (reminder_month BETWEEN 1 AND 12),
+                reminder_day INTEGER NOT NULL CHECK (reminder_day BETWEEN 1 AND 31),
+                reminder_message TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sales_event_states (
+                event_id INTEGER NOT NULL,
+                event_year INTEGER NOT NULL,
+                snoozed_until TEXT,
+                dismissed_at TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (event_id, event_year),
+                FOREIGN KEY (event_id) REFERENCES sales_events(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO sales_events (
+                code, name, event_month, event_day,
+                reminder_month, reminder_day, reminder_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("valentines-day", "Valentine's Day", 2, 14, 1, 24, "Make sure Valentine's gift mugs and listings are ready."),
+                ("teacher-appreciation-week", "Teacher Appreciation Week", 5, 4, 4, 13, "Get teacher mugs, designs, and listings ready."),
+                ("nurses-week", "Nurses Week", 5, 6, 4, 15, "Make sure nurse mugs, designs, and listings are ready."),
+                ("mothers-day", "Mother's Day", 5, 10, 4, 19, "Prepare Mother's Day gift mugs and listings."),
+                ("graduation-season", "Graduation season", 6, 1, 5, 11, "Prepare graduation and profession gift designs."),
+                ("fathers-day", "Father's Day", 6, 21, 5, 31, "Prepare Father's Day gift mugs and listings."),
+                ("back-to-school", "Back to School", 8, 15, 7, 25, "Get teacher and school-themed products ready."),
+                ("halloween", "Halloween", 10, 31, 10, 10, "Prepare Halloween mugs, designs, and listings."),
+                ("thanksgiving", "Thanksgiving", 11, 26, 11, 5, "Prepare Thanksgiving and host-gift products."),
+                ("black-friday", "Black Friday", 11, 27, 11, 6, "Make sure holiday listings and promotions are ready."),
+                ("christmas", "Christmas", 12, 25, 12, 4, "Prepare Christmas gift mugs and listings."),
+                ("secret-santa", "Secret Santa / Coworker gifting", 12, 15, 11, 24, "Prepare coworker and Secret Santa gift mugs."),
+            ],
+        )
+        conn.executemany(
+            """
+            UPDATE sales_events
+            SET reminder_month = ?, reminder_day = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE code = ? AND reminder_month = ? AND reminder_day = ?
+            """,
+            [
+                (1, 24, "valentines-day", 2, 7),
+                (4, 13, "teacher-appreciation-week", 4, 27),
+                (4, 15, "nurses-week", 4, 29),
+                (4, 19, "mothers-day", 5, 3),
+                (5, 11, "graduation-season", 5, 25),
+                (5, 31, "fathers-day", 6, 14),
+                (7, 25, "back-to-school", 8, 8),
+                (10, 10, "halloween", 10, 24),
+                (11, 5, "thanksgiving", 11, 19),
+                (11, 6, "black-friday", 11, 20),
+                (12, 4, "christmas", 12, 18),
+                (11, 24, "secret-santa", 12, 8),
+            ],
+        )
+
         conn.commit()
 
 
 initialize_database()
 ensure_production_schema()
+
+
+def list_due_sales_reminders(today=None):
+    current_date = today or date.today()
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT e.*, s.snoozed_until, s.dismissed_at
+            FROM sales_events AS e
+            LEFT JOIN sales_event_states AS s
+              ON s.event_id = e.id AND s.event_year = ?
+            WHERE e.enabled = 1
+            ORDER BY e.event_month, e.event_day, e.name
+            """,
+            (current_date.year,),
+        ).fetchall()
+    reminders = []
+    for row in rows:
+        try:
+            event_date = date(current_date.year, row["event_month"], row["event_day"])
+            reminder_date = date(
+                current_date.year, row["reminder_month"], row["reminder_day"]
+            )
+        except ValueError:
+            continue
+        snoozed_until = (
+            date.fromisoformat(row["snoozed_until"])
+            if row["snoozed_until"]
+            else None
+        )
+        if (
+            reminder_date <= current_date <= event_date
+            and not row["dismissed_at"]
+            and (snoozed_until is None or current_date >= snoozed_until)
+        ):
+            reminder = dict(row)
+            reminder.update(
+                event_year=current_date.year,
+                event_date=event_date,
+                event_date_label=f"{event_date.strftime('%B')} {event_date.day}",
+                reminder_date=reminder_date,
+            )
+            reminders.append(reminder)
+    return reminders
+
+
+def snooze_sales_reminder(event_id, event_year, today=None):
+    current_date = today or date.today()
+    with get_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM sales_events WHERE id = ? AND enabled = 1", (event_id,)
+        ).fetchone()
+        if not exists:
+            raise ValueError("Sales event not found")
+        conn.execute(
+            """
+            INSERT INTO sales_event_states (event_id, event_year, snoozed_until)
+            VALUES (?, ?, ?)
+            ON CONFLICT(event_id, event_year) DO UPDATE SET
+                snoozed_until = excluded.snoozed_until,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (event_id, event_year, (current_date + timedelta(days=1)).isoformat()),
+        )
+        conn.commit()
+
+
+def dismiss_sales_reminder(event_id, event_year, today=None):
+    current_date = today or date.today()
+    with get_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM sales_events WHERE id = ? AND enabled = 1", (event_id,)
+        ).fetchone()
+        if not exists:
+            raise ValueError("Sales event not found")
+        conn.execute(
+            """
+            INSERT INTO sales_event_states (event_id, event_year, dismissed_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(event_id, event_year) DO UPDATE SET
+                dismissed_at = excluded.dismissed_at,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (event_id, event_year, current_date.isoformat()),
+        )
+        conn.commit()
 
 
 def get_collections():

@@ -6790,6 +6790,32 @@ a.collection-count:hover {
     gap: 1rem;
 }
 
+/* Keep design-detail labels readable on the dark catalog workspace. */
+.design-detail-page .design-product-options strong,
+.design-detail-page .design-operations-card h2,
+.design-detail-page .design-operations-card p {
+    color: #17243e;
+}
+
+.design-detail-page .page-header h1 {
+    color: #f2f6fb;
+}
+
+.design-detail-page .page-header .text-muted {
+    color: #c9d5e5 !important;
+}
+
+.design-detail-page .design-source-card > div > strong,
+.design-detail-page .design-replace-panel summary,
+.design-detail-page .design-source-card .form-label {
+    color: #f2f6fb;
+}
+
+.design-detail-page .design-source-card small,
+.design-detail-page .design-replace-panel .text-muted {
+    color: #c9d5e5 !important;
+}
+
 .design-source-card {
     display: flex;
     flex-direction: column;
@@ -8384,6 +8410,85 @@ a.collection-count:hover {
     border-color: #cbd4e2;
 }
 
+/* Small annual sales-event reminders */
+.sales-reminders {
+    padding: 1rem;
+    border: 1px solid #d7deea;
+    border-radius: 16px;
+    background: #f4f6fa;
+    box-shadow: 0 .55rem 1.4rem rgba(19, 33, 57, .08);
+}
+
+.sales-reminders-heading {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.sales-reminders-heading h2 {
+    margin: .15rem 0 0;
+    color: #17233c;
+    font-size: 1rem;
+}
+
+.sales-reminders-heading > span {
+    padding: .35rem .6rem;
+    border-radius: 999px;
+    background: #fff1d6;
+    color: #80591a;
+    font-size: .7rem;
+    font-weight: 800;
+}
+
+.sales-reminder-list {
+    display: grid;
+    gap: .65rem;
+    margin-top: .8rem;
+}
+
+.sales-reminder-card {
+    align-items: center;
+    display: grid;
+    gap: .8rem;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: .8rem;
+    border: 1px solid #e0e5ee;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.sales-reminder-icon {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 10px;
+    background: #fff3da;
+    font-size: 1.15rem;
+}
+
+.sales-reminder-copy h3 { margin: 0; color: #17233c; font-size: .9rem; }
+.sales-reminder-copy p { margin: .2rem 0; color: #4f5a6d; font-size: .8rem; }
+.sales-reminder-copy small { color: #7a8496; font-size: .72rem; }
+
+.sales-reminder-actions {
+    align-items: center;
+    display: flex;
+    gap: .25rem;
+}
+
+.sales-reminder-actions form { margin: 0; }
+.sales-reminder-actions .btn { min-height: 34px; padding: .35rem .65rem; font-size: .73rem; font-weight: 750; }
+.sales-reminder-actions .btn-link { color: #6c7484; text-decoration: none; }
+.sales-reminder-actions .btn-link:hover { color: #b02a37; }
+.sales-reminders-empty { margin: .65rem 0 0; color: #707b8d; font-size: .8rem; }
+
+@media (max-width: 720px) {
+    .sales-reminder-card { align-items: start; grid-template-columns: auto minmax(0, 1fr); }
+    .sales-reminder-actions { grid-column: 2; }
+}
+
 .commerce-performance{margin-top:1rem;padding:1rem;border:1px solid #e2e6f0;border-radius:13px;background:#fff}.commerce-performance .website-traffic-section-heading>div{display:grid;gap:.1rem}.commerce-performance .website-traffic-section-heading span{font-size:.7rem;color:#7b8597}.commerce-metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:.8rem 0}.commerce-metric-grid article{padding:.85rem;border-radius:12px;background:#f4f6fa;border:1px solid #e2e6ef}.commerce-metric-grid span,.commerce-metric-grid small{display:block;color:#6d778a;font-size:.66rem}.commerce-metric-grid span{font-weight:900;letter-spacing:.06em;text-transform:uppercase}.commerce-metric-grid strong{display:block;margin:.25rem 0;color:#17233c;font:800 1.4rem/1 ui-monospace,SFMono-Regular,Menlo,monospace}.commerce-daily-table{font-size:.72rem}.commerce-daily-table tbody{display:table-row-group}.commerce-daily-table th,.commerce-daily-table td{white-space:nowrap}@media(max-width:850px){.commerce-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.commerce-metric-grid{grid-template-columns:1fr}}
 
 .commerce-sync-button {
@@ -8849,4 +8954,118 @@ a.collection-count:hover {
   border-radius: .8rem;
   flex-direction: column;
   margin: 1rem;
+}
+
+/* Mug catalog: dashboard-aligned visual system */
+.design-catalog-page .design-catalog-toolbar {
+  background: linear-gradient(135deg, #eef2f7 0%, #e5ebf3 100%);
+  border-color: #c5d0df;
+  box-shadow: 0 12px 30px rgba(15, 31, 55, .13);
+}
+
+.design-catalog-page .design-catalog-toolbar::before {
+  background: linear-gradient(90deg, #17243e 0 48%, #16847a 100%);
+}
+
+.design-catalog-page .design-catalog-filters .form-label { color: #536177; }
+
+.design-catalog-page .design-catalog-filters .form-control,
+.design-catalog-page .design-catalog-filters .form-select {
+  border-color: #bcc8d8;
+  background-color: #f9fbfd;
+  color: #17243e;
+  box-shadow: 0 1px 2px rgba(15, 31, 55, .04);
+}
+
+.design-catalog-page .design-catalog-filters .form-control:focus,
+.design-catalog-page .design-catalog-filters .form-select:focus {
+  border-color: #16847a;
+  box-shadow: 0 0 0 .2rem rgba(22, 132, 122, .14);
+}
+
+.design-catalog-page .design-catalog-filters .btn-primary {
+  border-color: #17243e;
+  background: #17243e;
+  box-shadow: 0 7px 16px rgba(23, 36, 62, .2);
+}
+
+.design-catalog-page .design-catalog-filters .btn-primary:hover {
+  border-color: #16847a;
+  background: #16847a;
+}
+
+.design-catalog-page .design-result-count {
+  border: 1px solid #b9d9d5;
+  background: #dff2ef;
+  color: #126d65;
+}
+
+.design-catalog-page .design-list-header,
+.design-catalog-page .design-pinterest-sort { color: #c9d5e5; }
+
+.design-catalog-page .design-list-row {
+  border-color: #c7d1df;
+  background: #edf1f6;
+  box-shadow: 0 7px 18px rgba(15, 31, 55, .11);
+}
+
+.design-catalog-page .design-list-row:hover {
+  border-color: #42a99e;
+  box-shadow: 0 12px 28px rgba(15, 31, 55, .17);
+}
+
+.design-catalog-page .design-list-product {
+  border: 1px solid #d3dbe7;
+  background: #f8fafc;
+}
+
+.design-catalog-page .design-list-name { color: #17243e; }
+.design-catalog-page .design-list-name:hover { color: #147970; }
+
+.design-catalog-page .design-collection-badge {
+  background: #dcefeb;
+  color: #126d65;
+}
+
+.design-catalog-page .design-list-actions .btn {
+  border-color: #21466e;
+  color: #193c62;
+  font-weight: 800;
+}
+
+.design-catalog-page .design-list-actions .btn:hover {
+  border-color: #16847a;
+  background: #16847a;
+  color: #fff;
+}
+
+.design-catalog-page .design-pagination,
+.design-catalog-page .collection-future-panel {
+  border-color: #c5d0df;
+  background: #e8edf5;
+  box-shadow: 0 9px 24px rgba(15, 31, 55, .1);
+}
+
+/* Shared workflow surface: every section-card must be readable on the dark app canvas. */
+.workflow-stage-content .section-card {
+  padding: 1rem;
+  border: 1px solid #cbd4e2;
+  border-radius: 1rem;
+  background: #e8edf5;
+  box-shadow: 0 9px 24px rgba(15, 31, 55, .1);
+  color: #17243e;
+}
+
+.workflow-stage-content .section-card :is(h1, h2, h3, h4, h5, h6, summary, strong, label) {
+  color: #17243e !important;
+}
+
+.workflow-stage-content .section-card .text-muted,
+.workflow-stage-content .section-card small,
+.workflow-stage-content .section-card p {
+  color: #627087 !important;
+}
+
+.workflow-stage-content .section-card .eyebrow {
+  color: #147d74;
 }

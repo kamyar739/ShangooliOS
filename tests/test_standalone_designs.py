@@ -1634,6 +1634,18 @@ class StandaloneDesignTests(unittest.TestCase):
             sorted_page.text.index("Second Rated Design"),
         )
 
+        with patch(
+            "web.app._storefront_mug_view_counts",
+            return_value={"every-collection-tells-a-story": 2, "second": 41},
+        ):
+            viewed_page = self.client.get("/designs?sort=views_desc")
+        self.assertEqual(viewed_page.status_code, 200)
+        self.assertIn("Most viewed · 30 days", viewed_page.text)
+        self.assertLess(
+            viewed_page.text.index("Second Rated Design"),
+            viewed_page.text.index("Every Collection Tells a Story"),
+        )
+
     def test_design_catalog_filters_products_needing_etsy_sync(self):
         needs_sync_id = self._create_design()
         self._save_accent_setup(needs_sync_id)

@@ -1,5 +1,19 @@
 # ShangooliOS Todo
 
+## Deferred: Etsy Advertising Attribution Estimates
+
+After the shop has enough real orders to calibrate the assumptions, improve the
+dashboard's estimated profit calculation for Etsy-attributed sales:
+
+- Keep the current standard Etsy fee estimate for ordinary or unknown orders.
+- Estimate the additional fee for an identified Etsy Offsite Ads order.
+- Estimate Etsy Ads acquisition cost from advertising spend and attributed
+  orders when that information is available.
+- Continue labeling the result as an estimate, and replace the assumptions with
+  observed averages once the shop has useful sales history.
+- Do not add payment-ledger accounting or exact fee reconciliation unless it
+  later becomes valuable.
+
 ## Completed: Guided Replace Artwork
 
 Add a compact **Replace Artwork** workflow for frequent source-image corrections:

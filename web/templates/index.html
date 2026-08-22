@@ -12,6 +12,40 @@
     </div>
   </div>
 
+  {% if sales_reminders %}
+  <section class="sales-reminders mb-4" id="sales-reminders" aria-labelledby="sales-reminders-title">
+    <div class="sales-reminders-heading">
+      <div>
+        <div class="eyebrow">Sales calendar</div>
+        <h2 id="sales-reminders-title">Upcoming Sales Reminders</h2>
+      </div>
+      <span>{{ sales_reminders|length }} need{{ '' if sales_reminders|length == 1 else 's' }} attention</span>
+    </div>
+    <div class="sales-reminder-list">
+      {% for reminder in sales_reminders %}
+        <article class="sales-reminder-card">
+          <span class="sales-reminder-icon" aria-hidden="true">🎁</span>
+          <div class="sales-reminder-copy">
+            <h3>{{ reminder.name }} is coming up</h3>
+            <p>{{ reminder.reminder_message }}</p>
+            <small>{{ reminder.name }} starts {{ reminder.event_date_label }}.</small>
+          </div>
+          <div class="sales-reminder-actions">
+            <form method="post" action="/sales-reminders/{{ reminder.id }}/snooze">
+              <input type="hidden" name="event_year" value="{{ reminder.event_year }}">
+              <button class="btn btn-outline-secondary" type="submit">Snooze 1 Day</button>
+            </form>
+            <form method="post" action="/sales-reminders/{{ reminder.id }}/dismiss">
+              <input type="hidden" name="event_year" value="{{ reminder.event_year }}">
+              <button class="btn btn-link" type="submit">Dismiss</button>
+            </form>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <section class="website-traffic-panel mb-4" data-website-traffic>
     <div class="website-traffic-heading">
       <div><div class="eyebrow">Shangooli.com</div><h2 class="h4 mb-1">Website traffic</h2><p class="text-muted mb-0">Anonymous aggregate counts across the public storefront.</p></div>
@@ -99,7 +133,46 @@
   let trafficData = {totals: {}, daily: [], mugPerformance: [], collections: [], trafficSources: []};
   let commerceData = {totals: {}, daily: [], connections: {}};
   let activePeriod = '24h'; let chartRange = 7; let page = 1;
-  let refreshTimer;
+  let refreshTimer; let commerceTimer;
+  const orderMarker = `shangoolios-verified-orders-${new Date().toISOString().slice(0,10)}`;
+  let audioReady = false; let pendingOrderSound = false;
+  const unlockOrderSound = () => {
+    audioReady = true;
+    if (pendingOrderSound) { pendingOrderSound = false; playCashRegister(); }
+    window.removeEventListener('pointerdown', unlockOrderSound);
+    window.removeEventListener('keydown', unlockOrderSound);
+  };
+  window.addEventListener('pointerdown', unlockOrderSound, {once:true});
+  window.addEventListener('keydown', unlockOrderSound, {once:true});
+  const playCashRegister = () => {
+    if (!audioReady) return;
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const context = new AudioContext();
+    const now = context.currentTime;
+    const note = (frequency, start, duration, volume) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'square'; oscillator.frequency.setValueAtTime(frequency, now + start);
+      gain.gain.setValueAtTime(0.0001, now + start);
+      gain.gain.exponentialRampToValueAtTime(volume, now + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + duration);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(now + start); oscillator.stop(now + start + duration);
+    };
+    note(1047, 0, 0.12, 0.42); note(1319, 0.11, 0.13, 0.46);
+    note(1568, 0.22, 0.36, 0.52); note(784, 0.24, 0.3, 0.22);
+    window.setTimeout(() => context.close(), 900);
+  };
+  const announceNewOrders = (orderTotal) => {
+    const current = number(orderTotal);
+    let previous = null;
+    try { const saved = window.localStorage.getItem(orderMarker); previous = saved === null ? null : number(saved); } catch (_) {}
+    if (previous !== null && current > previous) {
+      if (audioReady) playCashRegister(); else pendingOrderSound = true;
+    }
+    try { window.localStorage.setItem(orderMarker, String(current)); } catch (_) {}
+  };
   const periodLabel = () => activePeriod === '24h' ? 'Today' : activePeriod === '7d' ? '7 days' : '30 days';
   const metric = (item, key) => number(item?.[`${key}_${activePeriod}`]);
   const sourceName = (source) => ({pinterest:'Pinterest',direct:'Direct / unknown',google:'Google',bing:'Bing',social:'Other social',other:'Other referral',internal:'Internal / testing'}[source] || formatName(source));
@@ -134,6 +207,7 @@
   const money = (cents) => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD'}).format(number(cents)/100);
   const renderCommerce = () => {
     const period = activePeriod; const totals = commerceData.totals?.[period] || {};
+    announceNewOrders(commerceData.totals?.['24h']?.orders ?? totals.orders);
     const funnelOrders = panel.querySelector('[data-funnel="orders"]');
     funnelOrders.textContent = number(totals.orders).toLocaleString();
     funnelOrders.classList.remove('is-flipping'); void funnelOrders.offsetWidth; funnelOrders.classList.add('is-flipping');
@@ -155,12 +229,14 @@
       .catch(() => { status.textContent = 'Live update temporarily unavailable'; status.classList.remove('is-updating'); });
   };
   const refreshCommerce = () => fetch('/api/commerce-metrics', {cache:'no-store'}).then(response=>response.json()).then(data=>{commerceData=data;renderCommerce();});
+  const syncCommerceQuietly = () => fetch('/api/commerce-metrics/sync',{method:'POST'}).then(response=>response.json()).then(data=>{commerceData=data.summary||commerceData;renderCommerce();}).catch(()=>{});
   panel.querySelector('[data-commerce-sync]').addEventListener('click', (event) => { const button=event.currentTarget; const label=button.querySelector('[data-commerce-sync-label]'); button.disabled=true; button.setAttribute('aria-busy','true'); label.textContent='Synchronizing…'; fetch('/api/commerce-metrics/sync',{method:'POST'}).then(response=>response.json()).then(data=>{commerceData=data.summary||commerceData;renderCommerce(); const failures=Object.values(data.errors||{}); panel.querySelector('[data-commerce-status]').textContent=failures.length?failures.join(' · '):'Sales and advertising totals updated.';}).catch(()=>{panel.querySelector('[data-commerce-status]').textContent='Could not synchronize right now.';}).finally(()=>{button.disabled=false;button.removeAttribute('aria-busy');label.textContent='Sync sales & ads';}); });
   refreshTraffic();
   refreshCommerce();
   refreshTimer = window.setInterval(() => { if (!document.hidden) refreshTraffic(); }, 30000);
+  commerceTimer = window.setInterval(() => { if (!document.hidden) syncCommerceQuietly(); }, 300000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTraffic(); });
-  window.addEventListener('pagehide', () => window.clearInterval(refreshTimer), {once: true});
+  window.addEventListener('pagehide', () => { window.clearInterval(refreshTimer); window.clearInterval(commerceTimer); }, {once: true});
 })();
 </script>
 {% endblock %}
